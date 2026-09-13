@@ -25,11 +25,11 @@ ton618 --help
 ton618 script.ton
 ton618 --version          # current version, platform, architecture
 ton618 --update           # update to the latest release
-ton618 --update beta-1.0.0 # pin to a specific release
+ton618 --update beta-1.0.1 # pin to a specific release
 ton618 --uninstall
 ```
 
-No compiler required — see [DOCUMENTATION.md](DOCUMENTATION.md#building-the-interpreter) instead if you'd rather build from source.
+No compiler required. Contributing to the interpreter itself and need to build from source instead? See [DOCUMENTATION.md](DOCUMENTATION.md#architecture--how-the-interpreter-works).
 
 ## Documentation
 

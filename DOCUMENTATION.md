@@ -63,30 +63,7 @@ powershell -c "irm https://raw.githubusercontent.com/kurodaki-dev/ton618/main/sc
 
 Install a specific release instead of the latest one by setting `TON618_VERSION` (`install.sh`) or `$env:TON618_VERSION` (`install.ps1`) to a release tag (e.g. `beta-1.0.1`) before running the command above. Uninstall any time with `ton618 --uninstall`, or the matching `uninstall.sh`/`uninstall.ps1` script.
 
-**Building from source** instead — requires a C++17 compiler (`g++` or `clang++`) and `make`:
-
-```bash
-# Termux
-pkg install clang make
-
-# Debian/Ubuntu
-sudo apt install g++ make
-
-# macOS (with Homebrew)
-brew install make
-```
-
-Then, from the project root:
-
-```bash
-make
-```
-
-This produces a `ton618` executable in the project folder. `make clean` removes it; `make linux`/`make windows`/`make android` cross-compile the same precompiled binaries the release workflow publishes (see `scripts/rebuild.sh` and [Architecture](#architecture--how-the-interpreter-works) for what each target needs).
-
-If you edit `DOCUMENTATION.md`, run `make docs` afterwards to regenerate `exemples/documentation.html` — that page embeds a copy of this file directly so it renders instantly with no server or network fetch, and `make docs` is what keeps that copy in sync.
-
-If you're modifying the interpreter's C++ source, see [Architecture](#architecture--how-the-interpreter-works) and [Extending the interpreter itself](#extending-the-interpreter-itself) below.
+No compiler needed for any of this — a precompiled binary is all you ever run. If you're contributing to the interpreter itself and need to build it from source, see [Architecture](#architecture--how-the-interpreter-works) and [Extending the interpreter itself](#extending-the-interpreter-itself) below (the project just needs a C++17 compiler and `make` — `make` builds `./ton618`, `make docs` regenerates `exemples/documentation.html` from this file after an edit).
 
 ---
 
@@ -1049,30 +1026,7 @@ powershell -c "irm https://raw.githubusercontent.com/kurodaki-dev/ton618/main/sc
 
 Installe une release précise plutôt que la dernière en mettant `TON618_VERSION` (`install.sh`) ou `$env:TON618_VERSION` (`install.ps1`) à un tag de release (ex. `beta-1.0.1`) avant de lancer la commande ci-dessus. Désinstalle à tout moment avec `ton618 --uninstall`, ou les scripts `uninstall.sh`/`uninstall.ps1` correspondants.
 
-**Compiler depuis les sources** à la place — nécessite un compilateur C++17 (`g++` ou `clang++`) et `make` :
-
-```bash
-# Termux
-pkg install clang make
-
-# Debian/Ubuntu
-sudo apt install g++ make
-
-# macOS (avec Homebrew)
-brew install make
-```
-
-Puis, depuis la racine du projet :
-
-```bash
-make
-```
-
-Ça produit un exécutable `ton618` dans le dossier du projet. `make clean` le supprime ; `make linux`/`make windows`/`make android` compilent en croisé les mêmes binaires précompilés que publie le workflow de release (voir `scripts/rebuild.sh` et [Architecture](#architecture--comment-fonctionne-linterpréteur) pour ce dont chaque cible a besoin).
-
-Si tu modifies `DOCUMENTATION.md`, lance `make docs` ensuite pour régénérer `exemples/documentation.html` — cette page embarque une copie de ce fichier directement pour s'afficher instantanément sans serveur ni requête réseau, et `make docs` est ce qui garde cette copie synchronisée.
-
-Si tu modifies le code source C++ de l'interpréteur, voir [Architecture](#architecture--comment-fonctionne-linterpréteur) et [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même) plus bas.
+Aucun compilateur requis pour tout ça — un binaire précompilé est tout ce que tu lances jamais. Si tu contribues à l'interpréteur lui-même et as besoin de le compiler depuis les sources, voir [Architecture](#architecture--comment-fonctionne-linterpréteur) et [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même) plus bas (le projet a juste besoin d'un compilateur C++17 et de `make` — `make` compile `./ton618`, `make docs` régénère `exemples/documentation.html` depuis ce fichier après une modification).
 
 ---
 
