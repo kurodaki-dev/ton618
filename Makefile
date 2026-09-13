@@ -8,16 +8,18 @@ SRC = src/Lexer.cpp src/Parser.cpp src/Interpreter.cpp src/Debugger.cpp \
 OUT = ton618
 DIST = dist
 
-# Cross-compilers used to produce every precompiled binary on this machine
-# (the VPS). End users never compile anything themselves: no clang, no g++,
-# no make, and — for Android/Termux — no Android NDK either. The Termux
-# binary is cross-compiled against musl instead of the NDK's bionic target;
-# statically linked, it runs unmodified under Termux with zero packages
-# installed on-device.
+# Cross-compilers used to produce every precompiled binary released on
+# GitHub (see .github/workflows/release.yml and scripts/rebuild.sh for the
+# same builds done in CI and locally). End users never compile anything
+# themselves: no clang, no g++, no make, and — for Android/Termux — no
+# Android NDK either. The Termux binary is cross-compiled against musl
+# instead of the NDK's bionic target (typically via Zig, which bundles musl
+# libc); statically linked, it runs unmodified under Termux with zero
+# packages installed on-device.
 MINGW_CXX ?= x86_64-w64-mingw32-g++
 MINGW_STRIP ?= x86_64-w64-mingw32-strip
-MUSL_AARCH64_CXX ?= /home/ubuntu/toolchains/aarch64-linux-musl-cross/bin/aarch64-linux-musl-g++
-MUSL_AARCH64_STRIP ?= /home/ubuntu/toolchains/aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip
+MUSL_AARCH64_CXX ?= zig c++ -target aarch64-linux-musl
+MUSL_AARCH64_STRIP ?= scripts/zig-strip.sh
 
 all: $(OUT)
 

@@ -58,19 +58,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch the aarch64 musl cross toolchain
-        # Cross-compiled against musl (not the Android NDK), statically
+      - name: Install Zig
+        # Zig bundles its own musl libc and cross-compiles C++ straight to
+        # aarch64-linux-musl with no separate toolchain download — statically
         # linked, so the result runs unmodified under Termux with zero
-        # packages installed on-device — see the Makefile's own comment.
+        # packages installed on-device (not the Android NDK/bionic — see the
+        # Makefile's own comment). Downloaded directly from ziglang.org
+        # rather than depending on a third-party musl-cross mirror.
         run: |
-          curl -fsSL -o /tmp/aarch64-linux-musl-cross.tgz https://musl.cc/aarch64-linux-musl-cross.tgz
-          mkdir -p /tmp/toolchains
-          tar xzf /tmp/aarch64-linux-musl-cross.tgz -C /tmp/toolchains
+          curl -fsSL -o /tmp/zig.tar.xz https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
+          mkdir -p /tmp/zig
+          tar xJf /tmp/zig.tar.xz -C /tmp/zig --strip-components=1
+          echo "/tmp/zig" >> "$GITHUB_PATH"
       - name: Build Termux/Android arm64 binary
         run: |
           make android \
-            MUSL_AARCH64_CXX=/tmp/toolchains/aarch64-linux-musl-cross/bin/aarch64-linux-musl-g++ \
-            MUSL_AARCH64_STRIP=/tmp/toolchains/aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip
+            MUSL_AARCH64_CXX="zig c++ -target aarch64-linux-musl" \
+            MUSL_AARCH64_STRIP="scripts/zig-strip.sh"
       - uses: actions/upload-artifact@v4
         with:
           name: ton618-android-arm64

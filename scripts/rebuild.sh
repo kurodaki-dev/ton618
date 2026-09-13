@@ -9,10 +9,13 @@
 # need a compiler on their own device:
 #   - Linux x86_64:      native g++
 #   - Windows x86_64:    mingw-w64 (x86_64-w64-mingw32-g++)
-#   - Termux/Android:    a musl cross toolchain targeting aarch64, NOT the
-#                         Android NDK. Statically linked, so it runs on
-#                         Termux with nothing installed on-device (no clang,
-#                         no make, no NDK/bionic).
+#   - Termux/Android:    Zig (bundles musl libc, cross-compiles straight to
+#                         aarch64-linux-musl), or a separately installed musl
+#                         cross toolchain — either way NOT the Android NDK.
+#                         Statically linked, so it runs on Termux with
+#                         nothing installed on-device (no clang, no make, no
+#                         NDK/bionic). See .github/workflows/release.yml's
+#                         build-android job for the same thing done in CI.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -31,15 +34,16 @@ else
     echo "[rebuild] Install it with: sudo apt-get install -y g++-mingw-w64-x86-64"
 fi
 
-MUSL_AARCH64_CXX="${MUSL_AARCH64_CXX:-/home/ubuntu/toolchains/aarch64-linux-musl-cross/bin/aarch64-linux-musl-g++}"
-if command -v "$MUSL_AARCH64_CXX" >/dev/null 2>&1; then
+if command -v zig >/dev/null 2>&1; then
+    echo "[rebuild] Building Termux/Android arm64 binary with zig (make android)..."
+    make android MUSL_AARCH64_CXX="zig c++ -target aarch64-linux-musl" MUSL_AARCH64_STRIP="scripts/zig-strip.sh"
+elif [ -n "${MUSL_AARCH64_CXX:-}" ] && command -v "$MUSL_AARCH64_CXX" >/dev/null 2>&1; then
     echo "[rebuild] Building Termux/Android arm64 binary (make android)..."
     make android MUSL_AARCH64_CXX="$MUSL_AARCH64_CXX"
 else
-    echo "[rebuild] aarch64 musl cross toolchain not found at $MUSL_AARCH64_CXX, skipping the Android binary."
-    echo "[rebuild] Fetch it with:"
-    echo "[rebuild]   curl -fsSL -o /tmp/aarch64-linux-musl-cross.tgz https://musl.cc/aarch64-linux-musl-cross.tgz"
-    echo "[rebuild]   mkdir -p /home/ubuntu/toolchains && tar xzf /tmp/aarch64-linux-musl-cross.tgz -C /home/ubuntu/toolchains"
+    echo "[rebuild] Neither zig nor a musl cross toolchain was found, skipping the Android binary."
+    echo "[rebuild] Easiest: install zig (https://ziglang.org/download/) and re-run this script."
+    echo "[rebuild] Or fetch a musl-cross toolchain and pass it as MUSL_AARCH64_CXX=/path/to/aarch64-linux-musl-g++."
 fi
 
 echo "[rebuild] Done. dist/ now contains:"
