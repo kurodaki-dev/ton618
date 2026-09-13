@@ -147,6 +147,7 @@ StmtPtr Parser::statement() {
     if (match({TokenType::FOR})) return forStatement();
     if (match({TokenType::TRY})) return tryStatement();
     if (match({TokenType::THROW})) return throwStatement();
+    if (match({TokenType::SWITCH})) return switchStatement();
     if (match({TokenType::RETURN})) return returnStatement();
     if (match({TokenType::PRINT})) return printStatement();
     if (match({TokenType::LBRACE})) return block();
@@ -294,6 +295,46 @@ StmtPtr Parser::throwStatement() {
     match({TokenType::SEMICOLON});
     auto s = std::make_shared<Stmt>();
     s->type = StmtType::THROW; s->line = line; s->expr = value;
+    return s;
+}
+
+// "switch (subject) { case v1, v2: { ... } case v3: { ... } default: { ... } }"
+// — no fallthrough: each matching case (or "default" if none match) runs its
+// own block and the switch is done. Parentheses around the subject are
+// optional, like if/while/for.
+StmtPtr Parser::switchStatement() {
+    int line = previous().line;
+    bool paren = match({TokenType::LPAREN});
+    ExprPtr subject = expression();
+    if (paren) consume(TokenType::RPAREN, "expected ')' after the switch value.");
+    consume(TokenType::LBRACE, "expected '{' to start the switch body.");
+
+    std::vector<std::pair<std::vector<ExprPtr>, StmtPtr>> cases;
+    StmtPtr defaultBlock = nullptr;
+
+    while (!check(TokenType::RBRACE) && !isAtEnd()) {
+        if (match({TokenType::CASE})) {
+            std::vector<ExprPtr> values;
+            values.push_back(expression());
+            while (match({TokenType::COMMA})) values.push_back(expression());
+            consume(TokenType::COLON, "expected ':' after the case value(s).");
+            consume(TokenType::LBRACE, "expected '{' for the case body.");
+            cases.push_back({values, block()});
+        } else if (match({TokenType::DEFAULT})) {
+            consume(TokenType::COLON, "expected ':' after 'default'.");
+            consume(TokenType::LBRACE, "expected '{' for the default body.");
+            defaultBlock = block();
+        } else {
+            error(peek(), "expected 'case' or 'default' inside a switch body.");
+        }
+    }
+    consume(TokenType::RBRACE, "expected '}' at the end of the switch.");
+
+    auto s = std::make_shared<Stmt>();
+    s->type = StmtType::SWITCH; s->line = line;
+    s->condition = subject;      // reused field: the switch subject
+    s->switchCases = cases;
+    s->elseBranch = defaultBlock; // reused field: the default block
     return s;
 }
 

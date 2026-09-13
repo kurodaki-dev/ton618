@@ -8,11 +8,11 @@
 ton.html page = readfile("documentation.html")
 ton.html markdown = readfile("../DOCUMENTATION.md")
 
-ton.function doc() {
+ton.function doc(req) {
     return ton.page
 }
 
-ton.function rawMarkdown() {
+ton.function rawMarkdown(req) {
     return ton.markdown
 }
 

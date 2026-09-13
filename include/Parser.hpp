@@ -54,6 +54,7 @@ private:
     StmtPtr forStatement(); // also handles "for ton.item in ton.collection { ... }"
     StmtPtr tryStatement();
     StmtPtr throwStatement();
+    StmtPtr switchStatement();
     StmtPtr returnStatement();
     StmtPtr printStatement();
     StmtPtr block();

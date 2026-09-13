@@ -94,7 +94,7 @@ enum class VarKind { NONE, INT, FLOAT, STRING, BOOL, ARRAY, HTML, DICT };
 
 enum class StmtType {
     EXPR_STMT, VAR_DECL, BLOCK, IF, WHILE, FOR, FOR_IN, FN_DECL, RETURN, PRINT,
-    BREAK, CONTINUE, IMPORT, TRY_CATCH, THROW
+    BREAK, CONTINUE, IMPORT, TRY_CATCH, THROW, SWITCH
 };
 
 struct Stmt {
@@ -132,6 +132,13 @@ struct Stmt {
 
     // IMPORT
     std::string moduleName;
+
+    // SWITCH — "condition" (reused from IF above) holds the subject expression.
+    // Each case can list several values (`case 1, 2:`); the first one that
+    // equals the subject (by the same rules as "==") runs its block, and no
+    // case falls through into the next. "elseBranch" (also reused) holds the
+    // optional "default:" block, run when no case matches.
+    std::vector<std::pair<std::vector<ExprPtr>, StmtPtr>> switchCases;
 
     // THROW uses the shared "expr" field above for the thrown value.
 };

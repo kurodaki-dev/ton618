@@ -7,6 +7,7 @@
 #include "Platform.hpp"
 #include "Version.hpp"
 #include <iostream>
+#include <regex>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -18,6 +19,121 @@
 #include <chrono>
 #include <thread>
 #include <filesystem>
+
+// Structural equality: numbers/strings/bools/nil compare by value, and arrays/
+// dicts compare element-by-element (recursively) rather than always being
+// "not equal" to each other — used by the '==' / '!=' operators, switch/case
+// matching, and the always-available contains()/indexOf() natives, so all
+// four agree on what "equal" means. A ton.string and a ton.html holding the
+// same text compare equal (they already interoperate everywhere else:
+// concatenation, printing, any string function) — every other type mismatch
+// is never equal. Functions never compare equal to anything.
+static bool valuesEqual(const Value& a, const Value& b) {
+    bool aIsText = a.type == ValueType::STRING || a.type == ValueType::HTML;
+    bool bIsText = b.type == ValueType::STRING || b.type == ValueType::HTML;
+    if (aIsText && bIsText) return a.str == b.str;
+    if (a.type != b.type) return false;
+    switch (a.type) {
+        case ValueType::NIL: return true;
+        case ValueType::BOOL: return a.boolean == b.boolean;
+        case ValueType::NUMBER: return a.number == b.number;
+        case ValueType::ARRAY: {
+            if (!a.array || !b.array) return a.array == b.array;
+            if (a.array->size() != b.array->size()) return false;
+            for (size_t i = 0; i < a.array->size(); i++)
+                if (!valuesEqual((*a.array)[i], (*b.array)[i])) return false;
+            return true;
+        }
+        case ValueType::DICT: {
+            if (!a.dict || !b.dict) return a.dict == b.dict;
+            if (a.dict->size() != b.dict->size()) return false;
+            for (auto& [k, v] : *a.dict) {
+                const Value* other = b.findDictEntry(k);
+                if (!other || !valuesEqual(v, *other)) return false;
+            }
+            return true;
+        }
+        default: return false; // functions (user or native) never compare equal
+    }
+}
+
+// ---- Percent/URL-encoding helpers ------------------------------------------
+// Shared by ton.encoding's url_encode/url_decode (src/Interpreter.cpp below)
+// and by the local server's own query-string parsing (registerBuiltinSys's
+// sibling "serve" native), so both agree on the same escaping rules.
+
+static std::string urlEncode(const std::string& in) {
+    static const char* hexDigits = "0123456789ABCDEF";
+    std::string out;
+    for (unsigned char c : in) {
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') out += (char)c;
+        else { out += '%'; out += hexDigits[c >> 4]; out += hexDigits[c & 0xF]; }
+    }
+    return out;
+}
+
+static int hexDigitValue(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static std::string urlDecode(const std::string& in) {
+    std::string out;
+    for (size_t i = 0; i < in.size(); i++) {
+        if (in[i] == '%' && i + 2 < in.size()) {
+            int hi = hexDigitValue(in[i + 1]), lo = hexDigitValue(in[i + 2]);
+            if (hi >= 0 && lo >= 0) { out += (char)((hi << 4) | lo); i += 2; continue; }
+        }
+        out += (in[i] == '+') ? ' ' : in[i];
+    }
+    return out;
+}
+
+// Parses a raw "a=1&b=2" query string into a ton.dict, url-decoding both
+// keys and values. Used by the local server to populate request["query"].
+static Value parseQueryDict(const std::string& query) {
+    std::vector<std::pair<std::string, Value>> entries;
+    std::stringstream ss(query);
+    std::string pair;
+    while (std::getline(ss, pair, '&')) {
+        if (pair.empty()) continue;
+        size_t eq = pair.find('=');
+        std::string key = (eq == std::string::npos) ? pair : pair.substr(0, eq);
+        std::string val = (eq == std::string::npos) ? "" : pair.substr(eq + 1);
+        entries.push_back({urlDecode(key), Value::String(urlDecode(val))});
+    }
+    return Value::Dict(entries);
+}
+
+// Matches a route pattern like "/user/:id/edit" against an actual request
+// path like "/user/42/edit": segments starting with ':' bind whatever's in
+// that position into `params` (key = name without the ':', value = the
+// actual path segment); every other segment must match literally. Segment
+// counts must match exactly (no wildcards). Used by the local server's route
+// dispatcher (the "serve" native) to populate request["params"].
+static bool matchRoute(const std::string& pattern, const std::string& path,
+                        std::vector<std::pair<std::string, std::string>>& params) {
+    auto splitSegments = [](const std::string& s) {
+        std::vector<std::string> segs;
+        std::stringstream ss(s);
+        std::string seg;
+        while (std::getline(ss, seg, '/')) if (!seg.empty()) segs.push_back(seg);
+        return segs;
+    };
+    auto patternSegs = splitSegments(pattern);
+    auto pathSegs = splitSegments(path);
+    if (patternSegs.size() != pathSegs.size()) return false;
+    for (size_t i = 0; i < patternSegs.size(); i++) {
+        if (!patternSegs[i].empty() && patternSegs[i][0] == ':') {
+            params.push_back({patternSegs[i].substr(1), pathSegs[i]});
+        } else if (patternSegs[i] != pathSegs[i]) {
+            return false;
+        }
+    }
+    return true;
+}
 
 Interpreter::Interpreter() {
     globals = std::make_shared<Environment>();
@@ -120,6 +236,20 @@ void Interpreter::defineNatives() {
             }
         }
         throw std::runtime_error("readfile: file not found '" + path + "'.");
+    });
+
+    // writefile(path, content) — writes (overwriting) a file with the given
+    // text; content is converted with str() first if it isn't already a
+    // string/html. Returns true on success, false if the file couldn't be
+    // opened for writing (e.g. a missing parent directory — see os_mkdir).
+    def("writefile", [](std::vector<Value>& args) -> Value {
+        if (args.size() < 2 || args[0].type != ValueType::STRING) {
+            throw std::runtime_error("writefile(path, content) expects a string path and content.");
+        }
+        std::ofstream file(args[0].str, std::ios::trunc);
+        if (!file) return Value::Bool(false);
+        file << args[1].toString();
+        return Value::Bool(true);
     });
 
     // ton.json(value) — converts an array/value into a JSON string, for building APIs.
@@ -247,13 +377,7 @@ void Interpreter::defineNatives() {
     def("contains", [](std::vector<Value>& args) -> Value {
         if (args.size() < 2) return Value::Bool(false);
         if (args[0].type == ValueType::ARRAY) {
-            for (auto& e : *args[0].array) {
-                if (e.type == args[1].type &&
-                    ((e.type == ValueType::NUMBER && e.number == args[1].number) ||
-                     ((e.type == ValueType::STRING || e.type == ValueType::HTML) && e.str == args[1].str) ||
-                     (e.type == ValueType::BOOL && e.boolean == args[1].boolean)))
-                    return Value::Bool(true);
-            }
+            for (auto& e : *args[0].array) if (valuesEqual(e, args[1])) return Value::Bool(true);
             return Value::Bool(false);
         }
         return Value::Bool(args[0].toString().find(args[1].toString()) != std::string::npos);
@@ -263,14 +387,7 @@ void Interpreter::defineNatives() {
         if (args.size() < 2) return Value::Number(-1);
         if (args[0].type == ValueType::ARRAY) {
             auto& arr = *args[0].array;
-            for (size_t i = 0; i < arr.size(); i++) {
-                auto& e = arr[i];
-                if (e.type == args[1].type &&
-                    ((e.type == ValueType::NUMBER && e.number == args[1].number) ||
-                     ((e.type == ValueType::STRING || e.type == ValueType::HTML) && e.str == args[1].str) ||
-                     (e.type == ValueType::BOOL && e.boolean == args[1].boolean)))
-                    return Value::Number((double)i);
-            }
+            for (size_t i = 0; i < arr.size(); i++) if (valuesEqual(arr[i], args[1])) return Value::Number((double)i);
             return Value::Number(-1);
         }
         auto pos = args[0].toString().find(args[1].toString());
@@ -409,6 +526,8 @@ void Interpreter::defineNatives() {
     });
 
     // ton.get(path, handlerFunction) — registers a GET route.
+    // ton.get(path, handlerFunction) — registers a GET route. `path` may contain
+    // ":name" segments (e.g. "/user/:id") captured into request["params"].
     def("get", [this](std::vector<Value>& args) -> Value {
         if (args.size() < 2 || args[0].type != ValueType::STRING || args[1].type != ValueType::FUNCTION) {
             throw std::runtime_error("get(path, handlerFunction) expects a string path and a ton.function handler.");
@@ -417,7 +536,7 @@ void Interpreter::defineNatives() {
         return Value::Nil();
     });
 
-    // ton.post(path, handlerFunction) — registers a POST route.
+    // ton.post(path, handlerFunction) — registers a POST route (same ":name" support as get()).
     def("post", [this](std::vector<Value>& args) -> Value {
         if (args.size() < 2 || args[0].type != ValueType::STRING || args[1].type != ValueType::FUNCTION) {
             throw std::runtime_error("post(path, handlerFunction) expects a string path and a ton.function handler.");
@@ -427,6 +546,8 @@ void Interpreter::defineNatives() {
     });
 
     // ton.serve(port) — starts the HTTP server and dispatches to registered routes.
+    // Each handler is called with a single ton.dict argument:
+    //   { method, path, query: {..}, params: {..}, body }
     // ton.serve(port, html) — legacy simple mode: serves the same content on every request.
     def("serve", [this](std::vector<Value>& args) -> Value {
         if (args.empty() || args[0].type != ValueType::NUMBER) {
@@ -437,7 +558,7 @@ void Interpreter::defineNatives() {
         // Legacy mode: a fixed second argument is served for every request.
         if (args.size() >= 2) {
             std::string content = args[1].toString();
-            HttpHandler handler = [content](const std::string&, const std::string&) -> HttpResponse {
+            HttpHandler handler = [content](const HttpRequest&) -> HttpResponse {
                 return HttpResponse{content, "text/html; charset=utf-8", 200};
             };
             std::string err = startLocalServer(port, handler);
@@ -446,17 +567,29 @@ void Interpreter::defineNatives() {
         }
 
         // Routing mode: dispatch based on registered ton.get / ton.post routes.
-        HttpHandler handler = [this](const std::string& method, const std::string& path) -> HttpResponse {
+        HttpHandler handler = [this](const HttpRequest& req) -> HttpResponse {
             for (auto& route : routes) {
-                if (route.method == method && route.path == path) {
-                    std::vector<Value> noArgs;
-                    Value result = callFunction(route.handler, noArgs, 0);
-                    std::string contentType = (result.type == ValueType::HTML)
-                        ? "text/html; charset=utf-8" : "text/plain; charset=utf-8";
-                    return HttpResponse{result.toString(), contentType, 200};
-                }
+                if (route.method != req.method) continue;
+                std::vector<std::pair<std::string, std::string>> matchedParams;
+                if (!matchRoute(route.path, req.path, matchedParams)) continue;
+
+                std::vector<std::pair<std::string, Value>> paramsDict;
+                for (auto& [k, v] : matchedParams) paramsDict.push_back({k, Value::String(v)});
+
+                std::vector<std::pair<std::string, Value>> reqEntries = {
+                    {"method", Value::String(req.method)},
+                    {"path", Value::String(req.path)},
+                    {"query", parseQueryDict(req.query)},
+                    {"params", Value::Dict(paramsDict)},
+                    {"body", Value::String(req.body)},
+                };
+                std::vector<Value> callArgs = {Value::Dict(reqEntries)};
+                Value result = callFunction(route.handler, callArgs, 0);
+                std::string contentType = (result.type == ValueType::HTML)
+                    ? "text/html; charset=utf-8" : "text/plain; charset=utf-8";
+                return HttpResponse{result.toString(), contentType, 200};
             }
-            return HttpResponse{"404 Not Found: " + path, "text/plain; charset=utf-8", 404};
+            return HttpResponse{"404 Not Found: " + req.path, "text/plain; charset=utf-8", 404};
         };
         std::string err = startLocalServer(port, handler);
         if (!err.empty()) throw std::runtime_error(err);
@@ -482,9 +615,12 @@ void Interpreter::runImport(const std::string& moduleName, int line) {
         if (builtin == "json") { registerBuiltinJson(); return; }
         if (builtin == "mathutils") { registerBuiltinMathUtils(); return; }
         if (builtin == "strings") { registerBuiltinStrings(); return; }
+        if (builtin == "encoding") { registerBuiltinEncoding(); return; }
+        if (builtin == "regex") { registerBuiltinRegex(); return; }
+        if (builtin == "path") { registerBuiltinPath(); return; }
         runtimeError(line, "Unknown built-in module 'ton." + builtin +
                      "'. Available: ton.sys, ton.os, ton.requests, ton.random, ton.time, ton.json, "
-                     "ton.mathutils, ton.strings.");
+                     "ton.mathutils, ton.strings, ton.encoding, ton.regex, ton.path.");
     }
 
     std::vector<std::string> candidates = {
@@ -658,6 +794,33 @@ void Interpreter::execute(const StmtPtr& stmt, std::shared_ptr<Environment> env)
 
         case StmtType::BREAK: throw BreakException{};
         case StmtType::CONTINUE: throw ContinueException{};
+
+        case StmtType::SWITCH: {
+            Value subject = evaluate(stmt->condition, env);
+            bool matched = false;
+            try {
+                for (auto& [values, body] : stmt->switchCases) {
+                    bool hit = false;
+                    for (auto& valExpr : values) {
+                        if (valuesEqual(subject, evaluate(valExpr, env))) { hit = true; break; }
+                    }
+                    if (hit) {
+                        auto caseEnv = std::make_shared<Environment>(env);
+                        execute(body, caseEnv);
+                        matched = true;
+                        break;
+                    }
+                }
+                if (!matched && stmt->elseBranch) {
+                    auto defEnv = std::make_shared<Environment>(env);
+                    execute(stmt->elseBranch, defEnv);
+                }
+            } catch (BreakException&) {
+                // A stray "break;" (habit from other languages) just exits the
+                // switch early — there's no fallthrough to break out of anyway.
+            }
+            break;
+        }
     }
 }
 
@@ -742,27 +905,34 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
                 case TokenType::PERCENT:
                     if (left.type != ValueType::NUMBER || right.type != ValueType::NUMBER)
                         runtimeError(expr->line, "Invalid operands for '%'.");
+                    if (right.number == 0) runtimeError(expr->line, "Division by zero (in '%').");
                     return Value::Number(std::fmod(left.number, right.number));
-                case TokenType::GREATER: return Value::Bool(left.number > right.number);
-                case TokenType::GREATER_EQUAL: return Value::Bool(left.number >= right.number);
-                case TokenType::LESS: return Value::Bool(left.number < right.number);
-                case TokenType::LESS_EQUAL: return Value::Bool(left.number <= right.number);
-                case TokenType::EQUAL_EQUAL: {
-                    if (left.type != right.type) return Value::Bool(false);
-                    if (left.type == ValueType::NUMBER) return Value::Bool(left.number == right.number);
-                    if (left.type == ValueType::STRING || left.type == ValueType::HTML) return Value::Bool(left.str == right.str);
-                    if (left.type == ValueType::BOOL) return Value::Bool(left.boolean == right.boolean);
-                    if (left.type == ValueType::NIL) return Value::Bool(true);
-                    return Value::Bool(false);
+                // Relational operators: numbers compare numerically, strings/html
+                // compare lexicographically (like sort() already does) — mixing
+                // types, or comparing anything else (arrays, dicts, bools...), is
+                // a clear error rather than a silently-wrong "0 < 0" comparison.
+                case TokenType::GREATER:
+                case TokenType::GREATER_EQUAL:
+                case TokenType::LESS:
+                case TokenType::LESS_EQUAL: {
+                    bool bothNumbers = left.type == ValueType::NUMBER && right.type == ValueType::NUMBER;
+                    bool bothTextual = (left.type == ValueType::STRING || left.type == ValueType::HTML) &&
+                                       (right.type == ValueType::STRING || right.type == ValueType::HTML);
+                    if (!bothNumbers && !bothTextual) {
+                        runtimeError(expr->line, "Cannot compare " + left.typeName() + " and " + right.typeName() +
+                                     " with a relational operator (<, <=, >, >=): both sides must be numbers, or both strings.");
+                    }
+                    int cmp = bothNumbers ? (left.number < right.number ? -1 : (left.number > right.number ? 1 : 0))
+                                          : left.str.compare(right.str);
+                    switch (expr->op) {
+                        case TokenType::GREATER: return Value::Bool(cmp > 0);
+                        case TokenType::GREATER_EQUAL: return Value::Bool(cmp >= 0);
+                        case TokenType::LESS: return Value::Bool(cmp < 0);
+                        default: return Value::Bool(cmp <= 0);
+                    }
                 }
-                case TokenType::BANG_EQUAL: {
-                    if (left.type != right.type) return Value::Bool(true);
-                    if (left.type == ValueType::NUMBER) return Value::Bool(left.number != right.number);
-                    if (left.type == ValueType::STRING || left.type == ValueType::HTML) return Value::Bool(left.str != right.str);
-                    if (left.type == ValueType::BOOL) return Value::Bool(left.boolean != right.boolean);
-                    if (left.type == ValueType::NIL) return Value::Bool(false);
-                    return Value::Bool(true);
-                }
+                case TokenType::EQUAL_EQUAL: return Value::Bool(valuesEqual(left, right));
+                case TokenType::BANG_EQUAL: return Value::Bool(!valuesEqual(left, right));
                 default: break;
             }
             return Value::Nil();
@@ -819,8 +989,20 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
                 return found ? *found : Value::Nil();
             }
 
+            // Read-only character indexing: s[0] is a 1-character string.
+            // Strings are immutable in TON618 — build a new one with
+            // replace()/substring()/strings_* instead of assigning into an index.
+            if (target.type == ValueType::STRING || target.type == ValueType::HTML) {
+                if (expr->value) runtimeError(expr->line, "Strings are immutable: cannot assign to a string index. "
+                                                            "Use replace()/substring() to build a new string instead.");
+                Value idxVal = evaluate(expr->indexValue, env);
+                int i = (int)idxVal.number;
+                if (i < 0 || i >= (int)target.str.size()) runtimeError(expr->line, "String index out of bounds.");
+                return Value::String(std::string(1, target.str[i]));
+            }
+
             if (target.type != ValueType::ARRAY)
-                runtimeError(expr->line, "Cannot index a value that is not an array or a dict (got " + target.typeName() + ").");
+                runtimeError(expr->line, "Cannot index a value that is not an array, a dict, or a string (got " + target.typeName() + ").");
 
             Value idx = evaluate(expr->indexValue, env);
             int i = (int)idx.number;
@@ -993,6 +1175,46 @@ void Interpreter::registerBuiltinOs() {
         return Value::Bool(std::filesystem::copy_file(
             args[0].toString(), args[1].toString(),
             std::filesystem::copy_options::overwrite_existing, ec));
+    });
+
+    // os_rename(src, dst) -> renames/moves a file or directory.
+    def("os_rename", [](std::vector<Value>& args) -> Value {
+        if (args.size() < 2) return Value::Bool(false);
+        std::error_code ec;
+        std::filesystem::rename(args[0].toString(), args[1].toString(), ec);
+        return Value::Bool(!ec);
+    });
+
+    // os_isfile(path) / os_isdir(path) -> whether path exists and is that kind of entry.
+    def("os_isfile", [](std::vector<Value>& args) -> Value {
+        if (args.empty()) return Value::Bool(false);
+        std::error_code ec;
+        return Value::Bool(std::filesystem::is_regular_file(args[0].toString(), ec));
+    });
+    def("os_isdir", [](std::vector<Value>& args) -> Value {
+        if (args.empty()) return Value::Bool(false);
+        std::error_code ec;
+        return Value::Bool(std::filesystem::is_directory(args[0].toString(), ec));
+    });
+
+    // os_appendfile(path, content) -> appends text to a file, creating it if needed.
+    def("os_appendfile", [](std::vector<Value>& args) -> Value {
+        if (args.size() < 2) return Value::Bool(false);
+        std::ofstream file(args[0].toString(), std::ios::app);
+        if (!file) return Value::Bool(false);
+        file << args[1].toString();
+        return Value::Bool(true);
+    });
+
+    // os_readlines(path) -> array of the file's lines (no trailing newlines).
+    def("os_readlines", [](std::vector<Value>& args) -> Value {
+        std::vector<Value> out;
+        if (args.empty()) return Value::Array(out);
+        std::ifstream file(args[0].toString());
+        if (!file) return Value::Array(out);
+        std::string line;
+        while (std::getline(file, line)) out.push_back(Value::String(line));
+        return Value::Array(out);
     });
 }
 
@@ -1257,6 +1479,22 @@ void Interpreter::registerBuiltinMathUtils() {
         return Value::Number(n % 2 == 1 ? nums[n / 2] : (nums[n / 2 - 1] + nums[n / 2]) / 2.0);
     });
 
+    // mathutils_min_of(arr) / mathutils_max_of(arr) -> smallest/largest number in an
+    // array — unlike the always-available min()/max(), which take separate arguments
+    // (min(1, 2, 3)) rather than one array value.
+    def("mathutils_min_of", [](std::vector<Value>& a) -> Value {
+        if (a.empty() || a[0].type != ValueType::ARRAY || a[0].array->empty()) return Value::Nil();
+        double m = (*a[0].array)[0].number;
+        for (auto& v : *a[0].array) m = std::min(m, v.number);
+        return Value::Number(m);
+    });
+    def("mathutils_max_of", [](std::vector<Value>& a) -> Value {
+        if (a.empty() || a[0].type != ValueType::ARRAY || a[0].array->empty()) return Value::Nil();
+        double m = (*a[0].array)[0].number;
+        for (auto& v : *a[0].array) m = std::max(m, v.number);
+        return Value::Number(m);
+    });
+
     // mathutils_stddev(arr) -> population standard deviation of a numeric array.
     def("mathutils_stddev", [](std::vector<Value>& a) -> Value {
         if (a.empty() || a[0].type != ValueType::ARRAY || a[0].array->empty()) return Value::Number(0);
@@ -1361,5 +1599,238 @@ void Interpreter::registerBuiltinStrings() {
         std::string s = a[0].toString();
         size_t end = s.find_last_not_of(" \t\n\r");
         return Value::String(end == std::string::npos ? "" : s.substr(0, end + 1));
+    });
+
+    // strings_words(s) -> array of whitespace-separated words (unlike split(),
+    // which needs an exact separator and produces empty entries on runs of it).
+    def("strings_words", [](std::vector<Value>& a) -> Value {
+        std::vector<Value> out;
+        if (a.empty()) return Value::Array(out);
+        std::istringstream iss(a[0].toString());
+        std::string w;
+        while (iss >> w) out.push_back(Value::String(w));
+        return Value::Array(out);
+    });
+
+    // strings_center(s, width, [ch]) -> centers s within width, padding both sides with ch.
+    def("strings_center", [](std::vector<Value>& a) -> Value {
+        if (a.empty()) return Value::String("");
+        std::string s = a[0].toString();
+        int width = a.size() >= 2 ? (int)a[1].number : 0;
+        char ch = (a.size() >= 3 && !a[2].toString().empty()) ? a[2].toString()[0] : ' ';
+        int total = width - (int)s.size();
+        if (total <= 0) return Value::String(s);
+        int left = total / 2, right = total - left;
+        return Value::String(std::string(left, ch) + s + std::string(right, ch));
+    });
+
+    // strings_replace_first(s, search, repl) -> replaces only the first occurrence of search.
+    def("strings_replace_first", [](std::vector<Value>& a) -> Value {
+        if (a.size() < 3) return a.empty() ? Value::String("") : a[0];
+        std::string s = a[0].toString(), search = a[1].toString(), repl = a[2].toString();
+        if (search.empty()) return Value::String(s);
+        size_t pos = s.find(search);
+        if (pos == std::string::npos) return Value::String(s);
+        return Value::String(s.substr(0, pos) + repl + s.substr(pos + search.size()));
+    });
+
+    // strings_snake_case(s) -> "helloWorld"/"Hello World" -> "hello_world".
+    def("strings_snake_case", [](std::vector<Value>& a) -> Value {
+        if (a.empty()) return Value::String("");
+        std::string s = a[0].toString(), out;
+        for (size_t i = 0; i < s.size(); i++) {
+            char c = s[i];
+            if (c == ' ' || c == '-') { out += '_'; continue; }
+            if (std::isupper((unsigned char)c) && i > 0 && s[i - 1] != '_' && s[i - 1] != ' ' && s[i - 1] != '-') out += '_';
+            out += (char)std::tolower((unsigned char)c);
+        }
+        return Value::String(out);
+    });
+
+    // strings_camel_case(s) -> "hello_world"/"hello world" -> "helloWorld".
+    def("strings_camel_case", [](std::vector<Value>& a) -> Value {
+        if (a.empty()) return Value::String("");
+        std::string s = a[0].toString(), out;
+        bool upperNext = false;
+        for (char c : s) {
+            if (c == '_' || c == ' ' || c == '-') { upperNext = true; continue; }
+            out += upperNext ? (char)std::toupper((unsigned char)c) : c;
+            upperNext = false;
+        }
+        return Value::String(out);
+    });
+}
+
+// ---- ton.encoding — base64, hex, and URL percent-encoding, dependency-free ----
+void Interpreter::registerBuiltinEncoding() {
+    auto def = [this](const std::string& name, NativeFn fn) {
+        Value v; v.type = ValueType::NATIVE_FUNCTION;
+        v.nativeFn = std::make_shared<NativeFn>(std::move(fn));
+        globals->define(name, v);
+    };
+
+    static const char* base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    def("base64_encode", [](std::vector<Value>& a) -> Value {
+        if (a.empty()) return Value::String("");
+        std::string in = a[0].toString(), out;
+        int val = 0, bits = -6;
+        for (unsigned char c : in) {
+            val = (val << 8) + c;
+            bits += 8;
+            while (bits >= 0) { out += base64Chars[(val >> bits) & 0x3F]; bits -= 6; }
+        }
+        if (bits > -6) out += base64Chars[((val << 8) >> (bits + 8)) & 0x3F];
+        while (out.size() % 4) out += '=';
+        return Value::String(out);
+    });
+
+    def("base64_decode", [](std::vector<Value>& a) -> Value {
+        if (a.empty()) return Value::String("");
+        static int table[256];
+        static bool initialized = false;
+        if (!initialized) {
+            for (int i = 0; i < 256; i++) table[i] = -1;
+            for (int i = 0; i < 64; i++) table[(unsigned char)base64Chars[i]] = i;
+            initialized = true;
+        }
+        std::string in = a[0].toString(), out;
+        int val = 0, bits = -8;
+        for (unsigned char c : in) {
+            if (table[c] == -1) continue;
+            val = (val << 6) + table[c];
+            bits += 6;
+            if (bits >= 0) { out += (char)((val >> bits) & 0xFF); bits -= 8; }
+        }
+        return Value::String(out);
+    });
+
+    def("hex_encode", [](std::vector<Value>& a) -> Value {
+        if (a.empty()) return Value::String("");
+        static const char* hexDigits = "0123456789abcdef";
+        std::string in = a[0].toString(), out;
+        out.reserve(in.size() * 2);
+        for (unsigned char c : in) { out += hexDigits[c >> 4]; out += hexDigits[c & 0xF]; }
+        return Value::String(out);
+    });
+
+    def("hex_decode", [](std::vector<Value>& a) -> Value {
+        if (a.empty()) return Value::String("");
+        std::string in = a[0].toString(), out;
+        for (size_t i = 0; i + 1 < in.size(); i += 2) {
+            int hi = hexDigitValue(in[i]), lo = hexDigitValue(in[i + 1]);
+            if (hi < 0 || lo < 0) break;
+            out += (char)((hi << 4) | lo);
+        }
+        return Value::String(out);
+    });
+
+    def("url_encode", [](std::vector<Value>& a) -> Value {
+        return Value::String(a.empty() ? "" : urlEncode(a[0].toString()));
+    });
+    def("url_decode", [](std::vector<Value>& a) -> Value {
+        return Value::String(a.empty() ? "" : urlDecode(a[0].toString()));
+    });
+}
+
+// ---- ton.regex — pattern matching backed by C++'s standard <regex> (ECMAScript
+// syntax), no external dependency ---------------------------------------------
+void Interpreter::registerBuiltinRegex() {
+    auto def = [this](const std::string& name, NativeFn fn) {
+        Value v; v.type = ValueType::NATIVE_FUNCTION;
+        v.nativeFn = std::make_shared<NativeFn>(std::move(fn));
+        globals->define(name, v);
+    };
+
+    auto compile = [](const std::string& pattern) -> std::regex {
+        try {
+            return std::regex(pattern, std::regex::ECMAScript);
+        } catch (std::regex_error& e) {
+            throw std::runtime_error("Invalid regex pattern '" + pattern + "': " + e.what());
+        }
+    };
+
+    def("regex_test", [compile](std::vector<Value>& a) -> Value {
+        if (a.size() < 2) throw std::runtime_error("regex_test(s, pattern) expects two strings.");
+        return Value::Bool(std::regex_search(a[0].toString(), compile(a[1].toString())));
+    });
+
+    // regex_match(s, pattern) -> [fullMatch, group1, group2, ...] for the first
+    // match, or nil if the pattern doesn't match anywhere in s.
+    def("regex_match", [compile](std::vector<Value>& a) -> Value {
+        if (a.size() < 2) throw std::runtime_error("regex_match(s, pattern) expects two strings.");
+        std::string s = a[0].toString();
+        std::smatch m;
+        if (!std::regex_search(s, m, compile(a[1].toString()))) return Value::Nil();
+        std::vector<Value> out;
+        for (auto& g : m) out.push_back(Value::String(g.str()));
+        return Value::Array(out);
+    });
+
+    // regex_find_all(s, pattern) -> array of every full match found in s.
+    def("regex_find_all", [compile](std::vector<Value>& a) -> Value {
+        if (a.size() < 2) throw std::runtime_error("regex_find_all(s, pattern) expects two strings.");
+        std::string s = a[0].toString();
+        std::regex re = compile(a[1].toString());
+        std::vector<Value> out;
+        for (auto it = std::sregex_iterator(s.begin(), s.end(), re); it != std::sregex_iterator(); ++it)
+            out.push_back(Value::String(it->str()));
+        return Value::Array(out);
+    });
+
+    // regex_replace(s, pattern, repl) -> s with every match replaced; repl can
+    // use $1, $2... for capture groups (ECMAScript replacement syntax).
+    def("regex_replace", [compile](std::vector<Value>& a) -> Value {
+        if (a.size() < 3) throw std::runtime_error("regex_replace(s, pattern, repl) expects three strings.");
+        return Value::String(std::regex_replace(a[0].toString(), compile(a[1].toString()), a[2].toString()));
+    });
+
+    // regex_split(s, pattern) -> array of substrings, splitting s on every match.
+    def("regex_split", [compile](std::vector<Value>& a) -> Value {
+        if (a.size() < 2) throw std::runtime_error("regex_split(s, pattern) expects two strings.");
+        std::string s = a[0].toString();
+        std::regex re = compile(a[1].toString());
+        std::vector<Value> out;
+        std::sregex_token_iterator it(s.begin(), s.end(), re, -1), end;
+        for (; it != end; ++it) out.push_back(Value::String(*it));
+        return Value::Array(out);
+    });
+}
+
+// ---- ton.path — filesystem path manipulation (no I/O — see ton.os for that) --
+void Interpreter::registerBuiltinPath() {
+    auto def = [this](const std::string& name, NativeFn fn) {
+        Value v; v.type = ValueType::NATIVE_FUNCTION;
+        v.nativeFn = std::make_shared<NativeFn>(std::move(fn));
+        globals->define(name, v);
+    };
+
+    // path_join(a, b, ...) -> joins any number of path segments with the platform separator.
+    def("path_join", [](std::vector<Value>& a) -> Value {
+        std::filesystem::path p;
+        for (auto& v : a) p /= v.toString();
+        return Value::String(p.generic_string());
+    });
+    def("path_basename", [](std::vector<Value>& a) -> Value {
+        if (a.empty()) return Value::String("");
+        return Value::String(std::filesystem::path(a[0].toString()).filename().generic_string());
+    });
+    def("path_dirname", [](std::vector<Value>& a) -> Value {
+        if (a.empty()) return Value::String("");
+        return Value::String(std::filesystem::path(a[0].toString()).parent_path().generic_string());
+    });
+    def("path_extension", [](std::vector<Value>& a) -> Value {
+        if (a.empty()) return Value::String("");
+        return Value::String(std::filesystem::path(a[0].toString()).extension().generic_string());
+    });
+    def("path_stem", [](std::vector<Value>& a) -> Value {
+        if (a.empty()) return Value::String("");
+        return Value::String(std::filesystem::path(a[0].toString()).stem().generic_string());
+    });
+    def("path_absolute", [](std::vector<Value>& a) -> Value {
+        if (a.empty()) return Value::String("");
+        std::error_code ec;
+        auto p = std::filesystem::absolute(a[0].toString(), ec);
+        return ec ? a[0] : Value::String(p.generic_string());
     });
 }

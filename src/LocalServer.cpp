@@ -1,8 +1,10 @@
 #include "LocalServer.hpp"
 #include <cstring>
 #include <cstdint>
+#include <cctype>
 #include <sstream>
 #include <iostream>
+#include <algorithm>
 
 #ifdef _WIN32
   #include <winsock2.h>
@@ -15,6 +17,40 @@
   #include <unistd.h>
   #include <arpa/inet.h>
 #endif
+
+namespace {
+
+int recvSome(int fd, char* buf, int len) {
+#ifdef _WIN32
+    return recv(fd, buf, len, 0);
+#else
+    return (int)read(fd, buf, (size_t)len);
+#endif
+}
+
+// A request body larger than this is truncated rather than exhausting memory
+// on a bad/malicious Content-Length — generous for the kind of local JSON
+// APIs this server is meant for.
+constexpr size_t MAX_BODY_BYTES = 10 * 1024 * 1024;
+
+size_t parseContentLength(const std::string& headerBlock) {
+    std::istringstream hs(headerBlock);
+    std::string line;
+    std::getline(hs, line); // the request line ("GET /path HTTP/1.1"), not a header
+    while (std::getline(hs, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        auto colon = line.find(':');
+        if (colon == std::string::npos) continue;
+        std::string key = line.substr(0, colon);
+        for (auto& c : key) c = (char)std::tolower((unsigned char)c);
+        if (key == "content-length") {
+            try { return (size_t)std::stoul(line.substr(colon + 1)); } catch (...) { return 0; }
+        }
+    }
+    return 0;
+}
+
+} // namespace
 
 std::string startLocalServer(int port, HttpHandler handler) {
 #ifdef _WIN32
@@ -50,27 +86,48 @@ std::string startLocalServer(int port, HttpHandler handler) {
         int clientFd = accept(serverFd, (sockaddr*)&clientAddr, &clientLen);
         if (clientFd < 0) continue;
 
-        char buffer[8192] = {0};
-#ifdef _WIN32
-        int bytesRead = recv(clientFd, buffer, sizeof(buffer) - 1, 0);
-#else
-        ssize_t bytesRead = read(clientFd, buffer, sizeof(buffer) - 1);
-#endif
-        std::string method = "GET", path = "/";
-        if (bytesRead > 0) {
-            std::string request(buffer);
-            std::istringstream reqStream(request);
-            reqStream >> method >> path;
+        // Read until the header/body separator shows up (bailing out past a
+        // generous cap in case a client never sends one).
+        std::string raw;
+        char buffer[8192];
+        size_t headerEnd = std::string::npos;
+        while (headerEnd == std::string::npos) {
+            int n = recvSome(clientFd, buffer, sizeof(buffer));
+            if (n <= 0) break;
+            raw.append(buffer, (size_t)n);
+            headerEnd = raw.find("\r\n\r\n");
+            if (headerEnd == std::string::npos && raw.size() > 65536) break;
         }
 
-        // Strip query string for route matching (?a=b)
-        std::string cleanPath = path;
+        std::string method = "GET", path = "/";
+        std::string headerBlock = (headerEnd != std::string::npos) ? raw.substr(0, headerEnd) : raw;
+        {
+            std::istringstream reqLine(headerBlock);
+            reqLine >> method >> path;
+        }
+
+        // Keep reading past the headers until the full body (per
+        // Content-Length) has arrived.
+        std::string body = (headerEnd != std::string::npos) ? raw.substr(headerEnd + 4) : "";
+        size_t contentLength = std::min(parseContentLength(headerBlock), MAX_BODY_BYTES);
+        while (body.size() < contentLength) {
+            int n = recvSome(clientFd, buffer, sizeof(buffer));
+            if (n <= 0) break;
+            body.append(buffer, (size_t)n);
+        }
+        if (body.size() > contentLength) body.resize(contentLength);
+
+        // Split the query string off the path for route matching.
+        std::string cleanPath = path, query;
         auto qpos = cleanPath.find('?');
-        if (qpos != std::string::npos) cleanPath = cleanPath.substr(0, qpos);
+        if (qpos != std::string::npos) {
+            query = cleanPath.substr(qpos + 1);
+            cleanPath = cleanPath.substr(0, qpos);
+        }
 
         HttpResponse resp;
         try {
-            resp = handler(method, cleanPath);
+            resp = handler(HttpRequest{method, cleanPath, query, body});
         } catch (std::exception& e) {
             resp.status = 500;
             resp.body = std::string("Server error: ") + e.what();

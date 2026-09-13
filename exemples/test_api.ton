@@ -1,24 +1,44 @@
-// Simple API/site test with real routing
+// Simple API/site test with real routing — every route handler takes one
+// "req" argument: a dict with method/path/query/params/body (see
+// DOCUMENTATION.md > "Local server & routes").
 
 ton.html home_page = "<h1>Welcome to TON618</h1><p>This is the home page.</p>"
+ton.array users = ["kuro", "rusher", "natlep"]
 
-ton.function home() {
+ton.function home(req) {
     return ton.home_page
 }
 
-ton.function about() {
+ton.function about(req) {
     ton.html page = "<h1>About</h1><p>Made with TON618.</p>"
     return page
 }
 
-ton.function api_users() {
-    ton.array users = ["kuro", "rusher", "natlep"]
-    return ton.json(users)
+ton.function api_users(req) {
+    return json(ton.users)
+}
+
+// GET /api/users/:id -> reads the ":id" segment from req["params"].
+ton.function api_user_by_id(req) {
+    ton.int id = num(req["params"]["id"])
+    if id < 0 or id >= len(ton.users) {
+        return json({error: "not found"})
+    }
+    return json({id: id, name: ton.users[id]})
+}
+
+// GET /search?q=... -> reads the "q" query-string parameter from req["query"].
+ton.function search(req) {
+    ton.dict query = req["query"]
+    ton.string q = has(query, "q") ? query["q"] : ""
+    return json(filter(ton.users, ton.function(u) { return contains(u, q) }))
 }
 
 ton.get("/", ton.home)
 ton.get("/about", ton.about)
 ton.get("/api/users", ton.api_users)
+ton.get("/api/users/:id", ton.api_user_by_id)
+ton.get("/search", ton.search)
 
 print("Server starting on port 8081...")
 ton.serve(8081)

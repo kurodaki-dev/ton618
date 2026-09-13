@@ -4,18 +4,25 @@
 // browser (there's no WebAssembly build of the real C++ interpreter).
 //
 // It mirrors the real interpreter's architecture (see DOCUMENTATION.md >
-// "Architecture") — Lexer -> Parser -> Interpreter, the same grammar, the
-// same native functions — closely enough that ordinary scripts behave
-// identically. What it deliberately leaves out, because a browser sandbox
-// has no filesystem/sockets/CLI args to back them with:
-//   - ton.sys / ton.os / ton.requests (real process/filesystem/network access)
+// "Architecture") — Lexer -> Parser -> Interpreter, the same grammar
+// (including string interpolation and switch/case), the same native
+// functions — closely enough that ordinary scripts behave identically.
+// ton.random / ton.time / ton.json / ton.mathutils / ton.strings are
+// re-implemented here in full, since none of those need anything a browser
+// can't do.
+//
+// What it deliberately leaves out:
+//   - ton.sys / ton.os / ton.requests (real process/filesystem/network access
+//     — there's no sandbox equivalent to fall back to)
+//   - ton.encoding / ton.regex / ton.path (not reimplemented here yet, though
+//     nothing stops them from being — see the real interpreter's
+//     registerBuiltinEncoding/Regex/Path in src/Interpreter.cpp)
 //   - IMPORT://<file> user modules (no filesystem to read them from)
-//   - get/post/serve (no HTTP server), readfile
-// ton.random / ton.time / ton.json are re-implemented in full, since none of
-// those need anything a browser can't do. Every native/module function is
-// documented in DOCUMENTATION.md; this file's job is just to run the subset
-// that makes sense in a sandbox, and to fail with a clear, honest message on
-// the rest rather than silently behaving differently from the real thing.
+//   - get/post/serve (no HTTP server), readfile/writefile
+// Every native/module function is documented in DOCUMENTATION.md; this
+// file's job is to run everything that makes sense in a sandbox, and fail
+// with a clear, honest message on the rest rather than silently behaving
+// differently from the real thing.
 // ============================================================================
 
 (function (global) {
@@ -27,7 +34,7 @@
 
 const KEYWORDS = new Set([
   "if", "else", "while", "for", "in", "function", "return", "break", "continue",
-  "try", "catch", "throw", "true", "false", "nil", "and", "or", "print",
+  "try", "catch", "throw", "switch", "case", "default", "true", "false", "nil", "and", "or", "print",
   "int", "string", "bool", "float", "array", "html", "dict",
 ]);
 
@@ -59,19 +66,74 @@ function lex(source) {
 
     if (c === '"') {
       i++;
-      let s = "";
+      // Mirrors the real interpreter's Lexer::string() (src/Lexer.cpp):
+      // "a${expr}b" desugars, right here, into the same tokens as
+      // ("a" + (expr) + "b") — string concatenation ('+') already
+      // stringifies any value, so no parser/interpreter changes are needed.
+      const literalParts = []; // always exprParts.length + 1
+      const exprParts = [];
+      let chunk = "";
+
       while (i < n && source[i] !== '"') {
         if (source[i] === "\\") {
           i++;
           const e = source[i++];
-          s += { n: "\n", t: "\t", '"': '"', "\\": "\\" }[e] ?? e;
+          chunk += { n: "\n", t: "\t", r: "\r", '"': '"', "\\": "\\", "$": "$" }[e] ?? e;
+          continue;
+        }
+        if (source[i] === "$" && peek(1) === "{") {
+          i += 2;
+          literalParts.push(chunk);
+          chunk = "";
+          let depth = 1;
+          const exprStart = i;
+          while (i < n && depth > 0) {
+            if (source[i] === '"') {
+              // Skip a nested string literal so its own braces/quotes can't
+              // be mistaken for the interpolation's boundaries.
+              i++;
+              while (i < n && source[i] !== '"') {
+                if (source[i] === "\\") i++;
+                if (source[i] === "\n") line++;
+                i++;
+              }
+              i++; // closing quote of the nested string
+              continue;
+            }
+            if (source[i] === "{") depth++;
+            else if (source[i] === "}") { depth--; if (depth === 0) break; }
+            else if (source[i] === "\n") line++;
+            i++;
+          }
+          if (i >= n) throw new Error(`Line ${line}: interpolation '\${...}' non terminee.`);
+          exprParts.push(source.slice(exprStart, i));
+          i++; // closing '}'
           continue;
         }
         if (source[i] === "\n") line++;
-        s += source[i++];
+        chunk += source[i++];
       }
       i++; // closing quote
-      push("STRING", s);
+      literalParts.push(chunk);
+
+      if (exprParts.length === 0) {
+        push("STRING", literalParts[0]);
+      } else {
+        tokens.push({ type: "LPAREN", value: "(", line });
+        for (let p = 0; p < exprParts.length; p++) {
+          tokens.push({ type: "STRING", value: literalParts[p], line });
+          tokens.push({ type: "PLUS", value: "+", line });
+          tokens.push({ type: "LPAREN", value: "(", line });
+          for (const t of lex(exprParts[p])) {
+            if (t.type === "EOF") continue;
+            tokens.push({ ...t, line });
+          }
+          tokens.push({ type: "RPAREN", value: ")", line });
+          tokens.push({ type: "PLUS", value: "+", line });
+        }
+        tokens.push({ type: "STRING", value: literalParts[literalParts.length - 1], line });
+        tokens.push({ type: "RPAREN", value: ")", line });
+      }
       continue;
     }
 
@@ -218,6 +280,7 @@ function parse(tokens) {
     if (match("FOR")) return forStatement();
     if (match("TRY")) return tryStatement();
     if (match("THROW")) return throwStatement();
+    if (match("SWITCH")) return switchStatement();
     if (match("RETURN")) return returnStatement();
     if (match("PRINT")) return printStatement();
     if (match("LBRACE")) return block();
@@ -305,6 +368,37 @@ function parse(tokens) {
     consume("LBRACE", "expected '{' for the catch block.");
     const catchBlock = block();
     return { kind: "TryCatch", line, tryBlock, errorVar, catchBlock };
+  }
+
+  // "switch (subject) { case v1, v2: { ... } case v3: { ... } default: { ... } }"
+  // — no fallthrough, mirrors the real interpreter's Parser::switchStatement.
+  function switchStatement() {
+    const line = previous().line;
+    const paren = match("LPAREN");
+    const subject = expression();
+    if (paren) consume("RPAREN", "expected ')' after the switch value.");
+    consume("LBRACE", "expected '{' to start the switch body.");
+
+    const cases = [];
+    let defaultBlock = null;
+    while (!check("RBRACE") && !isAtEnd()) {
+      if (match("CASE")) {
+        const values = [expression()];
+        while (match("COMMA")) values.push(expression());
+        consume("COLON", "expected ':' after the case value(s).");
+        consume("LBRACE", "expected '{' for the case body.");
+        cases.push({ values, body: block() });
+      } else if (match("DEFAULT")) {
+        consume("COLON", "expected ':' after 'default'.");
+        consume("LBRACE", "expected '{' for the default body.");
+        defaultBlock = block();
+      } else {
+        const tok = peek();
+        throw new Error(`Line ${tok.line} near '${tok.value ?? tok.type}': expected 'case' or 'default' inside a switch body.`);
+      }
+    }
+    consume("RBRACE", "expected '}' at the end of the switch.");
+    return { kind: "Switch", line, subject, cases, defaultBlock };
   }
 
   function throwStatement() {
@@ -562,6 +656,23 @@ function toJson(v) {
   return "null";
 }
 
+// Same shape as toJson(), but indented across multiple lines — mirrors
+// Value::toJsonPretty() in include/Value.hpp.
+function toJsonPretty(v, indent = 0) {
+  const pad = "  ".repeat(indent), padInner = "  ".repeat(indent + 1);
+  if (Array.isArray(v)) {
+    if (!v.length) return "[]";
+    const items = v.map((item) => padInner + toJsonPretty(item, indent + 1));
+    return "[\n" + items.join(",\n") + "\n" + pad + "]";
+  }
+  if (v instanceof Map) {
+    if (!v.size) return "{}";
+    const items = [...v.entries()].map(([k, val]) => padInner + JSON.stringify(k) + ": " + toJsonPretty(val, indent + 1));
+    return "{\n" + items.join(",\n") + "\n" + pad + "}";
+  }
+  return toJson(v);
+}
+
 function fromJson(text) { return jsToTon(JSON.parse(text)); }
 function jsToTon(v) {
   if (v === null) return null;
@@ -717,6 +828,22 @@ class Interpreter {
       case "Break": throw new BreakSignal();
       case "Continue": throw new ContinueSignal();
 
+      case "Switch": {
+        const subject = this.evaluate(stmt.subject, env);
+        let matched = false;
+        try {
+          for (const { values, body } of stmt.cases) {
+            const hit = values.some((v) => valuesEqual(subject, this.evaluate(v, env)));
+            if (hit) { this.execute(body, new Environment(env)); matched = true; break; }
+          }
+          if (!matched && stmt.defaultBlock) this.execute(stmt.defaultBlock, new Environment(env));
+        } catch (e) {
+          if (!(e instanceof BreakSignal)) throw e;
+          // A stray "break;" just exits the switch early, same as the real interpreter.
+        }
+        return;
+      }
+
       default: throw new Error(`Unknown statement kind '${stmt.kind}'.`);
     }
   }
@@ -778,7 +905,14 @@ class Interpreter {
           if (expr.value) { const v = this.evaluate(expr.value, env); target.set(key, v); return v; }
           return target.has(key) ? target.get(key) : null;
         }
-        if (!Array.isArray(target)) this.error(expr.line, `Cannot index a value that is not an array or a dict (got ${typeName(target)}).`);
+        if (typeof target === "string" || target instanceof HtmlString) {
+          if (expr.value) this.error(expr.line, "Strings are immutable: cannot assign to a string index. Use replace()/substring() to build a new string instead.");
+          const s = toDisplayString(target);
+          const idx = Math.trunc(this.evaluate(expr.index, env));
+          if (idx < 0 || idx >= s.length) this.error(expr.line, "String index out of bounds.");
+          return s[idx];
+        }
+        if (!Array.isArray(target)) this.error(expr.line, `Cannot index a value that is not an array, a dict, or a string (got ${typeName(target)}).`);
         const idx = Math.trunc(this.evaluate(expr.index, env));
         if (expr.value) {
           const v = this.evaluate(expr.value, env);
@@ -822,11 +956,23 @@ class Interpreter {
         return left / right;
       case "PERCENT":
         if (typeof left !== "number" || typeof right !== "number") this.error(expr.line, "Invalid operands for '%'.");
+        if (right === 0) this.error(expr.line, "Division by zero (in '%').");
         return left % right;
-      case "GREATER": return left > right;
-      case "GREATER_EQUAL": return left >= right;
-      case "LESS": return left < right;
-      case "LESS_EQUAL": return left <= right;
+      // Relational operators: numbers compare numerically, strings/html
+      // lexicographically — mixing types (or comparing arrays/dicts/bools)
+      // is a clear error, mirroring src/Interpreter.cpp's evaluate().
+      case "GREATER": case "GREATER_EQUAL": case "LESS": case "LESS_EQUAL": {
+        const bothNumbers = typeof left === "number" && typeof right === "number";
+        const bothTextual = isStrLike(left) && isStrLike(right);
+        if (!bothNumbers && !bothTextual) {
+          this.error(expr.line, `Cannot compare ${typeName(left)} and ${typeName(right)} with a relational operator (<, <=, >, >=): both sides must be numbers, or both strings.`);
+        }
+        const a = bothNumbers ? left : strOf(left), b = bothNumbers ? right : strOf(right);
+        if (op === "GREATER") return a > b;
+        if (op === "GREATER_EQUAL") return a >= b;
+        if (op === "LESS") return a < b;
+        return a <= b;
+      }
       case "EQUAL_EQUAL": return valuesEqual(left, right);
       case "BANG_EQUAL": return !valuesEqual(left, right);
       default: return null;
@@ -859,8 +1005,13 @@ class Interpreter {
       if (builtin === "random") return this.registerRandom();
       if (builtin === "time") return this.registerTime();
       if (builtin === "json") return this.registerJson();
+      if (builtin === "mathutils") return this.registerMathUtils();
+      if (builtin === "strings") return this.registerStrings();
       if (builtin === "sys" || builtin === "os" || builtin === "requests") {
         this.error(line, `'ton.${builtin}' needs real process/filesystem/network access, which the browser playground cannot provide. Install the real interpreter (see DOCUMENTATION.md) to use it.`);
+      }
+      if (builtin === "encoding" || builtin === "regex" || builtin === "path") {
+        this.error(line, `'ton.${builtin}' isn't implemented in the playground yet (it exists in the real interpreter — see DOCUMENTATION.md). Install the real interpreter to use it.`);
       }
       this.error(line, `Unknown built-in module 'ton.${builtin}'.`);
     }
@@ -949,6 +1100,19 @@ class Interpreter {
       for (const item of a[0]) acc = this.callFunction(a[1], [acc, item], 0);
       return acc;
     });
+    this.def("find", (a) => {
+      if (!Array.isArray(a[0])) return null;
+      for (const item of a[0]) if (isTruthy(this.callFunction(a[1], [item], 0))) return item;
+      return null;
+    });
+    this.def("any", (a) => {
+      if (!Array.isArray(a[0])) return false;
+      return a[0].some((item) => isTruthy(this.callFunction(a[1], [item], 0)));
+    });
+    this.def("all", (a) => {
+      if (!Array.isArray(a[0])) return true;
+      return a[0].every((item) => isTruthy(this.callFunction(a[1], [item], 0)));
+    });
 
     // dicts
     this.def("keys", (a) => (a[0] instanceof Map ? [...a[0].keys()] : []));
@@ -985,13 +1149,144 @@ class Interpreter {
   registerJson() {
     this.def("json_parse", (a) => fromJson(toDisplayString(a[0])));
     this.def("json_stringify", (a) => toJson(a[0] ?? null));
+    this.def("json_pretty", (a) => toJsonPretty(a[0] ?? null));
+  }
+
+  // Mirrors src/Interpreter.cpp's registerBuiltinMathUtils exactly — every
+  // function here is pure computation, so (unlike ton.sys/os/requests) there's
+  // no reason for the playground not to support it in full.
+  registerMathUtils() {
+    this.def("mathutils_pi", () => Math.PI);
+    this.def("mathutils_e", () => Math.E);
+    this.def("mathutils_sin", (a) => Math.sin(a[0] ?? 0));
+    this.def("mathutils_cos", (a) => Math.cos(a[0] ?? 0));
+    this.def("mathutils_tan", (a) => Math.tan(a[0] ?? 0));
+    this.def("mathutils_asin", (a) => Math.asin(a[0] ?? 0));
+    this.def("mathutils_acos", (a) => Math.acos(a[0] ?? 0));
+    this.def("mathutils_atan", (a) => Math.atan(a[0] ?? 0));
+    this.def("mathutils_atan2", (a) => Math.atan2(a[0] ?? 0, a[1] ?? 0));
+    this.def("mathutils_log", (a) => Math.log(a[0] ?? 0));
+    this.def("mathutils_log2", (a) => Math.log2(a[0] ?? 0));
+    this.def("mathutils_log10", (a) => Math.log10(a[0] ?? 0));
+    this.def("mathutils_exp", (a) => Math.exp(a[0] ?? 0));
+    this.def("mathutils_hypot", (a) => Math.hypot(a[0] ?? 0, a[1] ?? 0));
+    this.def("mathutils_degrees", (a) => (a[0] ?? 0) * 180 / Math.PI);
+    this.def("mathutils_radians", (a) => (a[0] ?? 0) * Math.PI / 180);
+    this.def("mathutils_clamp", (a) => Math.min(Math.max(a[0], a[1]), a[2]));
+    this.def("mathutils_lerp", (a) => a[0] + (a[1] - a[0]) * a[2]);
+    this.def("mathutils_sign", (a) => Math.sign(a[0] ?? 0));
+    this.def("mathutils_gcd", (a) => { let x = Math.abs(a[0] | 0), y = Math.abs(a[1] | 0); while (y) { [x, y] = [y, x % y]; } return x; });
+    this.def("mathutils_lcm", (a) => {
+      let x = Math.abs(a[0] | 0), y = Math.abs(a[1] | 0);
+      if (x === 0 || y === 0) return 0;
+      let g = x, h = y; while (h) { [g, h] = [h, g % h]; }
+      return (x / g) * y;
+    });
+    this.def("mathutils_factorial", (a) => { let n = a[0] | 0, r = 1; for (let i = 2; i <= n; i++) r *= i; return r; });
+    this.def("mathutils_is_prime", (a) => {
+      let n = a[0] | 0;
+      if (n < 2) return false;
+      for (let i = 2; i * i <= n; i++) if (n % i === 0) return false;
+      return true;
+    });
+    this.def("mathutils_sum", (a) => (Array.isArray(a[0]) ? a[0].reduce((s, v) => s + v, 0) : 0));
+    this.def("mathutils_mean", (a) => (Array.isArray(a[0]) && a[0].length ? a[0].reduce((s, v) => s + v, 0) / a[0].length : 0));
+    this.def("mathutils_median", (a) => {
+      if (!Array.isArray(a[0]) || !a[0].length) return 0;
+      const nums = [...a[0]].sort((x, y) => x - y);
+      const n = nums.length;
+      return n % 2 === 1 ? nums[(n - 1) / 2] : (nums[n / 2 - 1] + nums[n / 2]) / 2;
+    });
+    this.def("mathutils_stddev", (a) => {
+      if (!Array.isArray(a[0]) || !a[0].length) return 0;
+      const arr = a[0], mean = arr.reduce((s, v) => s + v, 0) / arr.length;
+      const variance = arr.reduce((s, v) => s + (v - mean) ** 2, 0) / arr.length;
+      return Math.sqrt(variance);
+    });
+    this.def("mathutils_min_of", (a) => (Array.isArray(a[0]) && a[0].length ? Math.min(...a[0]) : null));
+    this.def("mathutils_max_of", (a) => (Array.isArray(a[0]) && a[0].length ? Math.max(...a[0]) : null));
+  }
+
+  // Mirrors src/Interpreter.cpp's registerBuiltinStrings exactly.
+  registerStrings() {
+    this.def("strings_starts_with", (a) => toDisplayString(a[0]).startsWith(toDisplayString(a[1] ?? "")));
+    this.def("strings_ends_with", (a) => toDisplayString(a[0]).endsWith(toDisplayString(a[1] ?? "")));
+    this.def("strings_repeat", (a) => toDisplayString(a[0]).repeat(Math.max(0, a[1] | 0)));
+    this.def("strings_reverse", (a) => [...toDisplayString(a[0])].reverse().join(""));
+    this.def("strings_capitalize", (a) => {
+      const s = toDisplayString(a[0]);
+      return s ? s[0].toUpperCase() + s.slice(1).toLowerCase() : "";
+    });
+    this.def("strings_pad_left", (a) => toDisplayString(a[0]).padStart(a[1] ?? 0, (a[2] !== undefined && toDisplayString(a[2])) || " "));
+    this.def("strings_pad_right", (a) => toDisplayString(a[0]).padEnd(a[1] ?? 0, (a[2] !== undefined && toDisplayString(a[2])) || " "));
+    this.def("strings_count", (a) => {
+      const s = toDisplayString(a[0]), sub = toDisplayString(a[1] ?? "");
+      if (!sub) return 0;
+      let count = 0, pos = 0;
+      while ((pos = s.indexOf(sub, pos)) !== -1) { count++; pos += sub.length; }
+      return count;
+    });
+    this.def("strings_trim_start", (a) => toDisplayString(a[0]).replace(/^[ \t\n\r]+/, ""));
+    this.def("strings_trim_end", (a) => toDisplayString(a[0]).replace(/[ \t\n\r]+$/, ""));
+    this.def("strings_words", (a) => toDisplayString(a[0]).split(/\s+/).filter(Boolean));
+    this.def("strings_center", (a) => {
+      const s = toDisplayString(a[0]);
+      const width = a[1] ?? 0;
+      const ch = (a[2] !== undefined && toDisplayString(a[2])[0]) || " ";
+      const total = width - s.length;
+      if (total <= 0) return s;
+      const left = Math.floor(total / 2), right = total - left;
+      return ch.repeat(left) + s + ch.repeat(right);
+    });
+    this.def("strings_replace_first", (a) => {
+      const s = toDisplayString(a[0]), search = toDisplayString(a[1] ?? ""), repl = toDisplayString(a[2] ?? "");
+      if (!search) return s;
+      const pos = s.indexOf(search);
+      return pos === -1 ? s : s.slice(0, pos) + repl + s.slice(pos + search.length);
+    });
+    this.def("strings_snake_case", (a) => {
+      const s = toDisplayString(a[0]);
+      let out = "";
+      for (let i = 0; i < s.length; i++) {
+        const c = s[i];
+        if (c === " " || c === "-") { out += "_"; continue; }
+        if (/[A-Z]/.test(c) && i > 0 && !["_", " ", "-"].includes(s[i - 1])) out += "_";
+        out += c.toLowerCase();
+      }
+      return out;
+    });
+    this.def("strings_camel_case", (a) => {
+      const s = toDisplayString(a[0]);
+      let out = "", upperNext = false;
+      for (const c of s) {
+        if (c === "_" || c === " " || c === "-") { upperNext = true; continue; }
+        out += upperNext ? c.toUpperCase() : c;
+        upperNext = false;
+      }
+      return out;
+    });
   }
 }
 
+// Mirrors the real interpreter's valuesEqual (src/Interpreter.cpp): a string
+// and an html value with the same text are equal; arrays/dicts compare
+// element-by-element (recursively) instead of by reference.
 function valuesEqual(a, b) {
+  const aIsText = typeof a === "string" || a instanceof HtmlString;
+  const bIsText = typeof b === "string" || b instanceof HtmlString;
+  if (aIsText && bIsText) return toDisplayString(a) === toDisplayString(b);
   if (a === null || a === undefined) return b === null || b === undefined;
-  if (typeof a !== typeof b && !(a instanceof HtmlString) && !(b instanceof HtmlString)) return false;
-  if (a instanceof HtmlString || b instanceof HtmlString) return toDisplayString(a) === toDisplayString(b);
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!valuesEqual(a[i], b[i])) return false;
+    return true;
+  }
+  if (a instanceof Map && b instanceof Map) {
+    if (a.size !== b.size) return false;
+    for (const [k, v] of a) { if (!b.has(k) || !valuesEqual(v, b.get(k))) return false; }
+    return true;
+  }
+  if (typeof a !== typeof b) return false;
   return a === b;
 }
 

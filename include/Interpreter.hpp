@@ -76,6 +76,9 @@ private:
     void registerBuiltinJson();
     void registerBuiltinMathUtils();
     void registerBuiltinStrings();
+    void registerBuiltinEncoding();
+    void registerBuiltinRegex();
+    void registerBuiltinPath();
 
     [[noreturn]] void runtimeError(int line, const std::string& msg);
 };

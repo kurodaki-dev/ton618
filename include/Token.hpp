@@ -45,6 +45,7 @@ enum class TokenType {
     // Keywords
     IF, ELSE, WHILE, FOR, IN, FUNCTION, RETURN, BREAK, CONTINUE,
     TRY, CATCH, THROW,
+    SWITCH, CASE, DEFAULT,
     PRINT,
 
     // Special
