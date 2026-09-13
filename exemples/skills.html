@@ -196,20 +196,17 @@
 
 <section>
   <h2>Installing it</h2>
+  <p>Just paste one line to your AI agent — any agent that can fetch a URL and write a file handles the rest itself:</p>
 
   <h3>Claude Code</h3>
-  <p>Drop the file at <code>~/.claude/skills/ton618/SKILL.md</code> (available to every project) or <code>.claude/skills/ton618/SKILL.md</code> inside one project:</p>
-  <pre id="cmd-claude"><button class="copy" data-copy="cmd-claude">copy</button>mkdir -p ~/.claude/skills/ton618
-curl -fsSL -o ~/.claude/skills/ton618/SKILL.md https://raw.githubusercontent.com/kurodaki-dev/ton618/main/exemples/skills/ton618/SKILL.md</pre>
-  <p>Claude Code loads any skill under that folder automatically and invokes it whenever the task at hand matches its description — no further setup.</p>
+  <pre id="prompt-claude"><button class="copy" data-copy="prompt-claude">copy</button>Install this skill for me: https://raw.githubusercontent.com/kurodaki-dev/ton618/main/exemples/skills/ton618/SKILL.md</pre>
 
   <h3>Cursor, Copilot, and other agents reading AGENTS.md</h3>
-  <p>Save it at the root of the project the agent is working in:</p>
-  <pre id="cmd-agents"><button class="copy" data-copy="cmd-agents">copy</button>curl -fsSL -o AGENTS.md https://raw.githubusercontent.com/kurodaki-dev/ton618/main/exemples/skills/AGENTS.md</pre>
-  <p>If the project already has its own <code>AGENTS.md</code>, paste this one's content in as a new section instead of overwriting it.</p>
+  <pre id="prompt-agents"><button class="copy" data-copy="prompt-agents">copy</button>Install this AGENTS.md file for me: https://raw.githubusercontent.com/kurodaki-dev/ton618/main/exemples/skills/AGENTS.md</pre>
+  <p>If the project already has its own <code>AGENTS.md</code>, ask it to merge this one in as a new section instead of overwriting it.</p>
 
   <h3>Any other agent</h3>
-  <p>Both files are plain Markdown — paste one into the system prompt, a project-instructions field, or just point the agent at this page or the raw file. There's nothing Claude-specific in the content itself, only in how <code>SKILL.md</code> is auto-discovered.</p>
+  <p>Same idea — "install this skill for me: &lt;link&gt;" — or paste the raw file content directly into the system prompt or project-instructions field if it can't fetch URLs itself. Both files are plain Markdown; there's nothing Claude-specific in the content, only in how <code>SKILL.md</code> is auto-discovered by Claude Code.</p>
 
   <div class="note"><strong>Note:</strong> the skill is a reference for <em>writing</em> TON618 code — the agent still needs the real <code>ton618</code> binary on its machine to actually run scripts (see the <a href="documentation.html#installing--building-the-interpreter">install instructions</a>).</div>
 </section>
