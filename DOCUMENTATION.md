@@ -14,7 +14,7 @@
 4. [The browser playground](#the-browser-playground)
 5. [Language basics](#language-basics)
 6. [Types](#types)
-7. [String interpolation](#string-interpolation)
+7. [String formatting](#string-formatting)
 8. [Operators](#operators)
 9. [Control flow](#control-flow)
 10. [Functions](#functions)
@@ -44,7 +44,7 @@ The interpreter itself (`ton618`) is written in C++17 and ships as a single, dep
 
 The language's defining feature is the **`ton.` prefix**: declaring a variable or a function always uses it (`ton.int x = 5`, `ton.function f() { ... }`). Once something is declared, though, referring to it again — reading it, reassigning it, or naming a function parameter — can use either `ton.name` or the bare `name`; both resolve to the same thing. This documentation uses `ton.` everywhere for clarity, except for short-lived names like loop counters and function parameters, matching the style already used throughout `exemples/`. See [Language basics](#language-basics) for exactly where the prefix is required versus optional.
 
-TON618 supports **error handling** (`try`/`catch`/`throw`), a **dictionary type** (`ton.dict`), **`for ... in`** and C-style `for` loops, a **`switch`/`case`** statement, **string interpolation** (`"Hello ${name}!"`), **compound assignment** (`+=`, `-=`, ...), **increment/decrement** (`++`, `--`), a **ternary operator** (`cond ? a : b`), **function expressions** (anonymous callbacks), and a fairly large standard library covering math, strings, arrays, dicts, files, JSON, regular expressions, and base64/hex/URL encoding — see the [Changelog](#changelog) for the full history.
+TON618 supports **error handling** (`try`/`catch`/`throw`), a **dictionary type** (`ton.dict`), **`for ... in`** and C-style `for` loops, a **`switch`/`case`** statement, a **`format()`** helper for building strings without a chain of `+`, **compound assignment** (`+=`, `-=`, ...), **increment/decrement** (`++`, `--`), a **ternary operator** (`cond ? a : b`), **function expressions** (anonymous callbacks), and a fairly large standard library covering math, strings, arrays, dicts, files, JSON, regular expressions, and base64/hex/URL encoding — see the [Changelog](#changelog) for the full history.
 
 ---
 
@@ -99,7 +99,7 @@ ton618 --update beta-1.0.1  # pin to a specific release tag
 
 Don't want to install anything just to try a snippet? Open `exemples/playground.html` in any browser (no server needed) for a live code editor with a "Run" button and example snippets to load.
 
-The playground runs **`ton618-lite.js`**, a JavaScript re-implementation of the language, entirely client-side — nothing is sent anywhere, and no installation is required. It mirrors the real interpreter closely: the full grammar (including string interpolation and `switch`/`case`), and the `ton.random`, `ton.time`, `ton.json`, `ton.mathutils`, and `ton.strings` built-in modules, since none of those need anything a browser can't already do.
+The playground runs **`ton618-lite.js`**, a JavaScript re-implementation of the language, entirely client-side — nothing is sent anywhere, and no installation is required. It mirrors the real interpreter closely: the full grammar (including `switch`/`case`), and the `ton.random`, `ton.time`, `ton.json`, `ton.mathutils`, and `ton.strings` built-in modules, since none of those need anything a browser can't already do.
 
 What it can't do, because a browser sandbox has no filesystem, sockets, or CLI arguments to back them with:
 - `ton.sys`, `ton.os`, `ton.requests` — real process/filesystem/network access; importing any of these gives a clear error explaining why, instead of silently behaving differently from the real interpreter
@@ -166,26 +166,18 @@ A bare assignment can only *reassign* an existing variable — `age = 5` fails w
 
 ---
 
-### String interpolation
+### String formatting
 
-A `${expression}` anywhere inside a string literal is replaced with that expression's value, converted to text the same way `str()` would:
+String literals are plain and simple — no embedded expression syntax. To build a string out of variables without a long chain of `+`, use `format(template, ...args)`: it replaces each `{}` in `template`, left to right, with the matching argument converted to text the same way `str()` would.
 
 ```
 ton.string name = "kuro"
 ton.int age = 5
-print("Hello ${name}, you'll be ${age + 1} next year!")
+print(format("Hello {}, you'll be {} next year!", name, age + 1))
 // Hello kuro, you'll be 6 next year!
 ```
 
-The expression can be anything — arithmetic, a function call, indexing, a ternary — and can itself contain nested string literals and braces:
-
-```
-ton.dict user = {name: "kuro", admin: true}
-print("Welcome ${user["name"]}${user["admin"] ? " (admin)" : ""}!")
-// Welcome kuro (admin)!
-```
-
-Write `\$` to get a literal `$` without triggering interpolation. A string with no `${...}` at all behaves exactly as before — this is purely additive syntax, not a different string type.
+An argument can be any value — a number, a string, the result of a function call, anything `str()` can convert. Extra `{}` placeholders with no matching argument are left as-is (`{}`); extra arguments beyond the number of placeholders are simply unused.
 
 ---
 
@@ -352,6 +344,7 @@ All of these work with or without the `ton.` prefix (see [Language basics](#lang
 | `type(x)` | Returns the type name of a value as a string |
 | `str(x)` | Converts a value to string |
 | `num(x)` | Converts a value to number (`0` if it can't be parsed) |
+| `format(template, ...args)` | Replaces each `{}` in `template` with the matching argument (see [String formatting](#string-formatting)) |
 | `json(x)` | Converts a value (array, dict, or scalar) to a JSON string |
 | `assert(cond, [msg])` | Throws (catchable) if `cond` is falsy |
 | `input([prompt])` | Prints an optional prompt, reads and returns one line from stdin |
@@ -809,8 +802,8 @@ source text (.ton file)
         │
         ▼
 ┌───────────────┐   turns characters into a flat list of Tokens
-│     Lexer     │   (numbers, strings, identifiers, keywords, operators —
-└───────┬───────┘    including desugaring "${...}" string interpolation)
+│     Lexer     │   (numbers, strings, identifiers, keywords, operators)
+└───────┬───────┘
         ▼  tokens
 ┌───────────────┐   recursive-descent parsing: groups Tokens into an
 │     Parser    │   Abstract Syntax Tree (a tree of Stmt/Expr nodes)
@@ -826,7 +819,7 @@ ton618/
 ├── Makefile
 ├── include/                 # headers (.hpp) — declarations and design notes
 │   ├── Token.hpp              — the language's vocabulary (TokenType, Token)
-│   ├── Lexer.hpp                — text -> tokens (also where "${...}" interpolation is desugared)
+│   ├── Lexer.hpp                — text -> tokens
 │   ├── Ast.hpp                    — the AST node shapes (Expr, Stmt)
 │   ├── Parser.hpp                   — tokens -> AST
 │   ├── Value.hpp                      — runtime value representation
@@ -920,6 +913,11 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 
 ### Changelog
 
+**beta-1.0.2** — simpler string formatting, and an AI-coding skill:
+
+- **String interpolation (`"Hello ${name}!"`) has been removed** in favor of the much simpler **`format(template, ...args)`**: `format("Hello {}!", name)`. Interpolation required the lexer to recursively re-lex arbitrary expressions embedded inside string literals (tracking nested quotes and braces) — a lot of machinery for what a single string-processing function does just as well, with far less to reason about. See [String formatting](#string-formatting).
+- **An AI-coding skill for TON618**, in both a Claude Code `SKILL.md` and a generic `AGENTS.md`, so an AI agent can write correct `.ton` scripts without re-deriving the language from this document — see the **"Skills for AI"** link next to the playground, or `exemples/skills/`.
+
 **beta-1.0.1** — bug fixes, new syntax, and a much larger standard library:
 
 *Correctness fixes:*
@@ -928,7 +926,7 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 - **`%` now errors on division by zero** instead of silently producing `NaN`, matching `/`.
 
 *New syntax:*
-- **String interpolation**: `"Hello ${name}!"` (see [String interpolation](#string-interpolation))
+- ~~String interpolation~~ — added here, replaced by `format()` in beta-1.0.2 (see above)
 - **`switch` / `case` / `default`**, with no fallthrough and support for multiple values per case
 - **String indexing**: `s[0]` reads a character (strings stay immutable — assigning to an index is an error)
 
@@ -949,7 +947,7 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 - **`ton618 --update [version]`**: re-downloads the binary matching the current platform from GitHub Releases and replaces the running one
 - **`ton618 --version` / `-v`**: prints the version, auto-detected platform, and architecture
 - **`.github/workflows/pages.yml`** publishes `exemples/` (docs + playground) to GitHub Pages, with custom-domain support (`exemples/CNAME`)
-- The browser playground (`ton618-lite.js`) now also implements `ton.mathutils`, `ton.strings`, `find`/`any`/`all`, `json_pretty`, string interpolation, `switch`/`case`, and string indexing — closing several gaps where it silently behaved differently from the real interpreter
+- The browser playground (`ton618-lite.js`) now also implements `ton.mathutils`, `ton.strings`, `find`/`any`/`all`, `json_pretty`, `switch`/`case`, and string indexing — closing several gaps where it silently behaved differently from the real interpreter
 
 **Earlier language additions** (pre-beta-1.0.1):
 
@@ -977,7 +975,7 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 4. [Le playground dans le navigateur](#le-playground-dans-le-navigateur)
 5. [Bases du langage](#bases-du-langage)
 6. [Types](#types-1)
-7. [Interpolation de chaînes](#interpolation-de-chaînes)
+7. [Formatage de chaînes](#formatage-de-chaînes)
 8. [Opérateurs](#opérateurs)
 9. [Structures de contrôle](#structures-de-contrôle)
 10. [Fonctions](#fonctions)
@@ -1007,7 +1005,7 @@ L'interpréteur lui-même (`ton618`) est écrit en C++17 et se présente comme u
 
 La caractéristique principale du langage est le **préfixe `ton.`** : déclarer une variable ou une fonction l'utilise toujours (`ton.int x = 5`, `ton.function f() { ... }`). Une fois quelque chose déclaré, y faire référence à nouveau — le lire, le réassigner, ou nommer un paramètre de fonction — accepte aussi bien `ton.nom` que le simple `nom` ; les deux désignent la même chose. Cette documentation utilise `ton.` partout par souci de clarté, sauf pour des noms éphémères comme les compteurs de boucle et les paramètres de fonction, comme le fait déjà le style utilisé dans `exemples/`. Voir [Bases du langage](#bases-du-langage) pour savoir précisément où le préfixe est obligatoire ou optionnel.
 
-TON618 prend en charge la **gestion d'erreurs** (`try`/`catch`/`throw`), un **type dictionnaire** (`ton.dict`), les boucles **`for ... in`** et `for` classique (style C), une instruction **`switch`/`case`**, l'**interpolation de chaînes** (`"Bonjour ${nom}!"`), l'**assignation composée** (`+=`, `-=`, ...), l'**incrémentation/décrémentation** (`++`, `--`), un **opérateur ternaire** (`cond ? a : b`), des **expressions de fonction** (callbacks anonymes), et une bibliothèque standard assez large couvrant maths, chaînes, tableaux, dictionnaires, fichiers, JSON, expressions régulières, et encodage base64/hex/URL — voir le [Changelog](#changelog-1) pour l'historique complet.
+TON618 prend en charge la **gestion d'erreurs** (`try`/`catch`/`throw`), un **type dictionnaire** (`ton.dict`), les boucles **`for ... in`** et `for` classique (style C), une instruction **`switch`/`case`**, une fonction **`format()`** pour construire des chaînes sans enchaîner les `+`, l'**assignation composée** (`+=`, `-=`, ...), l'**incrémentation/décrémentation** (`++`, `--`), un **opérateur ternaire** (`cond ? a : b`), des **expressions de fonction** (callbacks anonymes), et une bibliothèque standard assez large couvrant maths, chaînes, tableaux, dictionnaires, fichiers, JSON, expressions régulières, et encodage base64/hex/URL — voir le [Changelog](#changelog-1) pour l'historique complet.
 
 ---
 
@@ -1062,7 +1060,7 @@ ton618 --update beta-1.0.1  # épingle une release précise
 
 Pas envie d'installer quoi que ce soit juste pour essayer un extrait ? Ouvre `exemples/playground.html` dans n'importe quel navigateur (aucun serveur requis) pour un éditeur de code en direct avec un bouton "Run" et des extraits d'exemple à charger.
 
-Le playground exécute **`ton618-lite.js`**, une réimplémentation JavaScript du langage, entièrement côté client — rien n'est envoyé nulle part, aucune installation requise. Il reproduit fidèlement l'interpréteur réel : la grammaire complète (y compris l'interpolation de chaînes et `switch`/`case`), et les modules intégrés `ton.random`, `ton.time`, `ton.json`, `ton.mathutils` et `ton.strings`, puisqu'aucun d'eux n'a besoin de quoi que ce soit qu'un navigateur ne puisse déjà faire.
+Le playground exécute **`ton618-lite.js`**, une réimplémentation JavaScript du langage, entièrement côté client — rien n'est envoyé nulle part, aucune installation requise. Il reproduit fidèlement l'interpréteur réel : la grammaire complète (y compris `switch`/`case`), et les modules intégrés `ton.random`, `ton.time`, `ton.json`, `ton.mathutils` et `ton.strings`, puisqu'aucun d'eux n'a besoin de quoi que ce soit qu'un navigateur ne puisse déjà faire.
 
 Ce qu'il ne peut pas faire, parce qu'un bac à sable de navigateur n'a ni système de fichiers, ni sockets, ni arguments de ligne de commande pour les alimenter :
 - `ton.sys`, `ton.os`, `ton.requests` — accès réel au processus/système de fichiers/réseau ; importer l'un d'eux donne une erreur claire expliquant pourquoi, plutôt que de se comporter silencieusement différemment de l'interpréteur réel
@@ -1129,26 +1127,18 @@ Une assignation nue peut seulement *réassigner* une variable existante — `age
 
 ---
 
-### Interpolation de chaînes
+### Formatage de chaînes
 
-Un `${expression}` n'importe où dans un littéral chaîne est remplacé par la valeur de cette expression, convertie en texte de la même façon que `str()` le ferait :
+Les littéraux chaîne sont simples — pas de syntaxe d'expression embarquée. Pour construire une chaîne à partir de variables sans un long enchaînement de `+`, utilise `format(modele, ...args)` : elle remplace chaque `{}` dans `modele`, de gauche à droite, par l'argument correspondant converti en texte de la même façon que `str()` le ferait.
 
 ```
 ton.string nom = "kuro"
 ton.int age = 5
-print("Bonjour ${nom}, tu auras ${age + 1} l'année prochaine !")
+print(format("Bonjour {}, tu auras {} l'année prochaine !", nom, age + 1))
 // Bonjour kuro, tu auras 6 l'année prochaine !
 ```
 
-L'expression peut être n'importe quoi — de l'arithmétique, un appel de fonction, une indexation, un ternaire — et peut elle-même contenir des littéraux chaîne et des accolades imbriqués :
-
-```
-ton.dict utilisateur = {nom: "kuro", admin: true}
-print("Bienvenue ${utilisateur["nom"]}${utilisateur["admin"] ? " (admin)" : ""} !")
-// Bienvenue kuro (admin) !
-```
-
-Écris `\$` pour obtenir un `$` littéral sans déclencher l'interpolation. Une chaîne sans aucun `${...}` se comporte exactement comme avant — c'est une syntaxe purement additive, pas un type de chaîne différent.
+Un argument peut être n'importe quelle valeur — un nombre, une chaîne, le résultat d'un appel de fonction, tout ce que `str()` peut convertir. Un `{}` en trop sans argument correspondant reste tel quel (`{}`) ; des arguments en trop au-delà du nombre de `{}` sont simplement ignorés.
 
 ---
 
@@ -1315,6 +1305,7 @@ Toutes fonctionnent avec ou sans le préfixe `ton.` (voir [Bases du langage](#ba
 | `type(x)` | Renvoie le nom du type d'une valeur sous forme de chaîne |
 | `str(x)` | Convertit une valeur en chaîne |
 | `num(x)` | Convertit une valeur en nombre (`0` si non convertible) |
+| `format(modele, ...args)` | Remplace chaque `{}` dans `modele` par l'argument correspondant (voir [Formatage de chaînes](#formatage-de-chaînes)) |
 | `json(x)` | Convertit une valeur (tableau, dict, ou scalaire) en chaîne JSON |
 | `assert(cond, [msg])` | Lève une erreur (attrapable) si `cond` est faux |
 | `input([prompt])` | Affiche un prompt optionnel, lit et renvoie une ligne depuis stdin |
@@ -1772,8 +1763,8 @@ texte source (fichier .ton)
         │
         ▼
 ┌───────────────┐   transforme les caractères en une liste plate de Tokens
-│     Lexer     │   (nombres, chaînes, identifiants, mots-clés, opérateurs —
-└───────┬───────┘    y compris le désucrage de l'interpolation "${...}")
+│     Lexer     │   (nombres, chaînes, identifiants, mots-clés, opérateurs)
+└───────┬───────┘
         ▼  tokens
 ┌───────────────┐   parsing par descente récursive : groupe les Tokens en un
 │     Parser    │   arbre syntaxique abstrait (un arbre de nœuds Stmt/Expr)
@@ -1789,7 +1780,7 @@ ton618/
 ├── Makefile
 ├── include/                 # en-têtes (.hpp) — déclarations et notes de conception
 │   ├── Token.hpp               — le vocabulaire du langage (TokenType, Token)
-│   ├── Lexer.hpp                 — texte -> tokens (aussi où "${...}" est désucré)
+│   ├── Lexer.hpp                 — texte -> tokens
 │   ├── Ast.hpp                     — la forme des nœuds AST (Expr, Stmt)
 │   ├── Parser.hpp                    — tokens -> AST
 │   ├── Value.hpp                       — représentation des valeurs à l'exécution
@@ -1883,6 +1874,11 @@ Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/
 
 ### Changelog
 
+**beta-1.0.2** — formatage de chaînes simplifié, et un skill IA :
+
+- **L'interpolation de chaînes (`"Bonjour ${nom}!"`) a été retirée** au profit du bien plus simple **`format(modele, ...args)`** : `format("Bonjour {}!", nom)`. L'interpolation demandait au lexer de relancer récursivement le lexing d'expressions arbitraires embarquées dans les littéraux chaîne (en suivant les guillemets et accolades imbriqués) — beaucoup de machinerie pour ce qu'une simple fonction de traitement de chaînes fait tout aussi bien, avec bien moins de choses à garder en tête. Voir [Formatage de chaînes](#formatage-de-chaînes).
+- **Un skill IA pour TON618**, à la fois en `SKILL.md` façon Claude Code et en `AGENTS.md` générique, pour qu'un agent IA écrive du `.ton` correct sans avoir à redériver le langage depuis ce document — voir le lien **"Skills for AI"** à côté du playground, ou `exemples/skills/`.
+
 **beta-1.0.1** — corrections de bugs, nouvelle syntaxe, et une bibliothèque standard bien plus grande :
 
 *Corrections de justesse :*
@@ -1891,7 +1887,7 @@ Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/
 - **`%` lève maintenant une erreur pour une division par zéro** au lieu de produire silencieusement `NaN`, comme `/`.
 
 *Nouvelle syntaxe :*
-- **Interpolation de chaînes** : `"Bonjour ${nom}!"` (voir [Interpolation de chaînes](#interpolation-de-chaînes))
+- ~~Interpolation de chaînes~~ — ajoutée ici, remplacée par `format()` en beta-1.0.2 (voir plus haut)
 - **`switch` / `case` / `default`**, sans fallthrough et avec prise en charge de plusieurs valeurs par case
 - **Indexation de chaînes** : `s[0]` lit un caractère (les chaînes restent immuables — assigner à un index est une erreur)
 
@@ -1912,7 +1908,7 @@ Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/
 - **`ton618 --update [version]`** : retélécharge le binaire correspondant à la plateforme actuelle depuis les GitHub Releases et remplace celui en cours d'exécution
 - **`ton618 --version` / `-v`** : affiche la version, la plateforme détectée, et l'architecture
 - **`.github/workflows/pages.yml`** publie `exemples/` (doc + playground) sur GitHub Pages, avec prise en charge de domaine personnalisé (`exemples/CNAME`)
-- Le playground du navigateur (`ton618-lite.js`) implémente maintenant aussi `ton.mathutils`, `ton.strings`, `find`/`any`/`all`, `json_pretty`, l'interpolation de chaînes, `switch`/`case`, et l'indexation de chaînes — comblant plusieurs écarts où il se comportait silencieusement différemment de l'interpréteur réel
+- Le playground du navigateur (`ton618-lite.js`) implémente maintenant aussi `ton.mathutils`, `ton.strings`, `find`/`any`/`all`, `json_pretty`, `switch`/`case`, et l'indexation de chaînes — comblant plusieurs écarts où il se comportait silencieusement différemment de l'interpréteur réel
 
 **Ajouts antérieurs au langage** (avant beta-1.0.1) :
 

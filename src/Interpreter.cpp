@@ -214,6 +214,25 @@ void Interpreter::defineNatives() {
         return Value::Number(0);
     });
 
+    // format(template, ...args) — replaces each "{}" in template, left to
+    // right, with str(args[i]). Simpler alternative to building a string out
+    // of a chain of '+' concatenations: format("Hello {}, you are {}!", name, age).
+    def("format", [](std::vector<Value>& args) -> Value {
+        if (args.empty()) return Value::String("");
+        std::string tmpl = args[0].toString(), out;
+        size_t argIndex = 1;
+        for (size_t i = 0; i < tmpl.size(); i++) {
+            if (tmpl[i] == '{' && i + 1 < tmpl.size() && tmpl[i + 1] == '}') {
+                out += (argIndex < args.size()) ? args[argIndex].toString() : "{}";
+                argIndex++;
+                i++;
+                continue;
+            }
+            out += tmpl[i];
+        }
+        return Value::String(out);
+    });
+
     def("push", [](std::vector<Value>& args) -> Value {
         if (args.size() >= 2 && args[0].type == ValueType::ARRAY) args[0].array->push_back(args[1]);
         return Value::Nil();

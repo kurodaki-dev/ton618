@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TON618 — Skills for AI</title>
+<style>
+  :root {
+    --bg: #0a0a0d;
+    --bg-raised: #121216;
+    --line: #232329;
+    --text: #d8d8de;
+    --text-dim: #7c7c88;
+    --accent: #ff7a3d;
+    --accent-dim: #7a3d1f;
+    --code-bg: #0f0f13;
+    --serif: Georgia, "Times New Roman", serif;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--serif);
+    margin: 0;
+    line-height: 1.65;
+  }
+  .hero {
+    position: relative;
+    padding: 4rem 1.5rem 3rem;
+    text-align: center;
+    overflow: hidden;
+    border-bottom: 1px solid var(--line);
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 600px; height: 600px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, var(--accent-dim) 0%, transparent 70%);
+    opacity: 0.35;
+    pointer-events: none;
+  }
+  .hero-inner { position: relative; z-index: 1; }
+  .hero h1 {
+    font-family: var(--mono);
+    font-size: clamp(2rem, 5.5vw, 3.2rem);
+    letter-spacing: -0.02em;
+    margin: 0 0 0.5rem;
+    color: #fff;
+  }
+  .hero h1 .dot { color: var(--accent); }
+  .hero p.tagline {
+    color: var(--text-dim);
+    font-size: 1.05rem;
+    max-width: 42em;
+    margin: 0 auto;
+    font-style: italic;
+  }
+  .nav-links {
+    margin-top: 1.4rem;
+    display: flex;
+    justify-content: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .nav-links a {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.5rem 1.2rem;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .nav-links a:hover { color: #fff; border-color: var(--accent-dim); background: var(--bg-raised); }
+  .nav-links a.primary { color: #fff; background: var(--accent-dim); border-color: var(--accent-dim); }
+
+  .wrap { max-width: 780px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+
+  section { margin-bottom: 3.2rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+  section:first-of-type { border-top: none; }
+  h2 { font-family: var(--mono); font-size: 1.4rem; color: #fff; margin: 0 0 1rem; }
+  h3 { font-family: var(--mono); font-size: 1.02rem; color: var(--text); margin: 1.8rem 0 0.6rem; }
+  p { margin: 0 0 1rem; }
+  a { color: var(--accent); }
+  strong { color: #fff; font-weight: 600; }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent-dim);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    overflow-x: auto;
+    margin: 0.8rem 0 1.2rem;
+    position: relative;
+  }
+  code { font-family: var(--mono); font-size: 0.88rem; }
+  p code, li code { background: var(--code-bg); border: 1px solid var(--line); border-radius: 3px; padding: 0.05rem 0.4rem; color: #ffb08a; font-size: 0.85em; }
+  pre code { color: var(--text); background: none; border: none; padding: 0; }
+
+  .copy {
+    position: absolute; top: 8px; right: 8px; background: transparent; border: 1px solid var(--line);
+    color: var(--text-dim); border-radius: 6px; padding: 4px 8px; font: inherit; font-size: .72rem; cursor: pointer;
+  }
+  .copy:hover { color: var(--text); border-color: var(--accent); }
+
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0 1.5rem; }
+  @media (max-width: 640px) { .cards { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--bg-raised); border: 1px solid var(--line); border-radius: 10px;
+    padding: 1.2rem 1.3rem;
+  }
+  .card h3 { margin-top: 0; }
+  .card .file {
+    display: inline-block; font-family: var(--mono); font-size: 0.8rem; color: var(--accent);
+    margin-bottom: 0.6rem;
+  }
+  .btn {
+    display: inline-block; font-family: var(--mono); font-size: 0.82rem; text-decoration: none;
+    color: #fff; background: var(--accent-dim); border: 1px solid var(--accent-dim);
+    border-radius: 8px; padding: 0.5rem 1rem; margin-top: 0.4rem;
+  }
+  .btn:hover { background: var(--accent); border-color: var(--accent); }
+  .btn.secondary { background: transparent; color: var(--text-dim); border-color: var(--line); }
+  .btn.secondary:hover { color: var(--text); border-color: var(--accent-dim); }
+
+  .note {
+    border-left: 3px solid var(--accent-dim);
+    background: var(--bg-raised);
+    padding: 0.8rem 1.1rem;
+    border-radius: 0 4px 4px 0;
+    font-size: 0.92rem;
+    color: var(--text-dim);
+    margin: 1rem 0 1.4rem;
+  }
+  .note strong { color: var(--text); }
+
+  ul, ol { padding-left: 1.4rem; }
+  li { margin-bottom: 0.5rem; }
+
+  footer {
+    text-align: center;
+    padding: 3rem 1.5rem;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    border-top: 1px solid var(--line);
+  }
+  footer .dot { color: var(--accent); }
+  footer a { color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-inner">
+    <h1>TON<span class="dot">618</span> — Skills for AI</h1>
+    <p class="tagline">A packaged reference so an AI coding agent can write correct <code>.ton</code> scripts without re-deriving the language from the full docs.</p>
+    <div class="nav-links">
+      <a href="documentation.html">Documentation</a>
+      <a href="playground.html" class="primary">▶ Playground</a>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+<section>
+  <h2>What this is</h2>
+  <p>A condensed, AI-oriented reference for the TON618 language — syntax rules, the full native-function list, every built-in module, the HTTP server's request shape, and a list of gotchas an AI would otherwise trip on (strict function arity, no string interpolation, type-checked comparisons, and so on). It's the same content in two files, packaged for two different ways coding agents pick up project context.</p>
+  <p>Both files live in <a href="https://github.com/kurodaki-dev/ton618/tree/main/exemples/skills"><code>exemples/skills/</code></a> in the repository.</p>
+</section>
+
+<section>
+  <h2>Pick a format</h2>
+  <div class="cards">
+    <div class="card">
+      <span class="file">skills/ton618/SKILL.md</span>
+      <h3>Claude Code Skill</h3>
+      <p>The packaged-instructions format Claude Code itself uses (this documentation site was built with it). Once installed, Claude picks it up automatically whenever it's asked to write or edit TON618 code.</p>
+      <a class="btn" href="skills/ton618/SKILL.md">View SKILL.md</a>
+    </div>
+    <div class="card">
+      <span class="file">skills/AGENTS.md</span>
+      <h3>Generic AGENTS.md</h3>
+      <p>The same reference as a plain <code>AGENTS.md</code> — the emerging open convention several coding agents (Cursor, Copilot, and others) read automatically from a project root.</p>
+      <a class="btn" href="skills/AGENTS.md">View AGENTS.md</a>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Installing it</h2>
+
+  <h3>Claude Code</h3>
+  <p>Drop the file at <code>~/.claude/skills/ton618/SKILL.md</code> (available to every project) or <code>.claude/skills/ton618/SKILL.md</code> inside one project:</p>
+  <pre id="cmd-claude"><button class="copy" data-copy="cmd-claude">copy</button>mkdir -p ~/.claude/skills/ton618
+curl -fsSL -o ~/.claude/skills/ton618/SKILL.md https://raw.githubusercontent.com/kurodaki-dev/ton618/main/exemples/skills/ton618/SKILL.md</pre>
+  <p>Claude Code loads any skill under that folder automatically and invokes it whenever the task at hand matches its description — no further setup.</p>
+
+  <h3>Cursor, Copilot, and other agents reading AGENTS.md</h3>
+  <p>Save it at the root of the project the agent is working in:</p>
+  <pre id="cmd-agents"><button class="copy" data-copy="cmd-agents">copy</button>curl -fsSL -o AGENTS.md https://raw.githubusercontent.com/kurodaki-dev/ton618/main/exemples/skills/AGENTS.md</pre>
+  <p>If the project already has its own <code>AGENTS.md</code>, paste this one's content in as a new section instead of overwriting it.</p>
+
+  <h3>Any other agent</h3>
+  <p>Both files are plain Markdown — paste one into the system prompt, a project-instructions field, or just point the agent at this page or the raw file. There's nothing Claude-specific in the content itself, only in how <code>SKILL.md</code> is auto-discovered.</p>
+
+  <div class="note"><strong>Note:</strong> the skill is a reference for <em>writing</em> TON618 code — the agent still needs the real <code>ton618</code> binary on its machine to actually run scripts (see the <a href="documentation.html#installing--building-the-interpreter">install instructions</a>).</div>
+</section>
+
+<section>
+  <h2>Keeping it in sync</h2>
+  <p>Both files are hand-written to match <code>DOCUMENTATION.md</code> and the interpreter's actual behavior — whenever the language changes, update <code>exemples/skills/ton618/SKILL.md</code> and <code>exemples/skills/AGENTS.md</code> together (their content is identical, only the framing/frontmatter differs) alongside the documentation itself.</p>
+</section>
+
+</div>
+
+<footer>TON618<span class="dot">.</span>lang — <a href="documentation.html">documentation</a> · <a href="playground.html">playground</a></footer>
+
+<script>
+  document.querySelectorAll(".copy").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const pre = document.getElementById(btn.dataset.copy);
+      const text = pre.textContent.replace(/^copy/, "").trim();
+      navigator.clipboard?.writeText(text);
+      const old = btn.textContent;
+      btn.textContent = "copied!";
+      setTimeout(() => { btn.textContent = old; }, 1200);
+    });
+  });
+</script>
+
+</body>
+</html>

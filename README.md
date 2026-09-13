@@ -25,7 +25,7 @@ ton618 --help
 ton618 script.ton
 ton618 --version          # current version, platform, architecture
 ton618 --update           # update to the latest release
-ton618 --update beta-1.0.1 # pin to a specific release
+ton618 --update beta-1.0.2 # pin to a specific release
 ton618 --uninstall
 ```
 
@@ -40,6 +40,10 @@ Want it hosted at a public URL instead of a local file? See [Publishing the docs
 ## Try it without installing
 
 Open [`exemples/playground.html`](exemples/playground.html) in any browser for a live code editor — no install, no server, nothing sent anywhere.
+
+## Coding TON618 with an AI agent
+
+[`exemples/skills/`](exemples/skills/) packages a condensed language reference for AI coding agents, as both a Claude Code `SKILL.md` and a generic `AGENTS.md` — see [`exemples/skills.html`](exemples/skills.html) for what each is and how to install it.
 
 ## License
 

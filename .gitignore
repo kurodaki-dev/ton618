@@ -1,4 +1,4 @@
-ton618
-ton618.exe
-dist/
+/ton618
+/ton618.exe
+/dist/
 *.o

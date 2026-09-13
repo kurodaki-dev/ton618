@@ -5,8 +5,8 @@
 //
 // It mirrors the real interpreter's architecture (see DOCUMENTATION.md >
 // "Architecture") — Lexer -> Parser -> Interpreter, the same grammar
-// (including string interpolation and switch/case), the same native
-// functions — closely enough that ordinary scripts behave identically.
+// (including switch/case), the same native functions — closely enough that
+// ordinary scripts behave identically.
 // ton.random / ton.time / ton.json / ton.mathutils / ton.strings are
 // re-implemented here in full, since none of those need anything a browser
 // can't do.
@@ -66,74 +66,22 @@ function lex(source) {
 
     if (c === '"') {
       i++;
-      // Mirrors the real interpreter's Lexer::string() (src/Lexer.cpp):
-      // "a${expr}b" desugars, right here, into the same tokens as
-      // ("a" + (expr) + "b") — string concatenation ('+') already
-      // stringifies any value, so no parser/interpreter changes are needed.
-      const literalParts = []; // always exprParts.length + 1
-      const exprParts = [];
-      let chunk = "";
-
+      // Mirrors the real interpreter's Lexer::string() (src/Lexer.cpp): plain
+      // and simple on purpose — use the always-available format() native to
+      // build a string out of variables instead of embedded expression syntax.
+      let s = "";
       while (i < n && source[i] !== '"') {
         if (source[i] === "\\") {
           i++;
           const e = source[i++];
-          chunk += { n: "\n", t: "\t", r: "\r", '"': '"', "\\": "\\", "$": "$" }[e] ?? e;
-          continue;
-        }
-        if (source[i] === "$" && peek(1) === "{") {
-          i += 2;
-          literalParts.push(chunk);
-          chunk = "";
-          let depth = 1;
-          const exprStart = i;
-          while (i < n && depth > 0) {
-            if (source[i] === '"') {
-              // Skip a nested string literal so its own braces/quotes can't
-              // be mistaken for the interpolation's boundaries.
-              i++;
-              while (i < n && source[i] !== '"') {
-                if (source[i] === "\\") i++;
-                if (source[i] === "\n") line++;
-                i++;
-              }
-              i++; // closing quote of the nested string
-              continue;
-            }
-            if (source[i] === "{") depth++;
-            else if (source[i] === "}") { depth--; if (depth === 0) break; }
-            else if (source[i] === "\n") line++;
-            i++;
-          }
-          if (i >= n) throw new Error(`Line ${line}: interpolation '\${...}' non terminee.`);
-          exprParts.push(source.slice(exprStart, i));
-          i++; // closing '}'
+          s += { n: "\n", t: "\t", r: "\r", '"': '"', "\\": "\\" }[e] ?? e;
           continue;
         }
         if (source[i] === "\n") line++;
-        chunk += source[i++];
+        s += source[i++];
       }
       i++; // closing quote
-      literalParts.push(chunk);
-
-      if (exprParts.length === 0) {
-        push("STRING", literalParts[0]);
-      } else {
-        tokens.push({ type: "LPAREN", value: "(", line });
-        for (let p = 0; p < exprParts.length; p++) {
-          tokens.push({ type: "STRING", value: literalParts[p], line });
-          tokens.push({ type: "PLUS", value: "+", line });
-          tokens.push({ type: "LPAREN", value: "(", line });
-          for (const t of lex(exprParts[p])) {
-            if (t.type === "EOF") continue;
-            tokens.push({ ...t, line });
-          }
-          tokens.push({ type: "RPAREN", value: ")", line });
-          tokens.push({ type: "PLUS", value: "+", line });
-        }
-        tokens.push({ type: "STRING", value: literalParts[literalParts.length - 1], line });
-        tokens.push({ type: "RPAREN", value: ")", line });
-      }
+      push("STRING", s);
       continue;
     }
 
@@ -1026,6 +974,21 @@ class Interpreter {
     this.def("type", (a) => typeName(a[0]));
     this.def("str", (a) => toDisplayString(a[0] ?? null));
     this.def("num", (a) => { const v = a[0]; if (typeof v === "number") return v; const n = parseFloat(v); return Number.isNaN(n) ? 0 : n; });
+    this.def("format", (a) => {
+      if (!a.length) return "";
+      const tmpl = toDisplayString(a[0]);
+      let out = "", argIndex = 1;
+      for (let i = 0; i < tmpl.length; i++) {
+        if (tmpl[i] === "{" && tmpl[i + 1] === "}") {
+          out += argIndex < a.length ? toDisplayString(a[argIndex]) : "{}";
+          argIndex++;
+          i++;
+          continue;
+        }
+        out += tmpl[i];
+      }
+      return out;
+    });
     this.def("json", (a) => toJson(a[0] ?? null));
     this.def("assert", (a) => { if (!isTruthy(a[0])) throw new Error(a[1] !== undefined ? toDisplayString(a[1]) : "assertion failed"); return null; });
 

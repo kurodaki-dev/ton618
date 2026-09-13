@@ -80,104 +80,32 @@ void Lexer::skipBlockComment() {
     }
 }
 
-// Scans a "double-quoted" string literal. A "${expression}" anywhere inside
-// it is string interpolation: "Hello ${ton.name}!" desugars, right here at
-// the token level, into the same tokens as ("Hello " + (ton.name) + "!") —
-// the parser and interpreter need no changes at all, since string
-// concatenation via '+' (see Interpreter::evaluate) already stringifies any
-// value type. The expression inside "${...}" can be anything a normal
-// expression can (it's recursively lexed by a fresh Lexer over that
-// substring), including nested strings and braces (both are tracked so
-// e.g. ${ {a:1}["a"] } or ${ strings_pad_left(str(x), 3, "0") } work).
+// Scans a "double-quoted" string literal. Plain and simple on purpose — for
+// building a string out of variables, use the always-available format()
+// native (src/Interpreter.cpp) instead of embedded expression syntax here:
+// format("Hello {}, you are {} next year!", name, age + 1).
 void Lexer::string() {
-    std::vector<std::string> literalParts; // always exprParts.size() + 1
-    std::vector<std::string> exprParts;
-    std::string chunk;
-
+    std::string value;
     while (peek() != '"' && !isAtEnd()) {
         if (peek() == '\\') {
             advance();
             char esc = advance();
             switch (esc) {
-                case 'n': chunk += '\n'; break;
-                case 't': chunk += '\t'; break;
-                case 'r': chunk += '\r'; break;
-                case '"': chunk += '"'; break;
-                case '\\': chunk += '\\'; break;
-                case '$': chunk += '$'; break;
-                default: chunk += esc; break;
+                case 'n': value += '\n'; break;
+                case 't': value += '\t'; break;
+                case 'r': value += '\r'; break;
+                case '"': value += '"'; break;
+                case '\\': value += '\\'; break;
+                default: value += esc; break;
             }
             continue;
         }
-
-        if (peek() == '$' && peekNext() == '{') {
-            advance(); advance(); // consume "${"
-            literalParts.push_back(chunk);
-            chunk.clear();
-
-            int depth = 1;
-            int exprStart = current;
-            while (!isAtEnd() && depth > 0) {
-                char c = peek();
-                if (c == '"') {
-                    // Skip a nested string literal so its own braces/quotes
-                    // can't be mistaken for the interpolation's boundaries.
-                    advance();
-                    while (!isAtEnd() && peek() != '"') {
-                        if (peek() == '\\') advance();
-                        if (peek() == '\n') line++;
-                        advance();
-                    }
-                    if (!isAtEnd()) advance();
-                    continue;
-                }
-                if (c == '{') depth++;
-                else if (c == '}') { depth--; if (depth == 0) break; }
-                else if (c == '\n') line++;
-                advance();
-            }
-            if (isAtEnd()) throw std::runtime_error("Ligne " + std::to_string(line) + ": interpolation '${...}' non terminee.");
-            exprParts.push_back(source.substr(exprStart, current - exprStart));
-            advance(); // consume closing '}'
-            continue;
-        }
-
         if (peek() == '\n') line++;
-        chunk += advance();
+        value += advance();
     }
     if (isAtEnd()) throw std::runtime_error("Ligne " + std::to_string(line) + ": chaine non terminee.");
-    advance(); // consume closing '"'
-    literalParts.push_back(chunk);
-
-    // The common case (no interpolation at all): a single plain STRING
-    // token, exactly as before this feature existed.
-    if (exprParts.empty()) {
-        addToken(TokenType::STRING, literalParts[0]);
-        return;
-    }
-
-    tokens.emplace_back(TokenType::LPAREN, "(", line);
-    for (size_t i = 0; i < exprParts.size(); i++) {
-        Token lit(TokenType::STRING, "\"...\"", line);
-        lit.stringValue = literalParts[i];
-        tokens.push_back(lit);
-        tokens.emplace_back(TokenType::PLUS, "+", line);
-
-        tokens.emplace_back(TokenType::LPAREN, "(", line);
-        Lexer sub(exprParts[i]);
-        for (auto& t : sub.scanTokens()) {
-            if (t.type == TokenType::END_OF_FILE) continue;
-            Token copy = t;
-            copy.line = line; // approximate: attribute it to the "${" line
-            tokens.push_back(copy);
-        }
-        tokens.emplace_back(TokenType::RPAREN, ")", line);
-        tokens.emplace_back(TokenType::PLUS, "+", line);
-    }
-    Token lastLit(TokenType::STRING, "\"...\"", line);
-    lastLit.stringValue = literalParts.back();
-    tokens.push_back(lastLit);
-    tokens.emplace_back(TokenType::RPAREN, ")", line);
+    advance();
+    addToken(TokenType::STRING, value);
 }
 
 void Lexer::number() {
