@@ -880,6 +880,12 @@ https://<user>.github.io/ton618/ton618-lite.js          — the playground's eng
 
 Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `exemples/documentation.html`, and push — the workflow re-publishes automatically.
 
+**Using a custom domain** (e.g. a free [DuckDNS](https://www.duckdns.org) subdomain instead of `github.io`): this needs no server of your own — GitHub hosts the site, not you.
+
+1. On DuckDNS, point your subdomain's IP at one of GitHub Pages' fixed addresses instead of any server you run: `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, or `185.199.111.153` (DuckDNS only accepts one IP per subdomain, so pick just one). If that subdomain is also kept updated by a dynamic-DNS script running somewhere (cron on a VPS, a router, etc.), that script will overwrite this the next time it runs — use a subdomain that nothing else auto-updates.
+2. `exemples/CNAME` in this repo already holds the domain the docs are pinned to; `.github/workflows/pages.yml` publishes it as-is, which is what tells GitHub Pages to serve that domain.
+3. **GitHub → this repository → Settings → Pages** should then show the custom domain under **Custom domain** (DNS propagation can take a few minutes) — once it verifies, tick **Enforce HTTPS**.
+
 ---
 
 ### Known limitations
@@ -1801,6 +1807,12 @@ https://<utilisateur>.github.io/ton618/ton618-lite.js          — le moteur du 
 (adapte l'org/l'utilisateur de ces URLs à celui qui possède ce dépôt.)
 
 Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/documentation.html` régénéré, et push — le workflow republie automatiquement.
+
+**Utiliser un domaine personnalisé** (ex. un sous-domaine [DuckDNS](https://www.duckdns.org) gratuit plutôt que `github.io`) : ça ne nécessite aucun serveur à toi — GitHub héberge le site, pas toi.
+
+1. Sur DuckDNS, pointe l'IP de ton sous-domaine vers une des adresses fixes de GitHub Pages plutôt que vers un serveur que tu gères : `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, ou `185.199.111.153` (DuckDNS n'accepte qu'une seule IP par sous-domaine, donc choisis-en une seule). Si ce sous-domaine est aussi maintenu à jour par un script de dynamic-DNS ailleurs (cron sur un VPS, un routeur, etc.), ce script écrasera ce réglage à la prochaine exécution — utilise un sous-domaine que rien d'autre ne met à jour automatiquement.
+2. `exemples/CNAME` dans ce dépôt contient déjà le domaine auquel la doc est épinglée ; `.github/workflows/pages.yml` le publie tel quel, ce qui indique à GitHub Pages de servir ce domaine.
+3. **GitHub → ce dépôt → Settings → Pages** devrait alors afficher le domaine personnalisé sous **Custom domain** (la propagation DNS peut prendre quelques minutes) — une fois vérifié, coche **Enforce HTTPS**.
 
 ---
 
