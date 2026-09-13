@@ -1,0 +1,5 @@
+// Exercises the stringutils module described in DOCUMENTATION.md's module guide.
+IMPORT://stringutils
+
+print(ton.stringutils_capitalize("kuro"))
+print(ton.stringutils_titleCase("hello world"))

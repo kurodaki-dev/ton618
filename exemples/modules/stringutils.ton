@@ -1,0 +1,20 @@
+// stringutils.ton — reusable string helpers.
+// Convention: every name here is prefixed with "stringutils_" to avoid
+// clashing with whatever the importing script (or another module) declares.
+// See DOCUMENTATION.md > "Creating a TON618 module" for the full guide this
+// file illustrates.
+
+// Capitalizes the first letter of s, leaves the rest untouched.
+ton.function stringutils_capitalize(s) {
+    if len(s) == 0 {
+        return s
+    }
+    return upper(substring(s, 0, 1)) + substring(s, 1)
+}
+
+// Capitalizes the first letter of every space-separated word in s.
+ton.function stringutils_titleCase(s) {
+    ton.array words = split(s, " ")
+    ton.array out = map(words, ton.function(w) { return stringutils_capitalize(w) })
+    return join(out, " ")
+}

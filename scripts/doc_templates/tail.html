@@ -1,0 +1,192 @@
+</script>
+
+<script>
+// ============================================================================
+// This page renders the markdown embedded above (a snapshot of the project's
+// DOCUMENTATION.md, copied in at edit time — see the Makefile "docs" target)
+// directly, with no network fetch: it works the instant the file is opened,
+// whether that's by double-clicking it or through exemples/doc_server.ton.
+// The parser below only needs to understand the constructs DOCUMENTATION.md
+// actually uses (headings, fenced code, tables, lists, blockquotes, bold/
+// italic/code/links) — it is not a general-purpose CommonMark implementation.
+// ============================================================================
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Reproduces GitHub's heading-anchor algorithm closely enough that the
+// "[Text](#anchor)" links already written by hand in DOCUMENTATION.md's own
+// tables of contents resolve to the headings this renderer produces:
+// lowercase, strip punctuation (keeping unicode letters/digits/underscore/
+// hyphen/space), then turn every remaining space into its own hyphen without
+// collapsing runs — and disambiguate repeated headings with a "-1", "-2", ...
+// suffix, exactly like GitHub does for a single document.
+function slugify(text, usedSlugs) {
+  let base = text.trim().toLowerCase()
+    .replace(/[^\p{L}\p{N}_\- ]+/gu, '')
+    .replace(/ /g, '-');
+  let slug = base, n = 0;
+  while (usedSlugs.has(slug)) { n++; slug = base + '-' + n; }
+  usedSlugs.add(slug);
+  return slug;
+}
+
+function renderInline(text) {
+  // Pull inline code out first so its contents are never touched by the
+  // bold/italic/link passes below, then restore it once everything else ran.
+  const codeSpans = [];
+  text = text.replace(/`([^`]+)`/g, (_, c) => {
+    codeSpans.push(escapeHtml(c));
+    return ' ' + (codeSpans.length - 1) + ' ';
+  });
+  text = escapeHtml(text);
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, u) => `<a href="${u}">${t}</a>`);
+  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  text = text.replace(/ (\d+) /g, (_, i) => `<code>${codeSpans[+i]}</code>`);
+  return text;
+}
+
+// Renders one language's slice of the markdown into HTML, grouping every
+// "###" heading (and everything until the next one) into its own
+// <section class="doc-section">, matching the page's visual design.
+// `usedSlugs` is shared across both language calls so a heading repeated
+// between the English and French halves (e.g. "Types") gets deduplicated
+// exactly as it would across the single real markdown file on GitHub.
+function renderMarkdown(md, usedSlugs) {
+  const lines = md.split('\n');
+  let i = 0;
+  let html = '';
+  let sectionOpen = false;
+
+  const isHr = (l) => /^-{3,}\s*$/.test(l.trim());
+  const headerMatch = (l) => l.match(/^(#{2,6})\s+(.*)$/);
+  const isFence = (l) => l.trim().startsWith('```');
+  const isTableRow = (l) => /^\s*\|.*\|\s*$/.test(l);
+  const isTableSep = (l) => /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/.test(l);
+  const isUl = (l) => /^\s*[-*]\s+/.test(l);
+  const isOl = (l) => /^\s*\d+\.\s+/.test(l);
+  const isQuote = (l) => /^>\s?/.test(l);
+  const splitRow = (l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (line.trim() === '' || isHr(line)) { i++; continue; }
+
+    if (isFence(line)) {
+      i++;
+      const code = [];
+      while (i < lines.length && !isFence(lines[i])) { code.push(lines[i]); i++; }
+      i++; // the closing ```
+      html += `<pre><code>${escapeHtml(code.join('\n'))}</code></pre>\n`;
+      continue;
+    }
+
+    const h = headerMatch(line);
+    if (h) {
+      const level = h[1].length;
+      const text = h[2].trim();
+      const id = slugify(text, usedSlugs);
+      if (level === 3) {
+        html += (sectionOpen ? '</section>\n' : '') + `<section class="doc-section" id="${id}">\n<h2>${renderInline(text)}</h2>\n`;
+        sectionOpen = true;
+      } else {
+        html += `<h3 id="${id}">${renderInline(text)}</h3>\n`;
+      }
+      i++;
+      continue;
+    }
+
+    if (isTableRow(line) && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+      const headerCells = splitRow(line);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && isTableRow(lines[i])) { rows.push(splitRow(lines[i])); i++; }
+      html += '<table><tr>' + headerCells.map(c => `<th>${renderInline(c)}</th>`).join('') + '</tr>\n';
+      for (const r of rows) html += '<tr>' + r.map(c => `<td>${renderInline(c)}</td>`).join('') + '</tr>\n';
+      html += '</table>\n';
+      continue;
+    }
+
+    if (isQuote(line)) {
+      const quoted = [];
+      while (i < lines.length && isQuote(lines[i])) { quoted.push(lines[i].replace(/^>\s?/, '')); i++; }
+      html += `<div class="note">${renderInline(quoted.join(' '))}</div>\n`;
+      continue;
+    }
+
+    if (isUl(line)) {
+      const items = [];
+      while (i < lines.length && isUl(lines[i])) { items.push(lines[i].replace(/^\s*[-*]\s+/, '')); i++; }
+      html += '<ul>' + items.map(it => `<li>${renderInline(it)}</li>`).join('') + '</ul>\n';
+      continue;
+    }
+
+    if (isOl(line)) {
+      const items = [];
+      while (i < lines.length && isOl(lines[i])) { items.push(lines[i].replace(/^\s*\d+\.\s+/, '')); i++; }
+      html += '<ol>' + items.map(it => `<li>${renderInline(it)}</li>`).join('') + '</ol>\n';
+      continue;
+    }
+
+    // A plain paragraph: keep consuming lines until a blank line or the
+    // start of some other block-level construct.
+    const para = [line];
+    i++;
+    while (i < lines.length && lines[i].trim() !== '' && !headerMatch(lines[i]) && !isHr(lines[i]) &&
+           !isFence(lines[i]) && !isUl(lines[i]) && !isOl(lines[i]) && !isQuote(lines[i]) && !isTableRow(lines[i])) {
+      para.push(lines[i]);
+      i++;
+    }
+    html += `<p>${renderInline(para.join(' '))}</p>\n`;
+  }
+
+  if (sectionOpen) html += '</section>\n';
+  return html;
+}
+
+function setLang(lang) {
+  document.getElementById('block-en').classList.toggle('visible', lang === 'en');
+  document.getElementById('block-fr').classList.toggle('visible', lang === 'fr');
+  document.getElementById('btn-en').classList.toggle('active-en', lang === 'en');
+  document.getElementById('btn-fr').classList.toggle('active-en', lang === 'fr');
+  document.getElementById('tagline').textContent = lang === 'en'
+    ? 'A simple interpreted programming language, written in C++.'
+    : "Un langage de programmation interprété simple, écrit en C++.";
+  try { localStorage.setItem('ton618-doc-lang', lang); } catch (e) {}
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+
+(function renderDocsNow() {
+  const raw = document.getElementById('doc-source').textContent;
+  const enMarker = '## 🇬🇧 English';
+  const frMarker = '## 🇫🇷 Français';
+  const enStart = raw.indexOf(enMarker);
+  const frStart = raw.indexOf(frMarker);
+  const enText = raw.slice(enStart + enMarker.length, frStart);
+  const frText = raw.slice(frStart + frMarker.length);
+
+  // One shared slug set across both languages: a heading repeated between
+  // the English and French halves (e.g. "Types") must dedupe into "types"
+  // then "types-1", exactly as it would parsing the whole file as one
+  // document — which is what the hand-written "(#types-1)" links assume.
+  const usedSlugs = new Set();
+  document.getElementById('block-en').innerHTML = renderMarkdown(enText, usedSlugs);
+  document.getElementById('block-fr').innerHTML = renderMarkdown(frText, usedSlugs);
+
+  let lang = 'en';
+  try { lang = localStorage.getItem('ton618-doc-lang') || 'en'; } catch (e) {}
+  setLang(lang);
+
+  // Support opening the page directly on an anchor (e.g. documentation.html#running-a-script).
+  if (location.hash) {
+    const target = document.getElementById(location.hash.slice(1));
+    if (target) target.scrollIntoView();
+  }
+})();
+</script>
+
+</body>
+</html>

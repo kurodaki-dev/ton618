@@ -1,0 +1,25 @@
+// doc_server.ton
+// Serves documentation.html as a local web page. The page itself is a
+// Markdown viewer (see exemples/documentation.html) that fetches and renders
+// DOCUMENTATION.md live, so this server also exposes the raw markdown file —
+// that's the piece a browser can't reach directly when the page is opened
+// from disk (local-file fetches are blocked by browsers for security).
+
+ton.html page = readfile("documentation.html")
+ton.html markdown = readfile("../DOCUMENTATION.md")
+
+ton.function doc() {
+    return ton.page
+}
+
+ton.function rawMarkdown() {
+    return ton.markdown
+}
+
+ton.get("/", ton.doc)
+ton.get("/DOCUMENTATION.md", ton.rawMarkdown)
+
+print("TON618 doc server starting...")
+print("Open http://localhost:9000/ in your browser")
+
+ton.serve(9000)

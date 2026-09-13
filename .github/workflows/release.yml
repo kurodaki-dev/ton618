@@ -1,0 +1,119 @@
+name: Release
+
+# Cross-compiles the three precompiled binaries the project ships (Linux
+# x64, Windows x64, Termux/Android arm64 — see the Makefile's linux/windows/
+# android targets and scripts/rebuild.sh for the same build done locally),
+# then publishes them as assets on a GitHub Release. `--update` (src/main.cpp)
+# and scripts/install.sh / install.ps1 all download from that release.
+#
+# Triggers on any pushed tag matching v* or beta-* (e.g. `git tag beta-1.0.0
+# && git push origin beta-1.0.0`), or manually via workflow_dispatch for a
+# tag that doesn't exist yet — the release step creates it.
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "beta-*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. beta-1.0.0)"
+        required: true
+        default: "beta-1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y g++ make
+      - name: Build Linux x64 binary
+        run: make linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ton618-linux-x64
+          path: dist/ton618-linux-x64
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mingw-w64 (cross-compiler for Windows)
+        run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64-x86-64 make
+      - name: Build Windows x64 binary
+        run: make windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ton618-windows-x64.exe
+          path: dist/ton618-windows-x64.exe
+          if-no-files-found: error
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the aarch64 musl cross toolchain
+        # Cross-compiled against musl (not the Android NDK), statically
+        # linked, so the result runs unmodified under Termux with zero
+        # packages installed on-device — see the Makefile's own comment.
+        run: |
+          curl -fsSL -o /tmp/aarch64-linux-musl-cross.tgz https://musl.cc/aarch64-linux-musl-cross.tgz
+          mkdir -p /tmp/toolchains
+          tar xzf /tmp/aarch64-linux-musl-cross.tgz -C /tmp/toolchains
+      - name: Build Termux/Android arm64 binary
+        run: |
+          make android \
+            MUSL_AARCH64_CXX=/tmp/toolchains/aarch64-linux-musl-cross/bin/aarch64-linux-musl-g++ \
+            MUSL_AARCH64_STRIP=/tmp/toolchains/aarch64-linux-musl-cross/bin/aarch64-linux-musl-strip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ton618-android-arm64
+          path: dist/ton618-android-arm64
+          if-no-files-found: error
+
+  release:
+    needs: [build-linux, build-windows, build-android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+
+      - name: Flatten downloaded artifacts into dist/
+        run: |
+          mkdir -p dist
+          find dist-artifacts -type f -exec mv {} dist/ \;
+          chmod +x dist/ton618-linux-x64 dist/ton618-android-arm64
+          ls -la dist
+
+      - name: Build the source tarball
+        run: tar -czf dist/ton618-source.tar.gz Makefile include src modules exemples scripts DOCUMENTATION.md
+
+      - name: Resolve the release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "TON618 ${{ steps.tag.outputs.tag }}"
+          generate_release_notes: true
+          files: |
+            dist/ton618-linux-x64
+            dist/ton618-windows-x64.exe
+            dist/ton618-android-arm64
+            dist/ton618-source.tar.gz

@@ -1,0 +1,18 @@
+// Verifies ton.mathutils and ton.strings only work after IMPORT://.
+IMPORT://ton.mathutils
+IMPORT://ton.strings
+
+print("pi = " + str(mathutils_pi()))
+print("gcd(48, 18) = " + str(mathutils_gcd(48, 18)))
+print("lcm(4, 6) = " + str(mathutils_lcm(4, 6)))
+print("factorial(5) = " + str(mathutils_factorial(5)))
+print("is_prime(17) = " + str(mathutils_is_prime(17)))
+print("clamp(15, 0, 10) = " + str(mathutils_clamp(15, 0, 10)))
+print("mean([1,2,3,4]) = " + str(mathutils_mean([1, 2, 3, 4])))
+print("stddev([1,2,3,4]) = " + str(mathutils_stddev([1, 2, 3, 4])))
+
+print(strings_capitalize("hello world"))
+print(strings_reverse("ton618"))
+print(strings_pad_left("7", 3, "0"))
+print(strings_starts_with("ton618", "ton"))
+print(strings_count("banana", "an"))

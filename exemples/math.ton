@@ -1,0 +1,9 @@
+// Module math.ton - fonctions reutilisables
+
+ton.function square(n) {
+    return n * n
+}
+
+ton.function cube(n) {
+    return n * n * n
+}

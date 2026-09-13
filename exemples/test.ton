@@ -1,0 +1,34 @@
+// Test complet TON618 v2
+
+ton.int x = 5
+ton.string name = "kuro"
+ton.bool active = true
+
+if ton.x < 10 {
+    print("small")
+} else {
+    print("big")
+}
+
+ton.function add(a, b) {
+    return a + b
+}
+
+print(ton.add(2, 3))
+
+while ton.x < 8 {
+    print(ton.x)
+    ton.x = ton.x + 1
+}
+
+for ton.int i = 0; i < 3; i = i + 1 {
+    print("loop: " + str(i))
+}
+
+ton.array arr = [1, 2, 3]
+push(ton.arr, 4)
+print(ton.arr)
+print(len(ton.arr))
+print(ton.arr[0])
+
+print("Hello " + ton.name + " !")

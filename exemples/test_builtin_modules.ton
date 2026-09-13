@@ -1,0 +1,29 @@
+IMPORT://ton.sys
+IMPORT://ton.os
+IMPORT://ton.random
+IMPORT://ton.time
+IMPORT://ton.json
+
+print("platform: " + sys_platform())
+print("args: " + json(sys_args()))
+
+print("cwd exists: " + str(len(os_cwd()) > 0))
+print("os name: " + os_name())
+print("PATH set: " + str(os_getenv("PATH") != nil))
+
+random_seed(42)
+print(random_int(1, 10))
+print(random_int(1, 10))
+ton.array arr = [1, 2, 3, 4, 5]
+print(random_choice(arr))
+random_shuffle(arr)
+print(len(arr))
+
+print("time_now > 0: " + str(time_now() > 0))
+print("time_millis > 0: " + str(time_millis() > 0))
+
+ton.dict parsed = json_parse("{\"a\": 1, \"b\": [1,2,3], \"c\": true}")
+print(parsed["a"])
+print(parsed["b"])
+print(parsed["c"])
+print(json_stringify(parsed))

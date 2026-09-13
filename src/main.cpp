@@ -1,0 +1,331 @@
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cerrno>
+#include <cctype>
+#include "Lexer.hpp"
+#include "Parser.hpp"
+#include "Interpreter.hpp"
+#include "Platform.hpp"
+#include "Version.hpp"
+
+#ifdef _WIN32
+  #include <windows.h>
+#else
+  #include <unistd.h>
+  #include <climits>
+  #include <sys/stat.h>
+#endif
+
+static std::string readFile(const std::string& path) {
+    std::ifstream file(path);
+    if (!file) throw std::runtime_error("Could not open file '" + path + "'.");
+    std::stringstream ss;
+    ss << file.rdbuf();
+    return ss.str();
+}
+
+static std::vector<std::string> splitLines(const std::string& src) {
+    std::vector<std::string> lines;
+    std::stringstream ss(src);
+    std::string line;
+    while (std::getline(ss, line)) lines.push_back(line);
+    return lines;
+}
+
+static std::string dirOf(const std::string& path) {
+    auto pos = path.find_last_of("/\\");
+    if (pos == std::string::npos) return ".";
+    return path.substr(0, pos);
+}
+
+static void printUsage(const char* prog) {
+    std::cout << "Usage: " << prog << " <file.ton> [options]\n"
+              << "Options:\n"
+              << "  --debug              run in debug mode (pause at start)\n"
+              << "  --break=<line>        add a breakpoint at a given line (repeatable)\n"
+              << "  --uninstall           remove this ton618 install (binary + PATH entry)\n"
+              << "  --update [version]    update ton618 from GitHub Releases (latest if no version given)\n"
+              << "  --version, -v         print the interpreter's version, platform and architecture\n"
+              << "  --help, -h            show this message\n"
+              << "\nExample:\n"
+              << "  " << prog << " myscript.ton --debug --break=5\n";
+}
+
+static void printVersion() {
+    std::cout << "ton618 " << TON618_VERSION
+               << " (" << detectPlatform() << "/" << detectArch() << ")\n";
+}
+
+static std::string getExecutablePath() {
+#ifdef _WIN32
+    char buf[MAX_PATH];
+    DWORD len = GetModuleFileNameA(NULL, buf, MAX_PATH);
+    return (len > 0) ? std::string(buf, len) : "";
+#else
+    char buf[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    return (len != -1) ? std::string(buf, len) : "";
+#endif
+}
+
+// Removes the "# >>> ton618 installer PATH >>> ... # <<< ton618 installer
+// PATH <<<" block that install.sh appended to a shell rc file, if present.
+static void removePathBlock(const std::string& rcfile) {
+    std::ifstream in(rcfile);
+    if (!in) return;
+    std::stringstream ss;
+    ss << in.rdbuf();
+    in.close();
+    std::string content = ss.str();
+
+    const std::string startMarker = "# >>> ton618 installer PATH >>>";
+    const std::string endMarker = "# <<< ton618 installer PATH <<<";
+    size_t start = content.find(startMarker);
+    if (start == std::string::npos) return;
+    size_t end = content.find(endMarker, start);
+    if (end == std::string::npos) return;
+    end += endMarker.size();
+    if (end < content.size() && content[end] == '\n') end++;
+    // also drop the blank line install.sh inserted just before the block
+    if (start > 0 && content[start - 1] == '\n') start--;
+
+    content.erase(start, end - start);
+
+    std::ofstream out(rcfile, std::ios::trunc);
+    out << content;
+}
+
+static int runUninstall() {
+    std::string self = getExecutablePath();
+    if (self.empty()) {
+        std::cerr << "Could not determine the executable's path.\n";
+        return 1;
+    }
+
+    const char* home = std::getenv("HOME");
+    if (home) {
+        removePathBlock(std::string(home) + "/.bashrc");
+        removePathBlock(std::string(home) + "/.zshrc");
+        removePathBlock(std::string(home) + "/.profile");
+    }
+
+#ifdef _WIN32
+    // A running executable can't delete itself directly on Windows: spawn a
+    // detached helper that waits for this process to exit, then removes the
+    // file (and its install directory, if left empty).
+    size_t slash = self.find_last_of("\\/");
+    std::string dir = (slash == std::string::npos) ? "." : self.substr(0, slash);
+    std::string cmd = "cmd /C \"timeout /T 1 /NOBREAK >NUL & del /F /Q \"" + self +
+                       "\" & rmdir \"" + dir + "\" 2>NUL\"";
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    std::vector<char> cmdline(cmd.begin(), cmd.end());
+    cmdline.push_back('\0');
+    CreateProcessA(NULL, cmdline.data(), NULL, NULL, FALSE,
+                   CREATE_NEW_CONSOLE | DETACHED_PROCESS, NULL, NULL, &si, &pi);
+    std::cout << "Uninstalling TON618...\n";
+#else
+    if (std::remove(self.c_str()) != 0) {
+        std::cerr << "Failed to remove " << self << "\n";
+        return 1;
+    }
+    std::cout << "TON618 has been uninstalled (" << self << " removed).\n";
+#endif
+    return 0;
+}
+
+// True if `cmd` resolves to something runnable on PATH.
+static bool commandExists(const std::string& cmd) {
+#ifdef _WIN32
+    std::string check = "where " + cmd + " >NUL 2>NUL";
+#else
+    std::string check = "command -v " + cmd + " >/dev/null 2>&1";
+#endif
+    return std::system(check.c_str()) == 0;
+}
+
+// Downloads `url` to `outPath` by shelling out to curl (present on Linux,
+// Termux with `pkg install curl`, and Windows 10 1803+ out of the box) or a
+// fallback (wget on Linux, PowerShell's Invoke-WebRequest on Windows). No
+// HTTPS client is implemented in-process — see HttpClient.hpp's own comment
+// on why TON618 has no bundled TLS — so --update reuses whatever the OS
+// already ships, exactly like install.sh/install.ps1 do.
+static bool downloadFile(const std::string& url, const std::string& outPath) {
+    std::string cmd;
+#ifdef _WIN32
+    if (commandExists("curl")) {
+        cmd = "curl -fsSL -o \"" + outPath + "\" \"" + url + "\"";
+    } else {
+        cmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+              "\"$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri '" + url +
+              "' -OutFile '" + outPath + "'\"";
+    }
+#else
+    if (commandExists("curl")) {
+        cmd = "curl -fsSL -o '" + outPath + "' '" + url + "'";
+    } else if (commandExists("wget")) {
+        cmd = "wget -q -O '" + outPath + "' '" + url + "'";
+    } else {
+        std::cerr << "Neither curl nor wget is available to download the update.\n";
+        return false;
+    }
+#endif
+    return std::system(cmd.c_str()) == 0;
+}
+
+// --update [version] — re-downloads the precompiled binary matching this
+// platform (auto-detected: Linux, Termux, or Windows — see Platform.hpp)
+// from GitHub Releases and replaces the currently running executable.
+// `version` is a release tag (e.g. "beta-1.0.0"); omit it to grab whatever
+// release is currently "latest" on GitHub.
+static int runUpdate(const std::string& version) {
+    std::string platform = detectPlatform();
+    std::string asset = releaseAssetName();
+    if (asset.empty()) {
+        std::cerr << "No precompiled ton618 binary is published for this platform (" << platform << ").\n"
+                   << "See https://github.com/" << TON618_REPO << " to build from source instead.\n";
+        return 1;
+    }
+
+    for (char c : version) {
+        if (!std::isalnum((unsigned char)c) && c != '.' && c != '-' && c != '_') {
+            std::cerr << "Invalid version '" << version << "': only letters, digits, '.', '-', '_' are allowed.\n";
+            return 1;
+        }
+    }
+
+    std::string base = std::string("https://github.com/") + TON618_REPO + "/releases/";
+    std::string url = version.empty() ? (base + "latest/download/" + asset)
+                                       : (base + "download/" + version + "/" + asset);
+
+    std::string self = getExecutablePath();
+    if (self.empty()) {
+        std::cerr << "Could not determine the executable's own path.\n";
+        return 1;
+    }
+    std::string tmpPath = self + ".update";
+
+    std::cout << "[ton618] Current version: " << TON618_VERSION << " (" << platform << "/" << detectArch() << ")\n";
+    std::cout << "[ton618] Downloading " << (version.empty() ? "latest" : version) << " from " << url << " ...\n";
+
+    if (!downloadFile(url, tmpPath)) {
+        std::cerr << "[ton618] Download failed. Does that release/tag exist? "
+                   << "https://github.com/" << TON618_REPO << "/releases\n";
+        std::remove(tmpPath.c_str());
+        return 1;
+    }
+
+    // A bad tag can 404 into a small HTML error page instead of failing the
+    // download command's exit code outright — reject anything implausibly
+    // small rather than install it as if it were the real binary.
+    {
+        std::ifstream check(tmpPath, std::ios::binary | std::ios::ate);
+        if (!check || check.tellg() < 10000) {
+            std::cerr << "[ton618] The downloaded file looks invalid (wrong version/tag?). Aborting.\n";
+            std::remove(tmpPath.c_str());
+            return 1;
+        }
+    }
+
+#ifdef _WIN32
+    // A running .exe can't overwrite itself directly on Windows: spawn a
+    // detached helper (same trick as --uninstall) that waits for this
+    // process to exit, then swaps the new binary into place.
+    std::string cmd = "cmd /C \"timeout /T 1 /NOBREAK >NUL & move /Y \"" + tmpPath + "\" \"" + self + "\"\"";
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    std::vector<char> cmdline(cmd.begin(), cmd.end());
+    cmdline.push_back('\0');
+    CreateProcessA(NULL, cmdline.data(), NULL, NULL, FALSE,
+                   CREATE_NEW_CONSOLE | DETACHED_PROCESS, NULL, NULL, &si, &pi);
+    std::cout << "[ton618] Update downloaded. Finishing in the background — "
+                 "run 'ton618 --version' in a new terminal shortly to confirm.\n";
+#else
+    chmod(tmpPath.c_str(), 0755);
+    if (std::rename(tmpPath.c_str(), self.c_str()) != 0) {
+        std::cerr << "[ton618] Could not replace " << self << ": " << std::strerror(errno) << "\n";
+        std::remove(tmpPath.c_str());
+        return 1;
+    }
+    std::cout << "[ton618] Updated. Run 'ton618 --version' to confirm.\n";
+#endif
+    return 0;
+}
+
+int main(int argc, char** argv) {
+    std::vector<std::string> args(argv + 1, argv + argc);
+
+    // Flags that work standalone, without a script file, wherever they appear.
+    for (size_t i = 0; i < args.size(); i++) {
+        const std::string& arg = args[i];
+        if (arg == "--uninstall") return runUninstall();
+        if (arg == "-h" || arg == "--help") { printUsage(argv[0]); return 0; }
+        if (arg == "-v" || arg == "--version") { printVersion(); return 0; }
+        if (arg == "--update") {
+            std::string version = (i + 1 < args.size() && args[i + 1].rfind("--", 0) != 0)
+                                       ? args[i + 1] : "";
+            return runUpdate(version);
+        }
+    }
+
+    if (args.empty()) { printUsage(argv[0]); return 1; }
+
+    std::string path = args[0];
+    bool debugMode = false;
+    std::vector<int> breakpoints;
+    // Anything after the script path that isn't a recognized flag is a script
+    // argument, exposed to the running .ton script as sys_args() (see
+    // ton.sys in DOCUMENTATION.md) — this is how a .ton script reads CLI input.
+    std::vector<std::string> scriptArgs;
+
+    for (size_t i = 1; i < args.size(); i++) {
+        const std::string& arg = args[i];
+        if (arg == "--debug") debugMode = true;
+        else if (arg.rfind("--break=", 0) == 0) { debugMode = true; breakpoints.push_back(std::stoi(arg.substr(8))); }
+        else scriptArgs.push_back(arg);
+    }
+
+    std::string source;
+    try {
+        source = readFile(path);
+    } catch (std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+
+    try {
+        Lexer lexer(source);
+        std::vector<Token> tokens = lexer.scanTokens();
+
+        Parser parser(tokens);
+        std::vector<StmtPtr> statements = parser.parse();
+
+        Interpreter interpreter;
+        interpreter.scriptDir = dirOf(path);
+        interpreter.scriptArgs = scriptArgs;
+        interpreter.debugger.enabled = debugMode;
+        interpreter.debugger.sourceFilename = path;
+        interpreter.debugger.sourceLines = splitLines(source);
+        for (int bp : breakpoints) interpreter.debugger.addBreakpoint(bp);
+        if (debugMode) {
+            interpreter.debugger.mode = DebugMode::STEP;
+            std::cout << "=== TON618 Debugger ===\nType 'h' for help.\n";
+        }
+
+        interpreter.interpret(statements);
+    } catch (std::exception& e) {
+        std::cerr << e.what() << std::endl;
+        return 1;
+    }
+
+    return 0;
+}

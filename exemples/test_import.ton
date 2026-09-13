@@ -1,0 +1,4 @@
+IMPORT://math
+
+print(ton.square(4))
+print(ton.cube(3))

@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TON618 — Playground</title>
+<style>
+  :root {
+    --bg: #0a0a0d;
+    --bg-raised: #121216;
+    --line: #232329;
+    --text: #d8d8de;
+    --text-dim: #7c7c88;
+    --accent: #ff7a3d;
+    --accent-dim: #7a3d1f;
+    --code-bg: #0f0f13;
+    --ok: #9ecb8c;
+    --err: #ff8a8a;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --serif: Georgia, "Times New Roman", serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--serif);
+    margin: 0;
+  }
+
+  header {
+    padding: 2rem 1.5rem 1.5rem;
+    text-align: center;
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 {
+    font-family: var(--mono);
+    font-size: 1.8rem;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.3rem;
+    color: #fff;
+  }
+  header h1 .dot { color: var(--accent); }
+  header p {
+    color: var(--text-dim);
+    font-size: 0.95rem;
+    margin: 0 0 1rem;
+    font-style: italic;
+  }
+  .nav-links { display: flex; justify-content: center; gap: 0.6rem; flex-wrap: wrap; }
+  .nav-links a {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.45rem 1.1rem;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .nav-links a:hover { color: #fff; border-color: var(--accent-dim); background: var(--bg-raised); }
+
+  .disclaimer {
+    max-width: 900px;
+    margin: 1.2rem auto 0;
+    padding: 0.8rem 1.2rem;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent-dim);
+    border-radius: 0 6px 6px 0;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    text-align: left;
+  }
+  .disclaimer strong { color: var(--text); }
+  .disclaimer code { background: var(--code-bg); padding: 0.05rem 0.4rem; border-radius: 3px; color: #ffb08a; }
+
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 1.5rem;
+  }
+
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.8rem;
+    font-family: var(--mono);
+    font-size: 0.85rem;
+  }
+  .toolbar select, .toolbar button {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    background: var(--bg-raised);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0.5rem 0.9rem;
+    cursor: pointer;
+  }
+  .toolbar button.run {
+    background: var(--accent-dim);
+    border-color: var(--accent-dim);
+    color: #fff;
+    font-weight: 600;
+  }
+  .toolbar button.run:hover { background: var(--accent); border-color: var(--accent); }
+  .toolbar select:hover, .toolbar button:not(.run):hover { border-color: var(--accent-dim); color: #fff; }
+  .toolbar .hint { color: var(--text-dim); margin-left: auto; font-size: 0.78rem; }
+
+  .panes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    height: 60vh;
+    min-height: 380px;
+  }
+  @media (max-width: 800px) {
+    .panes { grid-template-columns: 1fr; height: auto; }
+    .panes textarea, .panes #output { height: 300px; }
+  }
+
+  .pane { display: flex; flex-direction: column; }
+  .pane-label {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 0.4rem;
+  }
+
+  textarea#editor {
+    flex: 1;
+    width: 100%;
+    resize: none;
+    background: var(--code-bg);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent-dim);
+    border-radius: 4px;
+    padding: 1rem 1.1rem;
+    font-family: var(--mono);
+    font-size: 0.92rem;
+    line-height: 1.55;
+    tab-size: 4;
+  }
+  textarea#editor:focus { outline: none; border-color: var(--accent); }
+
+  #output {
+    flex: 1;
+    width: 100%;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--line);
+    border-radius: 4px;
+    padding: 1rem 1.1rem;
+    font-family: var(--mono);
+    font-size: 0.92rem;
+    line-height: 1.55;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #output.ok { border-left-color: var(--ok); }
+  #output.err { border-left-color: var(--err); color: var(--err); }
+  #output .placeholder { color: var(--text-dim); font-style: italic; }
+
+  footer {
+    text-align: center;
+    padding: 2.5rem 1.5rem;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    border-top: 1px solid var(--line);
+    margin-top: 1rem;
+  }
+  footer a { color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>TON<span class="dot">618</span> Playground</h1>
+  <p>Write and run TON618 code straight in this page.</p>
+  <div class="nav-links">
+    <a href="documentation.html">📖 Documentation</a>
+  </div>
+  <div class="disclaimer">
+    This playground runs <strong>ton618-lite.js</strong>, a JavaScript re-implementation of the TON618 language,
+    entirely in your browser — there's no server involved and nothing is sent anywhere. It covers the core
+    language (types, control flow, functions, arrays, dicts, <code>try</code>/<code>catch</code>) and the
+    <code>ton.random</code>/<code>ton.time</code>/<code>ton.json</code> built-in modules. It does <strong>not</strong>
+    support <code>ton.sys</code>/<code>ton.os</code>/<code>ton.requests</code> or <code>IMPORT://</code> of your own
+    module files, since those need real process/filesystem/network access a browser sandbox can't provide — install
+    the real interpreter (see <a href="documentation.html#building-the-interpreter">the docs</a>) for those.
+  </div>
+</header>
+
+<main>
+  <div class="toolbar">
+    <select id="examples"></select>
+    <button id="loadExample" type="button">Load example</button>
+    <button id="run" class="run" type="button">▶ Run (Ctrl+Enter)</button>
+    <button id="clearOutput" type="button">Clear output</button>
+    <span class="hint">Nothing leaves your browser.</span>
+  </div>
+
+  <div class="panes">
+    <div class="pane">
+      <div class="pane-label">script.ton</div>
+      <textarea id="editor" spellcheck="false"></textarea>
+    </div>
+    <div class="pane">
+      <div class="pane-label">Output</div>
+      <div id="output"><span class="placeholder">Press "Run" to execute the script.</span></div>
+    </div>
+  </div>
+</main>
+
+<footer>TON618<span class="dot">.</span>lang — playground · <a href="documentation.html">back to documentation</a></footer>
+
+<script src="ton618-lite.js"></script>
+<script>
+const EXAMPLES = {
+  "Variables, types & operators": `ton.int x = 5
+x += 3
+x++
+print(x)                      // 9
+
+ton.string name = "kuro"
+ton.bool active = true
+ton.int y = x > 5 ? 100 : 200
+print(name + " -> " + str(y))
+`,
+
+  "Arrays & functional helpers": `ton.array numbers = [5, 3, 8, 1, 9]
+sort(numbers)
+print(numbers)
+print(join(numbers, "-"))
+
+ton.array doubled = map(numbers, ton.function(v) { return v * 2 })
+print(doubled)
+
+ton.array evens = filter(numbers, ton.function(v) { return v % 2 == 0 })
+print(evens)
+
+print(reduce(numbers, ton.function(acc, v) { return acc + v }, 0))
+`,
+
+  "Dicts & for-in": `ton.dict person = {name: "kuro", age: 21}
+person["city"] = "Paris"
+
+for ton.k in person {
+    print(k + " = " + str(person[k]))
+}
+
+print(keys(person))
+print(json(person))
+`,
+
+  "Error handling: try / catch / throw": `ton.function safeDivide(a, b) {
+    if b == 0 {
+        throw "cannot divide by zero"
+    }
+    return a / b
+}
+
+try {
+    print(safeDivide(10, 2))
+    print(safeDivide(4, 0))
+} catch (ton.e) {
+    print("caught: " + e)
+}
+`,
+
+  "Built-in modules: ton.random / ton.time / ton.json": `IMPORT://ton.random
+IMPORT://ton.time
+IMPORT://ton.json
+
+print(random_int(1, 6))
+print(random_choice(["rock", "paper", "scissors"]))
+
+print(time_now() > 0)
+
+ton.dict parsed = json_parse("{\\"a\\": 1, \\"b\\": [1, 2, 3]}")
+print(parsed["b"])
+`,
+};
+
+const editor = document.getElementById("editor");
+const output = document.getElementById("output");
+const examplesSelect = document.getElementById("examples");
+
+for (const name of Object.keys(EXAMPLES)) {
+  const opt = document.createElement("option");
+  opt.value = name;
+  opt.textContent = name;
+  examplesSelect.appendChild(opt);
+}
+
+function loadExample(name) {
+  editor.value = EXAMPLES[name];
+}
+loadExample(Object.keys(EXAMPLES)[0]);
+
+document.getElementById("loadExample").addEventListener("click", () => loadExample(examplesSelect.value));
+
+function runCode() {
+  const result = Ton618Lite.runTon618(editor.value);
+  output.className = result.ok ? "ok" : "err";
+  output.textContent = result.output || "(no output)";
+}
+
+document.getElementById("run").addEventListener("click", runCode);
+document.getElementById("clearOutput").addEventListener("click", () => {
+  output.className = "";
+  output.innerHTML = '<span class="placeholder">Press "Run" to execute the script.</span>';
+});
+
+editor.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); runCode(); }
+  if (e.key === "Tab") { e.preventDefault(); document.execCommand("insertText", false, "    "); }
+});
+</script>
+
+</body>
+</html>

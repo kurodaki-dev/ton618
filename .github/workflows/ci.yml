@@ -1,0 +1,34 @@
+name: CI
+
+# Sanity-checks every push/PR to main: the interpreter must still build
+# cleanly and run the bundled example scripts without crashing. This is the
+# same `make` build a contributor runs locally (see DOCUMENTATION.md >
+# "Building the interpreter") — release.yml handles the actual
+# cross-compiled release binaries.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: make
+
+      - name: Run example scripts (smoke test)
+        run: |
+          ./ton618 exemples/test.ton
+          ./ton618 exemples/test_import.ton
+          ./ton618 exemples/test_mathutils.ton
+          ./ton618 exemples/test_new_features.ton
+          ./ton618 exemples/test_builtin_modules.ton
+          ./ton618 exemples/test_module_guide.ton
+          ./ton618 exemples/math.ton
+          ./ton618 --version
+          ./ton618 --help

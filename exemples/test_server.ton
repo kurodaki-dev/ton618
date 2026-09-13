@@ -1,0 +1,2 @@
+print("Demarrage du serveur...")
+ton.serve(8080, "<h1>Salut depuis TON618 !</h1>")

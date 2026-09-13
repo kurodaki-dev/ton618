@@ -1,0 +1,24 @@
+// Simple API/site test with real routing
+
+ton.html home_page = "<h1>Welcome to TON618</h1><p>This is the home page.</p>"
+
+ton.function home() {
+    return ton.home_page
+}
+
+ton.function about() {
+    ton.html page = "<h1>About</h1><p>Made with TON618.</p>"
+    return page
+}
+
+ton.function api_users() {
+    ton.array users = ["kuro", "rusher", "natlep"]
+    return ton.json(users)
+}
+
+ton.get("/", ton.home)
+ton.get("/about", ton.about)
+ton.get("/api/users", ton.api_users)
+
+print("Server starting on port 8081...")
+ton.serve(8081)

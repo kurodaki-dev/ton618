@@ -1,0 +1,57 @@
+// Compound assignment + increment/decrement
+ton.int x = 5
+x += 3
+print(x)          // 8
+x++
+print(x)          // 9
+x -= 2
+print(x)          // 7
+
+// Ternary
+ton.int y = x > 5 ? 100 : 200
+print(y)          // 100
+
+// for-in over array
+ton.array nums = [1, 2, 3]
+for ton.n in nums {
+    print(n)
+}
+
+// dict
+ton.dict person = {name: "kuro", age: 21}
+print(person["name"])
+person["age"] = 22
+print(person["age"])
+for ton.k in person {
+    print(k)
+}
+print(keys(person))
+print(values(person))
+print(json(person))
+
+// try/catch
+try {
+    throw "oops"
+} catch (ton.e) {
+    print("caught: " + e)
+}
+
+// array helpers
+ton.array a = [5, 3, 8, 1]
+sort(a)
+print(a)
+print(join(a, "-"))
+ton.array doubled = map(a, ton.function double(v) { return v * 2 })
+print(doubled)
+ton.array evens = filter(a, ton.function isEven(v) { return v % 2 == 0 })
+print(evens)
+print(reduce(a, ton.function sum(acc, v) { return acc + v }, 0))
+
+// strings
+print(upper("hello"))
+print(trim("  hi  "))
+print(split("a,b,c", ","))
+print(replace("hello world", "world", "ton618"))
+print(sqrt(16))
+print(max(1, 9, 3))
+print(type(person))
