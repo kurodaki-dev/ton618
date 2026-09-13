@@ -1,0 +1,57 @@
+name: Deploy Pages
+
+# Publishes exemples/ (documentation.html, playground.html, ton618-lite.js,
+# and everything else in that folder) as-is to GitHub Pages — not the whole
+# repository. documentation.html is also copied to index.html at the site
+# root, so the docs load at the bare Pages URL; playground.html and
+# ton618-lite.js stay reachable at their own paths right next to it, exactly
+# as documentation.html already links to them.
+#
+# One-time setup: repo Settings → Pages → Source → "GitHub Actions" (instead
+# of "Deploy from a branch"). After that this workflow runs on every push to
+# main that touches exemples/, or manually via workflow_dispatch.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "exemples/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage the site
+        run: |
+          mkdir -p _site
+          cp -r exemples/. _site/
+          cp exemples/documentation.html _site/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

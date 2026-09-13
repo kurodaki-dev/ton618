@@ -864,23 +864,21 @@ After any change, run `make` and sanity-check with the scripts in `exemples/` (i
 
 ### Publishing the docs to GitHub Pages
 
-`exemples/documentation.html` is fully static and self-contained (it embeds this very file, see `make docs` above) — it needs nothing but a web server, which makes GitHub Pages a good fit for hosting it at a public URL instead of only as a local file.
+`exemples/` is fully static and self-contained — `documentation.html` embeds this very file (see `make docs` above), and `playground.html` runs entirely client-side via `ton618-lite.js`. `.github/workflows/pages.yml` publishes that whole folder to GitHub Pages as-is (not the rest of the repository): it copies `exemples/` verbatim, plus `documentation.html` as `index.html` at the site root so the docs load at the bare Pages URL, with `playground.html` and `ton618-lite.js` reachable right next to it exactly as `documentation.html` already links to them.
 
+One-time setup:
 1. **GitHub → this repository → Settings → Pages.**
-2. Under **Build and deployment**, set **Source** to **Deploy from a branch**.
-3. Pick the **`main`** branch and the **`/ (root)`** folder, then **Save**.
-4. GitHub publishes the whole repository as a static site at `https://<user>.github.io/ton618/` (adjust the org/user in that URL to whichever account owns this repo). The docs land at:
-   ```
-   https://<user>.github.io/ton618/exemples/documentation.html
-   ```
-5. *(Optional)* Add a root `index.html` that redirects to `exemples/documentation.html`, so the docs are reachable at the bare `https://<user>.github.io/ton618/` too:
-   ```html
-   <!doctype html><meta http-equiv="refresh" content="0; url=exemples/documentation.html">
-   ```
+2. Under **Build and deployment**, set **Source** to **GitHub Actions** (not "Deploy from a branch").
 
-Whenever `DOCUMENTATION.md` changes, run `make docs` and commit the regenerated `exemples/documentation.html` — GitHub Pages simply serves whatever is on `main`, so the published page updates on the next push.
+That's it — `.github/workflows/pages.yml` runs on every push to `main` that touches `exemples/` (or manually from the **Actions** tab), and publishes to:
+```
+https://<user>.github.io/ton618/                       — documentation.html (as index.html)
+https://<user>.github.io/ton618/playground.html         — the playground
+https://<user>.github.io/ton618/ton618-lite.js          — the playground's engine
+```
+(adjust the org/user in those URLs to whichever account owns this repo.)
 
-Rather use GitHub Actions to build and deploy the page instead of serving the branch directly (e.g. to publish only `exemples/` at the site root)? Use the **"GitHub Pages Jekyll"**-free **"Static HTML"** starter workflow from the **Actions** tab, or the `actions/upload-pages-artifact` + `actions/deploy-pages` actions, pointing them at `exemples/` — see [GitHub's own guide](https://docs.github.com/en/pages) for that variant.
+Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `exemples/documentation.html`, and push — the workflow re-publishes automatically.
 
 ---
 
@@ -1788,23 +1786,21 @@ Après tout changement, lance `make` et vérifie avec les scripts de `exemples/`
 
 ### Publier la doc sur GitHub Pages
 
-`exemples/documentation.html` est entièrement statique et autonome (elle embarque ce fichier même, voir `make docs` plus haut) — elle n'a besoin que d'un serveur web, ce qui fait de GitHub Pages un bon moyen de l'héberger à une URL publique plutôt qu'uniquement comme fichier local.
+`exemples/` est entièrement statique et autonome — `documentation.html` embarque ce fichier même (voir `make docs` plus haut), et `playground.html` tourne entièrement côté client via `ton618-lite.js`. `.github/workflows/pages.yml` publie tout ce dossier tel quel sur GitHub Pages (pas le reste du dépôt) : il copie `exemples/` verbatim, plus `documentation.html` en tant qu'`index.html` à la racine du site pour que la doc se charge à l'URL Pages toute seule, avec `playground.html` et `ton618-lite.js` accessibles juste à côté, exactement comme `documentation.html` les référence déjà.
 
+Configuration à faire une seule fois :
 1. **GitHub → ce dépôt → Settings → Pages.**
-2. Sous **Build and deployment**, mets **Source** sur **Deploy from a branch**.
-3. Choisis la branche **`main`** et le dossier **`/ (root)`**, puis **Save**.
-4. GitHub publie tout le dépôt comme site statique à `https://<utilisateur>.github.io/ton618/` (adapte l'org/l'utilisateur de cette URL à celui qui possède ce dépôt). La doc se trouve alors à :
-   ```
-   https://<utilisateur>.github.io/ton618/exemples/documentation.html
-   ```
-5. *(Optionnel)* Ajoute un `index.html` à la racine qui redirige vers `exemples/documentation.html`, pour que la doc soit aussi accessible via la simple `https://<utilisateur>.github.io/ton618/` :
-   ```html
-   <!doctype html><meta http-equiv="refresh" content="0; url=exemples/documentation.html">
-   ```
+2. Sous **Build and deployment**, mets **Source** sur **GitHub Actions** (pas "Deploy from a branch").
 
-Chaque fois que `DOCUMENTATION.md` change, lance `make docs` et commite `exemples/documentation.html` régénéré — GitHub Pages sert simplement ce qui est sur `main`, donc la page publiée se met à jour au prochain push.
+C'est tout — `.github/workflows/pages.yml` se lance à chaque push sur `main` qui touche `exemples/` (ou manuellement depuis l'onglet **Actions**), et publie à :
+```
+https://<utilisateur>.github.io/ton618/                       — documentation.html (comme index.html)
+https://<utilisateur>.github.io/ton618/playground.html         — le playground
+https://<utilisateur>.github.io/ton618/ton618-lite.js          — le moteur du playground
+```
+(adapte l'org/l'utilisateur de ces URLs à celui qui possède ce dépôt.)
 
-Tu préfères utiliser une GitHub Action pour construire et déployer la page plutôt que de servir la branche directement (par ex. pour ne publier que `exemples/` à la racine du site) ? Utilise le workflow de démarrage **"Static HTML"** depuis l'onglet **Actions**, ou les actions `actions/upload-pages-artifact` + `actions/deploy-pages` pointées vers `exemples/` — voir le [guide officiel de GitHub](https://docs.github.com/en/pages) pour cette variante.
+Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/documentation.html` régénéré, et push — le workflow republie automatiquement.
 
 ---
 
