@@ -62,18 +62,21 @@ private:
 
     // Expressions, from loosest to tightest binding:
     // expression -> assignment -> ternary -> nilCoalesce -> logicOr -> logicAnd
-    //            -> equality -> comparison -> term -> factor -> unary -> call -> primary
+    //            -> bitwise -> equality -> comparison -> shift -> term -> factor
+    //            -> unary -> call -> primary
     ExprPtr expression();
     ExprPtr assignment();
     ExprPtr ternary();
     ExprPtr nilCoalesce(); // "a ?? b"
     ExprPtr logicOr();
     ExprPtr logicAnd();
+    ExprPtr bitwise(); // "a & b", "a | b", "a ^ b" — all one precedence level, left to right
     ExprPtr equality();
     ExprPtr comparison(); // also handles "a in b" (array/dict/string membership)
+    ExprPtr shift(); // "a << b", "a >> b"
     ExprPtr term();
     ExprPtr factor();
-    ExprPtr unary();
+    ExprPtr unary(); // also handles "~a" (bitwise not)
     ExprPtr call();
     ExprPtr finishCall(ExprPtr callee);
     ExprPtr primary();

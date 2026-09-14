@@ -191,16 +191,26 @@ void Lexer::scanToken() {
             addToken(match('=') ? TokenType::BANG_EQUAL : TokenType::BANG);
             break;
         case '<':
-            addToken(match('=') ? TokenType::LESS_EQUAL : TokenType::LESS);
+            if (match('<')) addToken(match('=') ? TokenType::LESS_LESS_EQUAL : TokenType::LESS_LESS);
+            else addToken(match('=') ? TokenType::LESS_EQUAL : TokenType::LESS);
             break;
         case '>':
-            addToken(match('=') ? TokenType::GREATER_EQUAL : TokenType::GREATER);
+            if (match('>')) addToken(match('=') ? TokenType::GREATER_GREATER_EQUAL : TokenType::GREATER_GREATER);
+            else addToken(match('=') ? TokenType::GREATER_EQUAL : TokenType::GREATER);
             break;
         case '&':
             if (match('&')) addToken(TokenType::AND);
+            else addToken(match('=') ? TokenType::AMPERSAND_EQUAL : TokenType::AMPERSAND);
             break;
         case '|':
             if (match('|')) addToken(TokenType::OR);
+            else addToken(match('=') ? TokenType::PIPE_EQUAL : TokenType::PIPE);
+            break;
+        case '^':
+            addToken(match('=') ? TokenType::CARET_EQUAL : TokenType::CARET);
+            break;
+        case '~':
+            addToken(TokenType::TILDE);
             break;
         case ' ': case '\r': case '\t':
             break;

@@ -896,6 +896,10 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
                 return Value::Number(-operand.number);
             }
             if (expr->op == TokenType::BANG) return Value::Bool(!operand.isTruthy());
+            if (expr->op == TokenType::TILDE) {
+                if (operand.type != ValueType::NUMBER) runtimeError(expr->line, "Operand of '~' must be a number.");
+                return Value::Number((double)(~(long long)operand.number));
+            }
             return Value::Nil();
         }
 
@@ -985,6 +989,27 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
                     runtimeError(expr->line, "'in' expects an array, dict, or string on the right-hand side (got " +
                                  right.typeName() + ").");
                 }
+                // Bitwise: operate on both sides truncated to a 64-bit integer,
+                // then convert the result back to a double like every other
+                // number in TON618 (see Value.hpp — there's no separate int type).
+                case TokenType::AMPERSAND:
+                case TokenType::PIPE:
+                case TokenType::CARET:
+                case TokenType::LESS_LESS:
+                case TokenType::GREATER_GREATER: {
+                    if (left.type != ValueType::NUMBER || right.type != ValueType::NUMBER) {
+                        runtimeError(expr->line, "Bitwise operators need two numbers (got " +
+                                     left.typeName() + " and " + right.typeName() + ").");
+                    }
+                    long long a = (long long)left.number, b = (long long)right.number;
+                    switch (expr->op) {
+                        case TokenType::AMPERSAND: return Value::Number((double)(a & b));
+                        case TokenType::PIPE: return Value::Number((double)(a | b));
+                        case TokenType::CARET: return Value::Number((double)(a ^ b));
+                        case TokenType::LESS_LESS: return Value::Number((double)(a << b));
+                        default: return Value::Number((double)(a >> b));
+                    }
+                }
                 default: break;
             }
             return Value::Nil();
@@ -999,14 +1024,38 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
 
         case ExprType::ARRAY: {
             std::vector<Value> elems;
-            for (auto& e : expr->elements) elems.push_back(evaluate(e, env));
+            for (auto& e : expr->elements) {
+                if (e->type == ExprType::SPREAD) {
+                    Value spread = evaluate(e->operand, env);
+                    if (spread.type != ValueType::ARRAY) {
+                        runtimeError(e->line, "'...' inside an array literal expects an array (got " + spread.typeName() + ").");
+                    }
+                    for (auto& item : *spread.array) elems.push_back(item);
+                } else {
+                    elems.push_back(evaluate(e, env));
+                }
+            }
             return Value::Array(elems);
         }
 
         case ExprType::DICT: {
             std::vector<std::pair<std::string, Value>> entries;
+            auto setOrAppend = [&](const std::string& key, const Value& value) {
+                for (auto& kv : entries) {
+                    if (kv.first == key) { kv.second = value; return; }
+                }
+                entries.push_back({key, value});
+            };
             for (auto& [keyExpr, valExpr] : expr->dictEntries) {
-                entries.push_back({keyExpr->litString, evaluate(valExpr, env)});
+                if (!keyExpr) { // spread entry: {nullptr, spreadNode}
+                    Value spread = evaluate(valExpr->operand, env);
+                    if (spread.type != ValueType::DICT) {
+                        runtimeError(valExpr->line, "'...' inside a dict literal expects a dict (got " + spread.typeName() + ").");
+                    }
+                    for (auto& kv : *spread.dict) setOrAppend(kv.first, kv.second);
+                } else {
+                    setOrAppend(keyExpr->litString, evaluate(valExpr, env));
+                }
             }
             return Value::Dict(entries);
         }
@@ -1025,6 +1074,12 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
 
         case ExprType::TERNARY:
             return evaluate(expr->condition, env).isTruthy() ? evaluate(expr->left, env) : evaluate(expr->right, env);
+
+        // SPREAD only ever appears as an element inside an ARRAY/DICT literal
+        // (see those cases above), which unwrap and evaluate expr->operand
+        // themselves — a SPREAD node is never evaluate()'d directly.
+        case ExprType::SPREAD:
+            runtimeError(expr->line, "'...' is only valid inside an array or dict literal.");
 
         case ExprType::INDEX: {
             Value target = evaluate(expr->indexTarget, env);
