@@ -18,4 +18,12 @@ if ($userPath -like "*$InstallDir*") {
     Write-Host "[ton618] Removed from the user PATH." -ForegroundColor Green
 }
 
+# Same ./modules/ this script's caller might have fetched into via
+# `ton618 install <module>` — mirrors what the binary's own
+# --uninstall-ton does, so both paths behave the same way.
+if (Test-Path ".\modules") {
+    Remove-Item -Recurse -Force ".\modules"
+    Write-Host "[ton618] Removed: .\modules" -ForegroundColor Green
+}
+
 Write-Host "[ton618] Uninstall complete." -ForegroundColor Green

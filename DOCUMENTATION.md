@@ -83,7 +83,7 @@ Options:
 | `-h`, `--help` | Show usage |
 | `-v`, `--version` | Print the version, auto-detected platform (`linux`/`termux`/`windows`/`macos`), and architecture |
 | `--update [version]` | Re-download the binary matching this platform from [GitHub Releases](https://github.com/kurodaki-dev/ton618/releases) and replace the running one — the latest release if `version` (a release tag) is omitted |
-| `--uninstall-ton` | Remove this ton618 install (binary + PATH entry) |
+| `--uninstall-ton` | Remove this ton618 install: the binary, its PATH entry, and the current directory's `./modules/` folder (every module previously fetched with `install` there) |
 
 Two more commands, used as `ton618 <command> <module>` rather than as a flag on a script:
 
@@ -580,7 +580,7 @@ To remove a module fetched this way, use `ton618 uninstall <module>` — it just
 ton618 uninstall greetings
 ```
 
-(Not to be confused with `ton618 --uninstall-ton`, which removes the `ton618` interpreter itself — see [Installing & building the interpreter](#installing--building-the-interpreter).)
+(Not to be confused with `ton618 --uninstall-ton`, which removes the `ton618` interpreter itself — see [Installing & building the interpreter](#installing--building-the-interpreter). That command also wipes out the current directory's whole `./modules/` folder, so a single `ton618 uninstall <module>` and a full `--uninstall-ton` remove different amounts: one module vs. every module fetched into this project.)
 
 ---
 
@@ -1058,6 +1058,10 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 
 ### Changelog
 
+**beta-1.0.9** — `--uninstall-ton` also removes `./modules/`:
+
+- **Behavior change**: `ton618 --uninstall-ton` now also deletes the current directory's whole `./modules/` folder (every module previously fetched there with `ton618 install <module>`), in addition to removing the binary and its PATH entry. The standalone `scripts/uninstall.sh`/`uninstall.ps1` do the same. If you only want to remove one module, use `ton618 uninstall <module>` instead — see [Installing modules](#installing-modules-ton618-install).
+
 **beta-1.0.8** — `ton618 install`/`uninstall` normalize module names to lowercase:
 
 - **Bugfix**: `ton618 install <module>` now lowercases the module name before building the GitHub raw-content URL and the local `./modules/<name>.ton` path (the registry lookup itself still uses the name exactly as typed). Every existing module follows the lowercase-filename convention (`atome.ton`, etc.), and `raw.githubusercontent.com` URLs are case-sensitive, so a registry entry published with any other casing (e.g. `Atome`) used to 404 instead of finding the real, lowercase file at the repo root. `ton618 uninstall <module>` was updated the same way, so it keeps targeting the file `install` actually wrote.
@@ -1223,7 +1227,7 @@ Options :
 | `-h`, `--help` | Affiche l'aide |
 | `-v`, `--version` | Affiche la version, la plateforme détectée (`linux`/`termux`/`windows`/`macos`) et l'architecture |
 | `--update [version]` | Retélécharge le binaire correspondant à cette plateforme depuis les [GitHub Releases](https://github.com/kurodaki-dev/ton618/releases) et remplace celui en cours d'exécution — la dernière release si `version` (un tag de release) est omis |
-| `--uninstall-ton` | Désinstalle ton618 (binaire + entrée PATH) |
+| `--uninstall-ton` | Désinstalle ton618 : le binaire, son entrée PATH, et le dossier `./modules/` du répertoire courant (tous les modules précédemment récupérés avec `install`) |
 
 Deux autres commandes, utilisées comme `ton618 <commande> <module>` plutôt que comme une option sur un script :
 
@@ -1720,7 +1724,7 @@ Pour retirer un module récupéré ainsi, utilise `ton618 uninstall <module>` �
 ton618 uninstall greetings
 ```
 
-(À ne pas confondre avec `ton618 --uninstall-ton`, qui désinstalle l'interpréteur `ton618` lui-même — voir [Installer & compiler l'interpréteur](#installer--compiler-linterpréteur).)
+(À ne pas confondre avec `ton618 --uninstall-ton`, qui désinstalle l'interpréteur `ton618` lui-même — voir [Installer & compiler l'interpréteur](#installer--compiler-linterpréteur). Cette commande vide aussi tout le dossier `./modules/` du répertoire courant, donc `ton618 uninstall <module>` et `--uninstall-ton` ne suppriment pas la même quantité : un seul module contre tous les modules récupérés dans ce projet.)
 
 ---
 
@@ -2197,6 +2201,10 @@ Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/
 ---
 
 ### Changelog
+
+**beta-1.0.9** — `--uninstall-ton` supprime aussi `./modules/` :
+
+- **Changement de comportement** : `ton618 --uninstall-ton` supprime désormais aussi tout le dossier `./modules/` du répertoire courant (tous les modules récupérés là avec `ton618 install <module>`), en plus de supprimer le binaire et son entrée PATH. Les scripts autonomes `scripts/uninstall.sh`/`uninstall.ps1` font pareil. Pour ne supprimer qu'un seul module, utilise plutôt `ton618 uninstall <module>` — voir [Installer des modules](#installer-des-modules--ton618-install).
 
 **beta-1.0.8** — `ton618 install`/`uninstall` normalisent le nom du module en minuscules :
 
