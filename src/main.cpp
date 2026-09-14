@@ -53,7 +53,7 @@ static void printUsage(const char* prog) {
               << "Options:\n"
               << "  --debug              run in debug mode (pause at start)\n"
               << "  --break=<line>        add a breakpoint at a given line (repeatable)\n"
-              << "  --uninstall-ton       remove this ton618 install (binary + PATH entry)\n"
+              << "  --uninstall-ton       remove this ton618 install (binary + PATH entry + ./modules/)\n"
               << "  --update [version]    update ton618 from GitHub Releases (latest if no version given)\n"
               << "  --version, -v         print the interpreter's version, platform and architecture\n"
               << "  --help, -h            show this message\n"
@@ -120,6 +120,23 @@ static int runUninstall() {
         removePathBlock(std::string(home) + "/.bashrc");
         removePathBlock(std::string(home) + "/.zshrc");
         removePathBlock(std::string(home) + "/.profile");
+    }
+
+    // Also wipe out any modules `install` fetched into the current
+    // directory's ./modules/ — the same folder `install`/`uninstall
+    // <module>` operate on. It's per-project, not tied to where the binary
+    // itself lives, so this only ever touches the directory you actually
+    // run `--uninstall-ton` from.
+    {
+        std::error_code ec;
+        if (std::filesystem::exists("modules", ec)) {
+            std::uintmax_t removed = std::filesystem::remove_all("modules", ec);
+            if (ec) {
+                std::cerr << "[ton618] Could not remove ./modules/: " << ec.message() << "\n";
+            } else {
+                std::cout << "[ton618] Removed ./modules/ (" << removed << " item(s)).\n";
+            }
+        }
     }
 
 #ifdef _WIN32

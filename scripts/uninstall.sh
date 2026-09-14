@@ -35,6 +35,14 @@ for rcfile in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
     fi
 done
 
+# Same ./modules/ this script's caller might have fetched into via
+# `ton618 install <module>` — mirrors what the binary's own
+# --uninstall-ton does, so both paths behave the same way.
+if [ -d "./modules" ]; then
+    rm -rf "./modules"
+    ok "Removed: ./modules/"
+fi
+
 if $FOUND; then
     ok "TON618 has been uninstalled."
 else
