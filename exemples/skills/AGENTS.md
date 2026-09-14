@@ -216,6 +216,7 @@ IMPORT://ton.tensor     tensor_zeros/ones/full/random(shape) tensor_from_array(a
                         tensor_add_bias(mat,bias) tensor_matmul(a,b) tensor_transpose(t)
                         tensor_sum/mean/max/min(t) tensor_relu/sigmoid/tanh/exp/log(t) tensor_softmax(t)
                         tensor_relu_grad(in)/sigmoid_grad(out)/tanh_grad(out) tensor_map(t,fn)
+                        tensor_argmax(t) tensor_conv1d(signal,kernel,[stride])
                         — 1D/2D only, CPU only, no autograd (see the community "atome" module for that)
 ```
 

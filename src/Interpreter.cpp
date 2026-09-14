@@ -2331,4 +2331,55 @@ void Interpreter::registerBuiltinTensor() {
         for (long long r = 0; r < rows; r++) rowsOut.push_back(Value::Array(std::vector<Value>(d.begin() + r * cols, d.begin() + (r + 1) * cols)));
         return Value::Array(rowsOut);
     });
+
+    // tensor_argmax(t) -> the index of the largest element (1D), or one index
+    // per row (2D) — the "which class did this predict" op classification
+    // code always needs, done as a native loop instead of by hand each time.
+    def("tensor_argmax", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_argmax");
+        auto shape = tensorShapeVec(t);
+        auto& d = *t.findDictEntry("data")->array;
+        if (d.empty()) throw std::runtime_error("tensor_argmax(): tensor is empty.");
+        if (shape.size() == 1) {
+            size_t best = 0;
+            for (size_t i = 1; i < d.size(); i++) if (d[i].number > d[best].number) best = i;
+            return Value::Number((double)best);
+        }
+        long long rows = shape[0], cols = shape[1];
+        std::vector<Value> out(rows);
+        for (long long r = 0; r < rows; r++) {
+            long long best = 0;
+            for (long long c = 1; c < cols; c++) if (d[r * cols + c].number > d[r * cols + best].number) best = c;
+            out[r] = Value::Number((double)best);
+        }
+        return Value::Array(out);
+    });
+
+    // tensor_conv1d(signal, kernel, [stride=1]) -> 1D "valid" convolution
+    // (technically cross-correlation, same convention every ML framework
+    // uses): out[i] = sum_j signal[i*stride + j] * kernel[j]. Single-channel
+    // only — see the "atome" module for how multi-channel Conv1D layers are
+    // composed out of this primitive (and where its gradient is computed).
+    def("tensor_conv1d", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& sig = requireTensor(a, 0, "tensor_conv1d");
+        Value& ker = requireTensor(a, 1, "tensor_conv1d");
+        long long stride = a.size() > 2 ? (long long)a[2].number : 1;
+        if (stride < 1) throw std::runtime_error("tensor_conv1d(): stride must be at least 1.");
+        auto sigShape = tensorShapeVec(sig), kerShape = tensorShapeVec(ker);
+        if (sigShape.size() != 1 || kerShape.size() != 1)
+            throw std::runtime_error("tensor_conv1d(): both the signal and the kernel must be 1D tensors.");
+        long long L = sigShape[0], K = kerShape[0];
+        if (K > L) throw std::runtime_error("tensor_conv1d(): the kernel is longer than the signal.");
+        long long outLen = (L - K) / stride + 1;
+        auto& sd = *sig.findDictEntry("data")->array;
+        auto& kd = *ker.findDictEntry("data")->array;
+        std::vector<Value> out(outLen);
+        for (long long i = 0; i < outLen; i++) {
+            double s = 0;
+            long long base = i * stride;
+            for (long long j = 0; j < K; j++) s += sd[base + j].number * kd[j].number;
+            out[i] = Value::Number(s);
+        }
+        return makeTensor({outLen}, out);
+    });
 }
