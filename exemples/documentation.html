@@ -1323,6 +1323,10 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 
 ### Changelog
 
+**beta-1.0.8** — `ton618 install`/`uninstall` normalize module names to lowercase:
+
+- **Bugfix**: `ton618 install <module>` now lowercases the module name before building the GitHub raw-content URL and the local `./modules/<name>.ton` path (the registry lookup itself still uses the name exactly as typed). Every existing module follows the lowercase-filename convention (`atome.ton`, etc.), and `raw.githubusercontent.com` URLs are case-sensitive, so a registry entry published with any other casing (e.g. `Atome`) used to 404 instead of finding the real, lowercase file at the repo root. `ton618 uninstall <module>` was updated the same way, so it keeps targeting the file `install` actually wrote.
+
 **beta-1.0.7** — `tensor_argmax` and `tensor_conv1d`:
 
 - **`tensor_argmax(t)`**: the index of the largest element (or one per row for a 2D tensor).
@@ -2458,6 +2462,10 @@ Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/
 ---
 
 ### Changelog
+
+**beta-1.0.8** — `ton618 install`/`uninstall` normalisent le nom du module en minuscules :
+
+- **Correction de bug** : `ton618 install <module>` met désormais le nom du module en minuscules avant de construire l'URL brute GitHub et le chemin local `./modules/<nom>.ton` (la recherche dans le registre, elle, utilise toujours le nom exactement tel que tapé). Tous les modules existants suivent la convention du nom de fichier en minuscules (`atome.ton`, etc.), et les URLs `raw.githubusercontent.com` sont sensibles à la casse — une entrée de registre publiée avec une autre casse (par exemple `Atome`) provoquait donc un 404 au lieu de trouver le vrai fichier, en minuscules, à la racine du dépôt. `ton618 uninstall <module>` a été corrigé de la même façon, pour continuer à cibler le fichier réellement écrit par `install`.
 
 **beta-1.0.7** — `tensor_argmax` et `tensor_conv1d` :
 

@@ -310,13 +310,26 @@ static int runInstall(const std::string& moduleName) {
         return 1;
     }
 
-    std::string rawUrl = "https://raw.githubusercontent.com/" + ownerRepo + "/HEAD/" + moduleName + ".ton";
+    // The registry entry's name can carry whatever case whoever published it
+    // typed (and lookups above used moduleName exactly as the user typed it,
+    // since that's what the registry indexes on) — but GitHub repo files and
+    // TON618's own module-naming convention are lowercase (every existing
+    // module is, e.g. "atome.ton"), and raw.githubusercontent.com URLs are
+    // case-sensitive. Downloading and installing under a lowercased name
+    // means "ton618 install Atome" still finds "atome.ton" at the repo root
+    // instead of 404ing on a case mismatch, and the installed file's name
+    // matches what IMPORT://<module> (itself case-sensitive on the
+    // filesystem) will actually look for.
+    std::string fileName = moduleName;
+    for (char& c : fileName) c = (char)std::tolower((unsigned char)c);
+
+    std::string rawUrl = "https://raw.githubusercontent.com/" + ownerRepo + "/HEAD/" + fileName + ".ton";
 
     std::error_code ec;
     std::filesystem::create_directories("modules", ec);
-    std::string outPath = "modules/" + moduleName + ".ton";
+    std::string outPath = "modules/" + fileName + ".ton";
 
-    std::cout << "[ton618] Downloading " << moduleName
+    std::cout << "[ton618] Downloading " << fileName
               << (versionField ? " (" + versionField->toString() + ")" : "")
               << " from " << rawUrl << " ...\n";
 
@@ -333,13 +346,13 @@ static int runInstall(const std::string& moduleName) {
         std::ifstream check(outPath, std::ios::binary | std::ios::ate);
         if (!check || check.tellg() < 1) {
             std::cerr << "[ton618] The downloaded file is empty (wrong module name, or no '"
-                       << moduleName << ".ton' at the repo root?). Aborting.\n";
+                       << fileName << ".ton' at the repo root?). Aborting.\n";
             std::remove(outPath.c_str());
             return 1;
         }
     }
 
-    std::cout << "[ton618] Installed to " << outPath << " — use IMPORT://" << moduleName
+    std::cout << "[ton618] Installed to " << outPath << " — use IMPORT://" << fileName
               << " in your script to load it.\n";
     return 0;
 }
@@ -355,7 +368,10 @@ static int runUninstallModule(const std::string& moduleName) {
         return 1;
     }
 
-    std::string path = "modules/" + moduleName + ".ton";
+    std::string fileName = moduleName;
+    for (char& c : fileName) c = (char)std::tolower((unsigned char)c);
+
+    std::string path = "modules/" + fileName + ".ton";
     std::error_code ec;
     if (!std::filesystem::exists(path, ec)) {
         std::cerr << "[ton618] '" << path << "' doesn't exist — nothing to uninstall.\n";
