@@ -21,4 +21,4 @@
 // repo, that maps a module name to {name, github, version}. Override without
 // rebuilding by setting the TON618_REGISTRY_URL environment variable (no
 // trailing slash) to point at your own deployment.
-#define TON618_REGISTRY_URL "https://registry.ton618.dev"
+#define TON618_REGISTRY_URL "https://file330.duckdns.org/ton618-registry-api"
