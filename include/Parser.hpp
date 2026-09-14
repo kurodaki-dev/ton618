@@ -61,15 +61,16 @@ private:
     StmtPtr exprStatement();
 
     // Expressions, from loosest to tightest binding:
-    // expression -> assignment -> ternary -> logicOr -> logicAnd -> equality
-    //            -> comparison -> term -> factor -> unary -> call -> primary
+    // expression -> assignment -> ternary -> nilCoalesce -> logicOr -> logicAnd
+    //            -> equality -> comparison -> term -> factor -> unary -> call -> primary
     ExprPtr expression();
     ExprPtr assignment();
     ExprPtr ternary();
+    ExprPtr nilCoalesce(); // "a ?? b"
     ExprPtr logicOr();
     ExprPtr logicAnd();
     ExprPtr equality();
-    ExprPtr comparison();
+    ExprPtr comparison(); // also handles "a in b" (array/dict/string membership)
     ExprPtr term();
     ExprPtr factor();
     ExprPtr unary();
@@ -78,6 +79,11 @@ private:
     ExprPtr primary();
     ExprPtr tonReference(); // parse "ton.identifiant" en expression (variable ou appel)
     ExprPtr functionExpression(int line); // parse "ton.function(...) { ... }" as an inline value (a callback)
+
+    // Parses "(a, b = default, ...rest)" — shared by fnDeclaration() and
+    // functionExpression(). "..." may only appear on the last parameter.
+    struct ParamList { std::vector<std::string> names; std::vector<ExprPtr> defaults; bool hasRest = false; };
+    ParamList parseParamList();
 
     // Builds the ASSIGN (or INDEX-assign) node used by both "=" and by desugaring
     // compound assignment (+=, -=, ...) and postfix increment/decrement (++, --).

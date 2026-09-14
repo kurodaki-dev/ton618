@@ -20,7 +20,7 @@
 10. [Functions](#functions)
 11. [Arrays](#arrays)
 12. [Dictionaries](#dictionaries)
-13. [Error handling: try / catch / throw](#error-handling-try--catch--throw)
+13. [Error handling: try / catch / throw / finally](#error-handling-try--catch--throw--finally)
 14. [Built-in native functions](#built-in-native-functions)
 15. [HTML type](#html-type)
 16. [Modules (IMPORT://)](#modules-import)
@@ -188,6 +188,8 @@ An argument can be any value — a number, a string, the result of a function ca
 | Arithmetic | `+` `-` `*` `/` `%` |
 | Comparison | `==` `!=` `<` `<=` `>` `>=` |
 | Logical | `&&`/`and`, `\|\|`/`or`, `!` |
+| Nil-coalescing | `??` |
+| Membership | `in` |
 | Assignment | `=` `+=` `-=` `*=` `/=` `%=` |
 | Increment/decrement | `++` `--` (postfix) |
 | Ternary | `cond ? a : b` |
@@ -198,6 +200,8 @@ Notes:
 - `==`/`!=` use structural equality: numbers/bools/nil compare by value, a string and an html value with the same text are equal, and arrays/dicts compare element-by-element (recursively) rather than by reference — `[1, 2] == [1, 2]` is `true`.
 - `/` and `%` both raise "Division by zero" for a zero right-hand side, rather than producing `inf`/`NaN` silently.
 - `and`/`or` are exact synonyms for `&&`/`||` — use whichever reads better.
+- `??` ("nil-coalescing") evaluates its left side and returns it as-is unless it's `nil`, in which case it evaluates and returns the right side instead — the right side is never evaluated otherwise, so it's safe to put a fallback that has side effects. Handy with dict lookups: `dict["missing"] ?? "default"`.
+- `in` tests membership: `value in array` checks the array's elements (using the same equality rules as `==`), `value in dict` checks the dict's **keys**, and `value in string` checks for a substring. The right-hand side must be an array, dict, or string/`ton.html` — anything else is a runtime error.
 
 ---
 
@@ -282,7 +286,36 @@ ton.array doubled = map([1, 2, 3], ton.function(n) { return n * 2 })
 
 A function expression can optionally carry a name (`ton.function label(n) { ... }`) used only for friendlier debugger/error output — it isn't bound as a variable by that name.
 
-Calling a function with the wrong number of arguments is a runtime error (`'ton.f' expects 2 argument(s) but got 1.`) — there's no default-argument or variadic-parameter syntax.
+**Default parameters** — give a parameter `= expression` to make it optional; the default is evaluated at call time (in order, so a later default can reference an earlier parameter) and only when the argument is omitted:
+
+```
+ton.function greet(name, greeting = "Hello") {
+    return greeting + ", " + name + "!"
+}
+print(greet("kuro"))            // Hello, kuro!
+print(greet("kuro", "Salut"))   // Salut, kuro!
+
+ton.function pair(a, b = a + 1) {
+    return str(a) + "-" + str(b)
+}
+print(pair(5))   // 5-6
+```
+
+**Rest parameters** — prefix the last parameter with `...` to collect any extra arguments into an array:
+
+```
+ton.function sum(...nums) {
+    ton.int total = 0
+    for ton.n in nums { total += n }
+    return total
+}
+print(sum(1, 2, 3, 4))   // 10
+print(sum())              // 0
+```
+
+A function can mix fixed and rest parameters (`function label(prefix, ...items) { ... }`), but `...` may only appear on the last one.
+
+Calling a function with too few required arguments (or too many, when there's no rest parameter) is a runtime error — the message adapts to whether the function has defaults/rest (`'ton.f' expects 2 argument(s) but got 1.`, `'ton.f' expects between 1 and 2 argument(s) but got 0.`, `'ton.f' expects at least 1 argument(s) but got 0.`).
 
 Closures work as expected: a function remembers the variables in scope where it was declared, even after that scope has otherwise finished.
 
@@ -319,7 +352,7 @@ Dict keys are always strings (see [Known limitations](#known-limitations)): a ba
 
 ---
 
-### Error handling: try / catch / throw
+### Error handling: try / catch / throw / finally
 
 ```
 try {
@@ -330,6 +363,20 @@ try {
 ```
 
 Any runtime error — a native error (division by zero, wrong argument count, index out of bounds, ...) or an explicit `throw` — is catchable. The caught value is always the error's message as a string, bound to the name given in `catch (name)`. `break`, `continue`, and `return` pass straight through an enclosing `try` untouched (they aren't errors).
+
+`finally` adds a block that always runs after the `try` (and its `catch`, if any) — whether the block completed normally, threw, or hit a `return`:
+
+```
+ton.function readSafely() {
+    try {
+        return risky()
+    } finally {
+        print("cleanup ran")
+    }
+}
+```
+
+`try` needs at least one of `catch`/`finally`; `catch` alone (as above), `finally` alone (`try { ... } finally { ... }`, useful for cleanup when you want the error to keep propagating), or both together are all valid.
 
 ---
 
@@ -913,6 +960,14 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 
 ### Changelog
 
+**beta-1.0.3** — new operators, flexible function parameters, and `finally`:
+
+- **Default parameters**: `function greet(name, greeting = "Hello") { ... }` — the default is evaluated at call time, in order, so a later default can reference an earlier parameter.
+- **Rest parameters**: `function sum(...nums) { ... }` collects any extra arguments into an array; may be mixed with fixed parameters as long as `...` is last. Arity-error messages now adapt (`expects between 1 and 2 argument(s)`, `expects at least 1 argument(s)`).
+- **`??` (nil-coalescing operator)**: `value ?? fallback` returns `value` unless it's `nil`, in which case it returns `fallback` — the fallback is never evaluated otherwise (short-circuiting). See [Operators](#operators).
+- **`in` (membership operator)**: `value in array`, `value in dict` (tests keys), `value in string` (substring test). See [Operators](#operators).
+- **`finally`**: `try`/`catch` gained a `finally` block that always runs — on success, on a caught error, or through a `return` — and `catch` is now optional as long as `finally` is present (`try { ... } finally { ... }`). See [Error handling](#error-handling-try--catch--throw--finally).
+
 **beta-1.0.2** — simpler string formatting, and an AI-coding skill:
 
 - **String interpolation (`"Hello ${name}!"`) has been removed** in favor of the much simpler **`format(template, ...args)`**: `format("Hello {}!", name)`. Interpolation required the lexer to recursively re-lex arbitrary expressions embedded inside string literals (tracking nested quotes and braces) — a lot of machinery for what a single string-processing function does just as well, with far less to reason about. See [String formatting](#string-formatting).
@@ -981,7 +1036,7 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 10. [Fonctions](#fonctions)
 11. [Tableaux](#tableaux)
 12. [Dictionnaires](#dictionnaires)
-13. [Gestion des erreurs : try / catch / throw](#gestion-des-erreurs--try--catch--throw)
+13. [Gestion des erreurs : try / catch / throw / finally](#gestion-des-erreurs--try--catch--throw--finally)
 14. [Fonctions natives](#fonctions-natives)
 15. [Type HTML](#type-html)
 16. [Modules (IMPORT://)](#modules-import-1)
@@ -1149,6 +1204,8 @@ Un argument peut être n'importe quelle valeur — un nombre, une chaîne, le r�
 | Arithmétique | `+` `-` `*` `/` `%` |
 | Comparaison | `==` `!=` `<` `<=` `>` `>=` |
 | Logique | `&&`/`and`, `\|\|`/`or`, `!` |
+| Coalescence nulle | `??` |
+| Appartenance | `in` |
 | Assignation | `=` `+=` `-=` `*=` `/=` `%=` |
 | Incrémentation/décrémentation | `++` `--` (postfixe) |
 | Ternaire | `cond ? a : b` |
@@ -1159,6 +1216,8 @@ Notes :
 - `==`/`!=` utilisent l'égalité structurelle : nombres/booléens/nil comparent par valeur, une chaîne et une valeur html avec le même texte sont égales, et les tableaux/dicts comparent élément par élément (récursivement) plutôt que par référence — `[1, 2] == [1, 2]` vaut `true`.
 - `/` et `%` lèvent tous les deux "Division by zero" pour un côté droit à zéro, plutôt que de produire silencieusement `inf`/`NaN`.
 - `and`/`or` sont des synonymes exacts de `&&`/`||` — utilise celui qui se lit le mieux.
+- `??` ("coalescence nulle") évalue son côté gauche et le retourne tel quel sauf s'il vaut `nil`, auquel cas il évalue et retourne le côté droit à la place — le côté droit n'est jamais évalué autrement, donc on peut y mettre un fallback avec effets de bord sans risque. Pratique avec les accès aux dicts : `dict["manquant"] ?? "defaut"`.
+- `in` teste l'appartenance : `valeur in tableau` vérifie les éléments du tableau (avec les mêmes règles d'égalité que `==`), `valeur in dict` vérifie les **clés** du dict, et `valeur in chaine` cherche une sous-chaîne. Le côté droit doit être un tableau, un dict, ou une chaîne/`ton.html` — toute autre valeur est une erreur d'exécution.
 
 ---
 
@@ -1243,7 +1302,36 @@ ton.array doubles = map([1, 2, 3], ton.function(n) { return n * 2 })
 
 Une expression de fonction peut optionnellement porter un nom (`ton.function label(n) { ... }`) utilisé seulement pour un affichage débogueur/erreur plus clair — il n'est pas lié comme variable sous ce nom.
 
-Appeler une fonction avec le mauvais nombre d'arguments est une erreur d'exécution (`'ton.f' expects 2 argument(s) but got 1.`) — il n'y a pas de syntaxe d'arguments par défaut ou variadiques.
+**Paramètres par défaut** — donne à un paramètre `= expression` pour le rendre optionnel ; le défaut est évalué au moment de l'appel (dans l'ordre, donc un défaut plus tardif peut référencer un paramètre précédent) et seulement quand l'argument est omis :
+
+```
+ton.function saluer(nom, salutation = "Bonjour") {
+    return salutation + ", " + nom + " !"
+}
+print(saluer("kuro"))              // Bonjour, kuro !
+print(saluer("kuro", "Salut"))     // Salut, kuro !
+
+ton.function paire(a, b = a + 1) {
+    return str(a) + "-" + str(b)
+}
+print(paire(5))   // 5-6
+```
+
+**Paramètres rest** — préfixe le dernier paramètre par `...` pour collecter les arguments en trop dans un tableau :
+
+```
+ton.function somme(...nombres) {
+    ton.int total = 0
+    for ton.n in nombres { total += n }
+    return total
+}
+print(somme(1, 2, 3, 4))   // 10
+print(somme())              // 0
+```
+
+Une fonction peut mélanger paramètres fixes et rest (`function label(prefixe, ...items) { ... }`), mais `...` ne peut apparaître que sur le dernier.
+
+Appeler une fonction avec trop peu d'arguments requis (ou trop, sans paramètre rest) est une erreur d'exécution — le message s'adapte selon que la fonction a des défauts/un rest (`'ton.f' expects 2 argument(s) but got 1.`, `'ton.f' expects between 1 and 2 argument(s) but got 0.`, `'ton.f' expects at least 1 argument(s) but got 0.`).
 
 Les fermetures (closures) fonctionnent comme attendu : une fonction se souvient des variables du scope où elle a été déclarée, même après que ce scope ait par ailleurs terminé.
 
@@ -1280,7 +1368,7 @@ Les clés de dict sont toujours des chaînes (voir [Limitations connues](#limita
 
 ---
 
-### Gestion des erreurs : try / catch / throw
+### Gestion des erreurs : try / catch / throw / finally
 
 ```
 try {
@@ -1291,6 +1379,20 @@ try {
 ```
 
 Toute erreur d'exécution — une erreur native (division par zéro, mauvais nombre d'arguments, index hors limites, ...) ou un `throw` explicite — peut être attrapée. La valeur attrapée est toujours le message de l'erreur sous forme de chaîne, lié au nom donné dans `catch (nom)`. `break`, `continue`, et `return` traversent un `try` englobant sans y être affectés (ce ne sont pas des erreurs).
+
+`finally` ajoute un bloc qui s'exécute toujours après le `try` (et son `catch`, s'il y en a un) — que le bloc se soit terminé normalement, ait levé une erreur, ou ait rencontré un `return` :
+
+```
+ton.function lireSansRisque() {
+    try {
+        return risque()
+    } finally {
+        print("nettoyage effectué")
+    }
+}
+```
+
+`try` a besoin d'au moins un `catch`/`finally` : `catch` seul (comme ci-dessus), `finally` seul (`try { ... } finally { ... }`, utile pour du nettoyage quand on veut que l'erreur continue de se propager), ou les deux ensemble sont tous valides.
 
 ---
 
@@ -1873,6 +1975,14 @@ Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/
 ---
 
 ### Changelog
+
+**beta-1.0.3** — nouveaux opérateurs, paramètres de fonction flexibles, et `finally` :
+
+- **Paramètres par défaut** : `function saluer(nom, salutation = "Bonjour") { ... }` — le défaut est évalué au moment de l'appel, dans l'ordre, donc un défaut plus tardif peut référencer un paramètre précédent.
+- **Paramètres rest** : `function somme(...nombres) { ... }` collecte les arguments en trop dans un tableau ; peut être mélangé avec des paramètres fixes tant que `...` est en dernier. Les messages d'erreur d'arité s'adaptent maintenant (`expects between 1 and 2 argument(s)`, `expects at least 1 argument(s)`).
+- **`??` (opérateur de coalescence nulle)** : `valeur ?? defaut` retourne `valeur` sauf si elle vaut `nil`, auquel cas il retourne `defaut` — le défaut n'est jamais évalué autrement (court-circuit). Voir [Opérateurs](#opérateurs).
+- **`in` (opérateur d'appartenance)** : `valeur in tableau`, `valeur in dict` (teste les clés), `valeur in chaine` (test de sous-chaîne). Voir [Opérateurs](#opérateurs).
+- **`finally`** : `try`/`catch` gagne un bloc `finally` qui s'exécute toujours — en cas de succès, d'erreur attrapée, ou à travers un `return` — et `catch` est maintenant optionnel tant que `finally` est présent (`try { ... } finally { ... }`). Voir [Gestion des erreurs](#gestion-des-erreurs--try--catch--throw--finally).
 
 **beta-1.0.2** — formatage de chaînes simplifié, et un skill IA :
 

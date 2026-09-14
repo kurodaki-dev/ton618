@@ -24,12 +24,19 @@ struct Value;
 struct Environment;
 struct Stmt;
 using StmtPtr = std::shared_ptr<Stmt>;
+struct Expr;
+using ExprPtr = std::shared_ptr<Expr>;
 
 enum class ValueType { NUMBER, STRING, BOOL, NIL, FUNCTION, NATIVE_FUNCTION, ARRAY, HTML, DICT };
 
 struct FunctionObj {
     std::string name;
     std::vector<std::string> params;
+    // Parallel to params (nullptr = no default value); if hasRestParam is
+    // true, the LAST entry of params collects every extra argument into a
+    // ton.array instead of binding a single value — see Interpreter::callFunction.
+    std::vector<ExprPtr> paramDefaults;
+    bool hasRestParam = false;
     StmtPtr body;
     std::shared_ptr<Environment> closure;
 };

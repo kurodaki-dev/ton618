@@ -94,13 +94,7 @@ StmtPtr Parser::fnDeclaration() {
     int line = previous().line;
     Token name = consume(TokenType::IDENTIFIER, "expected a function name.");
     consume(TokenType::LPAREN, "expected '(' after the function name.");
-    std::vector<std::string> params;
-    if (!check(TokenType::RPAREN)) {
-        do {
-            Token p = consume(TokenType::IDENTIFIER, "expected a parameter name.");
-            params.push_back(p.lexeme);
-        } while (match({TokenType::COMMA}));
-    }
+    ParamList params = parseParamList();
     consume(TokenType::RPAREN, "expected ')' after the parameters.");
     consume(TokenType::LBRACE, "expected '{' before the function body.");
     StmtPtr body = block();
@@ -109,9 +103,37 @@ StmtPtr Parser::fnDeclaration() {
     s->type = StmtType::FN_DECL;
     s->line = line;
     s->fnName = name.lexeme;
-    s->params = params;
+    s->params = params.names;
+    s->paramDefaults = params.defaults;
+    s->hasRestParam = params.hasRest;
     s->body = body;
     return s;
+}
+
+// Parses "(a, b = default, ...rest)" (the opening '(' is already consumed by
+// the caller) — shared by fnDeclaration() and functionExpression(). A default
+// value expression can reference earlier parameters (they're bound in the
+// call environment first — see Interpreter::callFunction). "...name" collects
+// every remaining argument into a ton.array and, if present, must be last.
+Parser::ParamList Parser::parseParamList() {
+    ParamList result;
+    if (!check(TokenType::RPAREN)) {
+        do {
+            if (match({TokenType::ELLIPSIS})) {
+                Token restName = consume(TokenType::IDENTIFIER, "expected a parameter name after '...'.");
+                result.names.push_back(restName.lexeme);
+                result.defaults.push_back(nullptr);
+                result.hasRest = true;
+                break;
+            }
+            Token p = consume(TokenType::IDENTIFIER, "expected a parameter name.");
+            ExprPtr def = nullptr;
+            if (match({TokenType::EQUAL})) def = expression();
+            result.names.push_back(p.lexeme);
+            result.defaults.push_back(def);
+        } while (match({TokenType::COMMA}));
+    }
+    return result;
 }
 
 // "IMPORT://name" loads a user-written module file (name.ton). "IMPORT://ton.name"
@@ -260,30 +282,47 @@ StmtPtr Parser::forStatement() {
 // "try { ... } catch (ton.err) { ... }" — runs the try block, and if it raises any
 // runtime error (native or via "throw"), binds the error message into "err" (as a
 // string) and runs the catch block instead of letting the program crash.
+// "try { } catch (e) { }", "try { } finally { }", or "try { } catch (e) { }
+// finally { }" — at least one of catch/finally must be present. Without a
+// catch clause, an error inside the try block is never swallowed: finally
+// still runs, then the error keeps propagating (see Interpreter::execute).
 StmtPtr Parser::tryStatement() {
     int line = previous().line;
     consume(TokenType::LBRACE, "expected '{' after 'try'.");
     StmtPtr tryBlock = block();
 
-    consume(TokenType::CATCH, "expected 'catch' after the try block.");
-    consume(TokenType::LPAREN, "expected '(' after 'catch'.");
     std::string errorVarName;
-    if (check(TokenType::TON)) {
-        advance();
-        consume(TokenType::DOT, "expected '.' after 'ton'.");
-        errorVarName = consume(TokenType::IDENTIFIER, "expected an error variable name.").lexeme;
-    } else {
-        errorVarName = consume(TokenType::IDENTIFIER, "expected an error variable name.").lexeme;
+    StmtPtr catchBlock = nullptr;
+    if (match({TokenType::CATCH})) {
+        consume(TokenType::LPAREN, "expected '(' after 'catch'.");
+        if (check(TokenType::TON)) {
+            advance();
+            consume(TokenType::DOT, "expected '.' after 'ton'.");
+            errorVarName = consume(TokenType::IDENTIFIER, "expected an error variable name.").lexeme;
+        } else {
+            errorVarName = consume(TokenType::IDENTIFIER, "expected an error variable name.").lexeme;
+        }
+        consume(TokenType::RPAREN, "expected ')' after the catch variable.");
+        consume(TokenType::LBRACE, "expected '{' for the catch block.");
+        catchBlock = block();
     }
-    consume(TokenType::RPAREN, "expected ')' after the catch variable.");
-    consume(TokenType::LBRACE, "expected '{' for the catch block.");
-    StmtPtr catchBlock = block();
+
+    StmtPtr finallyBlock = nullptr;
+    if (match({TokenType::FINALLY})) {
+        consume(TokenType::LBRACE, "expected '{' after 'finally'.");
+        finallyBlock = block();
+    }
+
+    if (!catchBlock && !finallyBlock) {
+        error(previous(), "expected 'catch' or 'finally' after the try block.");
+    }
 
     auto s = std::make_shared<Stmt>();
     s->type = StmtType::TRY_CATCH; s->line = line;
     s->name = errorVarName;
-    s->thenBranch = tryBlock;  // reused field: the try block
-    s->elseBranch = catchBlock; // reused field: the catch block
+    s->thenBranch = tryBlock;   // reused field: the try block
+    s->elseBranch = catchBlock; // reused field: the catch block (null if none)
+    s->finallyBranch = finallyBlock;
     return s;
 }
 
@@ -435,7 +474,7 @@ ExprPtr Parser::assignment() {
 // "cond ? whenTrue : whenFalse" — the condition is "condition", the two branches
 // reuse "left"/"right" (never used together with TERNARY's condition field elsewhere).
 ExprPtr Parser::ternary() {
-    ExprPtr expr = logicOr();
+    ExprPtr expr = nilCoalesce();
     if (match({TokenType::QUESTION})) {
         Token q = previous();
         ExprPtr whenTrue = expression();
@@ -445,6 +484,21 @@ ExprPtr Parser::ternary() {
         e->type = ExprType::TERNARY; e->line = q.line;
         e->condition = expr; e->left = whenTrue; e->right = whenFalse;
         return e;
+    }
+    return expr;
+}
+
+// "a ?? b" — evaluates to "a" unless it's nil, in which case "b" runs instead.
+// Built as a LOGICAL node (not BINARY) so the interpreter short-circuits:
+// "b" is never evaluated at all when "a" isn't nil.
+ExprPtr Parser::nilCoalesce() {
+    ExprPtr expr = logicOr();
+    while (match({TokenType::QUESTION_QUESTION})) {
+        Token op = previous(); ExprPtr right = logicOr();
+        auto e = std::make_shared<Expr>();
+        e->type = ExprType::LOGICAL; e->line = op.line;
+        e->left = expr; e->op = op.type; e->right = right;
+        expr = e;
     }
     return expr;
 }
@@ -485,9 +539,11 @@ ExprPtr Parser::equality() {
     return expr;
 }
 
+// Also handles "value in collection" (membership test on an array, a dict's
+// keys, or a substring of a string) at the same precedence as < <= > >=.
 ExprPtr Parser::comparison() {
     ExprPtr expr = term();
-    while (match({TokenType::LESS, TokenType::LESS_EQUAL, TokenType::GREATER, TokenType::GREATER_EQUAL})) {
+    while (match({TokenType::LESS, TokenType::LESS_EQUAL, TokenType::GREATER, TokenType::GREATER_EQUAL, TokenType::IN})) {
         Token op = previous(); ExprPtr right = term();
         auto e = std::make_shared<Expr>();
         e->type = ExprType::BINARY; e->line = op.line;
@@ -600,18 +656,15 @@ ExprPtr Parser::functionExpression(int line) {
     if (check(TokenType::IDENTIFIER)) fnName = advance().lexeme;
 
     consume(TokenType::LPAREN, "expected '(' after 'function'.");
-    std::vector<std::string> params;
-    if (!check(TokenType::RPAREN)) {
-        do { params.push_back(consume(TokenType::IDENTIFIER, "expected a parameter name.").lexeme); }
-        while (match({TokenType::COMMA}));
-    }
+    ParamList params = parseParamList();
     consume(TokenType::RPAREN, "expected ')' after the parameters.");
     consume(TokenType::LBRACE, "expected '{' before the function body.");
     StmtPtr body = block();
 
     auto e = std::make_shared<Expr>();
     e->type = ExprType::FUNCTION_EXPR; e->line = line;
-    e->name = fnName; e->fnParams = params; e->fnBody = body;
+    e->name = fnName; e->fnParams = params.names; e->fnParamDefaults = params.defaults;
+    e->fnHasRestParam = params.hasRest; e->fnBody = body;
     return e;
 }
 

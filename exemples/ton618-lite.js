@@ -34,7 +34,7 @@
 
 const KEYWORDS = new Set([
   "if", "else", "while", "for", "in", "function", "return", "break", "continue",
-  "try", "catch", "throw", "switch", "case", "default", "true", "false", "nil", "and", "or", "print",
+  "try", "catch", "throw", "finally", "switch", "case", "default", "true", "false", "nil", "and", "or", "print",
   "int", "string", "bool", "float", "array", "html", "dict",
 ]);
 
@@ -109,11 +109,14 @@ function lex(source) {
       continue;
     }
 
+    if (c === "." && peek(1) === "." && peek(2) === ".") { push("ELLIPSIS"); i += 3; continue; }
+
     const two = source.slice(i, i + 2);
     const twoMap = {
       "==": "EQUAL_EQUAL", "!=": "BANG_EQUAL", "<=": "LESS_EQUAL", ">=": "GREATER_EQUAL",
       "&&": "AND", "||": "OR", "+=": "PLUS_EQUAL", "-=": "MINUS_EQUAL", "*=": "STAR_EQUAL",
       "/=": "SLASH_EQUAL", "%=": "PERCENT_EQUAL", "++": "PLUS_PLUS", "--": "MINUS_MINUS",
+      "??": "QUESTION_QUESTION",
     };
     if (twoMap[two]) { push(twoMap[two]); i += 2; continue; }
 
@@ -190,21 +193,39 @@ function parse(tokens) {
   function fnDeclaration() {
     const line = previous().line;
     const name = consume("IDENTIFIER", "expected a function name.").value;
-    const { params, body } = functionRest();
-    return { kind: "FnDecl", line, name, params, body };
+    const { params, paramDefaults, hasRest, body } = functionRest();
+    return { kind: "FnDecl", line, name, params, paramDefaults, hasRest, body };
   }
 
   // Parses "(params) { body }", shared by both the statement form above and
   // the expression form in tonReference() below.
   function functionRest() {
     consume("LPAREN", "expected '(' after the function name.");
-    const params = [];
-    if (!check("RPAREN")) {
-      do { params.push(consume("IDENTIFIER", "expected a parameter name.").value); } while (match("COMMA"));
-    }
+    const { names: params, defaults: paramDefaults, hasRest } = parseParamList();
     consume("RPAREN", "expected ')' after the parameters.");
     consume("LBRACE", "expected '{' before the function body.");
-    return { params, body: block() };
+    return { params, paramDefaults, hasRest, body: block() };
+  }
+
+  // Parses "(a, b = default, ...rest)" — "..." may only appear on the last
+  // parameter.
+  function parseParamList() {
+    const names = [];
+    const defaults = [];
+    let hasRest = false;
+    if (!check("RPAREN")) {
+      do {
+        if (match("ELLIPSIS")) {
+          names.push(consume("IDENTIFIER", "expected a parameter name after '...'.").value);
+          defaults.push(null);
+          hasRest = true;
+          break;
+        }
+        names.push(consume("IDENTIFIER", "expected a parameter name.").value);
+        defaults.push(match("EQUAL") ? expression() : null);
+      } while (match("COMMA"));
+    }
+    return { names, defaults, hasRest };
   }
 
   function importDeclaration() {
@@ -307,15 +328,26 @@ function parse(tokens) {
     const line = previous().line;
     consume("LBRACE", "expected '{' after 'try'.");
     const tryBlock = block();
-    consume("CATCH", "expected 'catch' after the try block.");
-    consume("LPAREN", "expected '(' after 'catch'.");
-    let errorVar;
-    if (check("TON")) { advance(); consume("DOT", "expected '.' after 'ton'."); errorVar = consume("IDENTIFIER", "expected an error variable name.").value; }
-    else errorVar = consume("IDENTIFIER", "expected an error variable name.").value;
-    consume("RPAREN", "expected ')' after the catch variable.");
-    consume("LBRACE", "expected '{' for the catch block.");
-    const catchBlock = block();
-    return { kind: "TryCatch", line, tryBlock, errorVar, catchBlock };
+    let errorVar = null;
+    let catchBlock = null;
+    if (match("CATCH")) {
+      consume("LPAREN", "expected '(' after 'catch'.");
+      if (check("TON")) { advance(); consume("DOT", "expected '.' after 'ton'."); errorVar = consume("IDENTIFIER", "expected an error variable name.").value; }
+      else errorVar = consume("IDENTIFIER", "expected an error variable name.").value;
+      consume("RPAREN", "expected ')' after the catch variable.");
+      consume("LBRACE", "expected '{' for the catch block.");
+      catchBlock = block();
+    }
+    let finallyBlock = null;
+    if (match("FINALLY")) {
+      consume("LBRACE", "expected '{' after 'finally'.");
+      finallyBlock = block();
+    }
+    if (!catchBlock && !finallyBlock) {
+      const tok = previous();
+      throw new Error(`Line ${tok.line} near '${tok.value ?? tok.type}': expected 'catch' or 'finally' after the try block.`);
+    }
+    return { kind: "TryCatch", line, tryBlock, errorVar, catchBlock, finallyBlock };
   }
 
   // "switch (subject) { case v1, v2: { ... } case v3: { ... } default: { ... } }"
@@ -417,13 +449,22 @@ function parse(tokens) {
   }
 
   function ternary() {
-    const expr = logicOr();
+    const expr = nilCoalesce();
     if (match("QUESTION")) {
       const line = previous().line;
       const whenTrue = expression();
       consume("COLON", "expected ':' in the ternary expression.");
       const whenFalse = ternary();
       return { kind: "Ternary", line, cond: expr, whenTrue, whenFalse };
+    }
+    return expr;
+  }
+
+  function nilCoalesce() {
+    let expr = logicOr();
+    while (match("QUESTION_QUESTION")) {
+      const line = previous().line;
+      expr = { kind: "Logical", line, op: "??", left: expr, right: logicOr() };
     }
     return expr;
   }
@@ -451,7 +492,7 @@ function parse(tokens) {
     return expr;
   }
   const equality = binaryLevel(() => comparison(), ["EQUAL_EQUAL", "BANG_EQUAL"]);
-  const comparison = binaryLevel(() => term(), ["LESS", "LESS_EQUAL", "GREATER", "GREATER_EQUAL"]);
+  const comparison = binaryLevel(() => term(), ["LESS", "LESS_EQUAL", "GREATER", "GREATER_EQUAL", "IN"]);
   const term = binaryLevel(() => factor(), ["PLUS", "MINUS"]);
   const factor = binaryLevel(() => unary(), ["STAR", "SLASH", "PERCENT"]);
 
@@ -500,8 +541,8 @@ function parse(tokens) {
     if (check("FUNCTION")) {
       advance();
       const name = check("IDENTIFIER") ? advance().value : null;
-      const { params, body } = functionRest();
-      return { kind: "FnExpr", line: tonTok.line, name, params, body };
+      const { params, paramDefaults, hasRest, body } = functionRest();
+      return { kind: "FnExpr", line: tonTok.line, name, params, paramDefaults, hasRest, body };
     }
     const name = consume("IDENTIFIER", "expected a name after 'ton.'.").value;
     return { kind: "Variable", line: tonTok.line, name };
@@ -554,7 +595,7 @@ function parse(tokens) {
 // ---------------------------------------------------------------------------
 
 class HtmlString { constructor(s) { this.value = s; } }
-class TonFunction { constructor(name, params, body, closure) { Object.assign(this, { name, params, body, closure }); } }
+class TonFunction { constructor(name, params, body, closure, paramDefaults = [], hasRest = false) { Object.assign(this, { name, params, body, closure, paramDefaults, hasRest }); } }
 class NativeFunction { constructor(name, fn) { this.name = name; this.fn = fn; } }
 
 function typeName(v) {
@@ -750,20 +791,27 @@ class Interpreter {
       }
 
       case "TryCatch": {
-        try { this.execute(stmt.tryBlock, env); }
-        catch (e) {
-          if (e instanceof BreakSignal || e instanceof ContinueSignal || e instanceof ReturnSignal) throw e;
-          const catchEnv = new Environment(env);
-          catchEnv.define(stmt.errorVar, e.message || String(e));
-          this.execute(stmt.catchBlock, catchEnv);
+        try {
+          try { this.execute(stmt.tryBlock, env); }
+          catch (e) {
+            if (e instanceof BreakSignal || e instanceof ContinueSignal || e instanceof ReturnSignal) throw e;
+            if (!stmt.catchBlock) throw e; // no catch clause: propagate (finally still runs, below)
+            const catchEnv = new Environment(env);
+            catchEnv.define(stmt.errorVar, e.message || String(e));
+            this.execute(stmt.catchBlock, catchEnv);
+          }
+        } catch (e) {
+          if (stmt.finallyBlock) this.execute(stmt.finallyBlock, env);
+          throw e;
         }
+        if (stmt.finallyBlock) this.execute(stmt.finallyBlock, env);
         return;
       }
 
       case "Throw": throw new Error(toDisplayString(stmt.value ? this.evaluate(stmt.value, env) : null));
 
       case "FnDecl": {
-        env.define(stmt.name, new TonFunction(stmt.name, stmt.params, stmt.body, env));
+        env.define(stmt.name, new TonFunction(stmt.name, stmt.params, stmt.body, env, stmt.paramDefaults, stmt.hasRest));
         return;
       }
 
@@ -810,7 +858,7 @@ class Interpreter {
         return val;
       }
 
-      case "FnExpr": return new TonFunction(expr.name, expr.params, expr.body, env);
+      case "FnExpr": return new TonFunction(expr.name, expr.params, expr.body, env, expr.paramDefaults, expr.hasRest);
 
       case "ArrayLit": return expr.elements.map((e) => this.evaluate(e, env));
 
@@ -833,7 +881,9 @@ class Interpreter {
 
       case "Logical": {
         const left = this.evaluate(expr.left, env);
-        if (expr.op === "or") { if (isTruthy(left)) return left; } else { if (!isTruthy(left)) return left; }
+        if (expr.op === "or") { if (isTruthy(left)) return left; }
+        else if (expr.op === "and") { if (!isTruthy(left)) return left; }
+        else { if (left !== null && left !== undefined) return left; } // "??"
         return this.evaluate(expr.right, env);
       }
 
@@ -923,6 +973,16 @@ class Interpreter {
       }
       case "EQUAL_EQUAL": return valuesEqual(left, right);
       case "BANG_EQUAL": return !valuesEqual(left, right);
+      case "IN": {
+        if (Array.isArray(right)) return right.some((item) => valuesEqual(item, left));
+        if (right instanceof Map) {
+          const key = typeof left === "string" ? left : strOf(left);
+          return right.has(key);
+        }
+        if (isStrLike(right)) return strOf(right).includes(strOf(left));
+        this.error(expr.line, `'in' expects an array, dict, or string on the right-hand side (got ${typeName(right)}).`);
+        break;
+      }
       default: return null;
     }
   }
@@ -930,11 +990,28 @@ class Interpreter {
   callFunction(callee, args, line) {
     if (callee instanceof NativeFunction) return callee.fn(args);
     if (!(callee instanceof TonFunction)) this.error(line, "Only functions can be called.");
-    if (args.length !== callee.params.length) {
-      this.error(line, `'ton.${callee.name || "<anonymous>"}' expects ${callee.params.length} argument(s) but got ${args.length}.`);
+
+    const hasRest = !!callee.hasRest;
+    const fixedCount = hasRest ? callee.params.length - 1 : callee.params.length;
+    const defaults = callee.paramDefaults || [];
+    let requiredCount = 0;
+    for (let i = 0; i < fixedCount; i++) if (!defaults[i]) requiredCount++;
+
+    if (args.length < requiredCount || (!hasRest && args.length > fixedCount)) {
+      let expectation;
+      if (hasRest) expectation = `at least ${requiredCount}`;
+      else if (requiredCount === fixedCount) expectation = `${fixedCount}`;
+      else expectation = `between ${requiredCount} and ${fixedCount}`;
+      this.error(line, `'ton.${callee.name || "<anonymous>"}' expects ${expectation} argument(s) but got ${args.length}.`);
     }
+
     const callEnv = new Environment(callee.closure);
-    callee.params.forEach((p, i) => callEnv.define(p, args[i]));
+    for (let i = 0; i < fixedCount; i++) {
+      const v = i < args.length ? args[i] : this.evaluate(defaults[i], callEnv);
+      callEnv.define(callee.params[i], v);
+    }
+    if (hasRest) callEnv.define(callee.params[callee.params.length - 1], args.slice(fixedCount));
+
     try {
       for (const s of callee.body.statements) this.execute(s, callEnv);
     } catch (e) {
