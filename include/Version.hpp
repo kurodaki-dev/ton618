@@ -9,7 +9,7 @@
 // compares it against GitHub release tags — see TON618_REPO below.
 // ============================================================================
 
-#define TON618_VERSION "beta-1.0.7"
+#define TON618_VERSION "beta-1.0.8"
 
 // "owner/repo" on GitHub that --update pulls precompiled binaries from and
 // that install.sh / install.ps1 point at. Change this if the project ever
