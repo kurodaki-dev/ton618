@@ -1,6 +1,6 @@
 # TON618 uninstaller - Windows
 # Usage: powershell -c "irm https://raw.githubusercontent.com/kurodaki-dev/ton618/main/scripts/uninstall.ps1 | iex"
-# (or simply: ton618 --uninstall)
+# (or simply: ton618 --uninstall-ton)
 
 $InstallDir = Join-Path $env:LOCALAPPDATA "ton618"
 
