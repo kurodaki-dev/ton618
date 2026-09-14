@@ -1105,6 +1105,8 @@ A **tensor** is a `ton.dict` with two fields — `{shape: [...], data: [...]}` (
 | `tensor_softmax(t)` | Softmax over the whole vector (1D) or row-wise (2D) |
 | `tensor_relu_grad(input)` / `tensor_sigmoid_grad(output)` / `tensor_tanh_grad(output)` | Element-wise derivatives for hand-rolled backprop — note `sigmoid_grad`/`tanh_grad` take that function's *output* (cheaper to express that way), while `relu_grad` takes its *input* |
 | `tensor_map(t, fn)` | Applies a `ton.function`/function-expression to every element — slower than the natives above (one interpreter call per element) but works for any custom scalar function |
+| `tensor_argmax(t)` | The index of the largest element (1D), or one index per row (2D) — the "which class did this predict" op |
+| `tensor_conv1d(signal, kernel, [stride=1])` | 1D "valid" convolution (cross-correlation) on single-channel 1D tensors: `out[i] = sum_j signal[i*stride+j] * kernel[j]` — see the community `atome` module for how multi-channel Conv1D layers (and their gradient) are built from this primitive |
 
 ```
 IMPORT://ton.tensor
@@ -1320,6 +1322,11 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 ---
 
 ### Changelog
+
+**beta-1.0.7** — `tensor_argmax` and `tensor_conv1d`:
+
+- **`tensor_argmax(t)`**: the index of the largest element (or one per row for a 2D tensor).
+- **`tensor_conv1d(signal, kernel, [stride])`**: 1D convolution (cross-correlation) on single-channel tensors — the primitive the community `atome` module builds its (multi-channel, autograd-tracked) Conv1D layer on top of, verified against a numerical gradient check.
 
 **beta-1.0.6** — `ton.tensor`, a native module for basic ML work:
 
@@ -2234,6 +2241,8 @@ Un **tenseur** est un `ton.dict` avec deux champs — `{shape: [...], data: [...
 | `tensor_softmax(t)` | Softmax sur tout le vecteur (1D) ou ligne par ligne (2D) |
 | `tensor_relu_grad(entree)` / `tensor_sigmoid_grad(sortie)` / `tensor_tanh_grad(sortie)` | Dérivées élément par élément pour de la rétropropagation faite à la main — `sigmoid_grad`/`tanh_grad` prennent la *sortie* de cette fonction (moins cher à exprimer ainsi), tandis que `relu_grad` prend son *entrée* |
 | `tensor_map(t, fn)` | Applique une `ton.function`/expression de fonction à chaque élément — plus lent que les natives ci-dessus (un appel interpréteur par élément) mais marche avec n'importe quelle fonction scalaire personnalisée |
+| `tensor_argmax(t)` | L'index de l'élément le plus grand (1D), ou un index par ligne (2D) — l'opération "quelle classe ça a prédit" |
+| `tensor_conv1d(signal, noyau, [pas=1])` | Convolution 1D "valid" (corrélation croisée) sur des tenseurs 1D à un seul canal : `out[i] = somme_j signal[i*pas+j] * noyau[j]` — voir le module communautaire `atome` pour comment des couches Conv1D multi-canaux (et leur gradient) sont construites à partir de cette primitive |
 
 ```
 IMPORT://ton.tensor
@@ -2449,6 +2458,11 @@ Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/
 ---
 
 ### Changelog
+
+**beta-1.0.7** — `tensor_argmax` et `tensor_conv1d` :
+
+- **`tensor_argmax(t)`** : l'index de l'élément le plus grand (ou un par ligne pour un tenseur 2D).
+- **`tensor_conv1d(signal, noyau, [pas])`** : convolution 1D (corrélation croisée) sur des tenseurs à un seul canal — la primitive sur laquelle le module communautaire `atome` construit sa couche Conv1D (multi-canaux, suivie par l'autodiff), vérifiée par un test de gradient numérique.
 
 **beta-1.0.6** — `ton.tensor`, un module natif pour du ML basique :
 
