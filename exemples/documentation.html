@@ -1107,6 +1107,8 @@ A **tensor** is a `ton.dict` with two fields — `{shape: [...], data: [...]}` (
 | `tensor_map(t, fn)` | Applies a `ton.function`/function-expression to every element — slower than the natives above (one interpreter call per element) but works for any custom scalar function |
 | `tensor_argmax(t)` | The index of the largest element (1D), or one index per row (2D) — the "which class did this predict" op |
 | `tensor_conv1d(signal, kernel, [stride=1])` | 1D "valid" convolution (cross-correlation) on single-channel 1D tensors: `out[i] = sum_j signal[i*stride+j] * kernel[j]` — see the community `atome` module for how multi-channel Conv1D layers (and their gradient) are built from this primitive |
+| `tensor_to_bytes(t)` | Packs the tensor's flat data as raw IEEE-754 float64 bytes (native endianness), returned as a `ton.string` — combined with `writefile` (which writes a string's *exact* bytes), this is what lets a module write real binary files instead of JSON text. Not portable between machines of different endianness |
+| `tensor_from_bytes(bytes, shape)` | The inverse of `tensor_to_bytes` — unpacks a raw bytes string (e.g. from `readfile` + `substring`) back into a tensor of the given shape; errors if the byte length doesn't match `shape`'s element count × 8 |
 
 ```
 IMPORT://ton.tensor
@@ -1322,6 +1324,10 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 ---
 
 ### Changelog
+
+**beta-1.0.10** — `tensor_to_bytes`/`tensor_from_bytes`, real binary files:
+
+- **`tensor_to_bytes(t)` / `tensor_from_bytes(bytes, shape)`**: pack/unpack a tensor's data as raw IEEE-754 float64 bytes. Combined with `writefile`/`readfile` (which now open files in binary mode, so bytes round-trip exactly on Windows too, not just Linux/Mac), this is what lets a `.ton` module write real binary files — no more encoding numbers as JSON text and losing precision to `json_stringify`'s ~6-significant-digit rounding. The community `atome` module's `.atm` model files now use this instead of JSON.
 
 **beta-1.0.9** — `--uninstall-ton` also removes `./modules/`:
 
@@ -2251,6 +2257,8 @@ Un **tenseur** est un `ton.dict` avec deux champs — `{shape: [...], data: [...
 | `tensor_map(t, fn)` | Applique une `ton.function`/expression de fonction à chaque élément — plus lent que les natives ci-dessus (un appel interpréteur par élément) mais marche avec n'importe quelle fonction scalaire personnalisée |
 | `tensor_argmax(t)` | L'index de l'élément le plus grand (1D), ou un index par ligne (2D) — l'opération "quelle classe ça a prédit" |
 | `tensor_conv1d(signal, noyau, [pas=1])` | Convolution 1D "valid" (corrélation croisée) sur des tenseurs 1D à un seul canal : `out[i] = somme_j signal[i*pas+j] * noyau[j]` — voir le module communautaire `atome` pour comment des couches Conv1D multi-canaux (et leur gradient) sont construites à partir de cette primitive |
+| `tensor_to_bytes(t)` | Empaquette les données du tenseur en octets bruts IEEE-754 float64 (endianness native), renvoyés sous forme de `ton.string` — combiné à `writefile` (qui écrit les octets *exacts* d'une chaîne), ça permet à un module d'écrire de vrais fichiers binaires plutôt que du JSON texte. Pas portable entre machines d'endianness différente |
+| `tensor_from_bytes(octets, forme)` | L'inverse de `tensor_to_bytes` — décode une chaîne d'octets bruts (ex. depuis `readfile` + `substring`) en un tenseur de la forme donnée ; erreur si la longueur en octets ne correspond pas au nombre d'éléments de `forme` × 8 |
 
 ```
 IMPORT://ton.tensor
@@ -2466,6 +2474,10 @@ Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/
 ---
 
 ### Changelog
+
+**beta-1.0.10** — `tensor_to_bytes`/`tensor_from_bytes`, de vrais fichiers binaires :
+
+- **`tensor_to_bytes(t)` / `tensor_from_bytes(octets, forme)`** : empaquette/décode les données d'un tenseur en octets bruts IEEE-754 float64. Combiné à `writefile`/`readfile` (désormais ouverts en mode binaire, pour que les octets fassent l'aller-retour exactement même sous Windows, pas seulement Linux/Mac), ça permet à un module `.ton` d'écrire de vrais fichiers binaires — plus besoin d'encoder les nombres en JSON texte et de perdre en précision à cause de l'arrondi à ~6 chiffres significatifs de `json_stringify`. Les fichiers modèles `.atm` du module communautaire `atome` utilisent désormais ça plutôt que du JSON.
 
 **beta-1.0.9** — `--uninstall-ton` supprime aussi `./modules/` :
 

@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <chrono>
 #include <thread>
@@ -245,9 +246,13 @@ void Interpreter::defineNatives() {
         }
         std::string path = args[0].str;
         // Resolve relative to the script's directory, like IMPORT:// does.
+        // Opened in binary mode so raw bytes (e.g. tensor_to_bytes output,
+        // written by a module like "atome" for real binary model files)
+        // round-trip exactly — text mode would mangle them on Windows via
+        // its \r\n translation.
         std::vector<std::string> candidates = { path, scriptDir + "/" + path };
         for (auto& c : candidates) {
-            std::ifstream file(c);
+            std::ifstream file(c, std::ios::binary);
             if (file) {
                 std::stringstream ss;
                 ss << file.rdbuf();
@@ -265,7 +270,9 @@ void Interpreter::defineNatives() {
         if (args.size() < 2 || args[0].type != ValueType::STRING) {
             throw std::runtime_error("writefile(path, content) expects a string path and content.");
         }
-        std::ofstream file(args[0].str, std::ios::trunc);
+        // Binary mode so raw bytes (e.g. tensor_to_bytes output) round-trip
+        // exactly on Windows too, not just Linux/Mac.
+        std::ofstream file(args[0].str, std::ios::trunc | std::ios::binary);
         if (!file) return Value::Bool(false);
         file << args[1].toString();
         return Value::Bool(true);
@@ -2381,5 +2388,48 @@ void Interpreter::registerBuiltinTensor() {
             out[i] = Value::Number(s);
         }
         return makeTensor({outLen}, out);
+    });
+
+    // tensor_to_bytes(t) — packs the tensor's flat data as raw IEEE-754
+    // float64 bytes (native endianness), returned as a ton.string. Combined
+    // with writefile (which writes a string's exact bytes, unlike
+    // json_stringify/json_pretty which round to ~6 significant digits),
+    // this is what lets a module like "atome" write real binary model files
+    // instead of JSON text — see tensor_from_bytes for the inverse. Shape
+    // isn't encoded here (the caller already knows it, or stores it
+    // alongside as text metadata); this only carries the raw numbers.
+    // Not portable between machines of different endianness.
+    def("tensor_to_bytes", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_to_bytes");
+        auto& d = *t.findDictEntry("data")->array;
+        std::string bytes(d.size() * sizeof(double), '\0');
+        for (size_t i = 0; i < d.size(); i++) {
+            double v = d[i].number;
+            std::memcpy(&bytes[i * sizeof(double)], &v, sizeof(double));
+        }
+        return Value::String(std::move(bytes));
+    });
+
+    // tensor_from_bytes(bytes, shape) — the inverse of tensor_to_bytes:
+    // unpacks a raw float64-bytes string (as produced by tensor_to_bytes,
+    // e.g. after readfile + substring) back into a tensor of the given
+    // shape. Errors if the byte length doesn't match shape's element count.
+    def("tensor_from_bytes", [shapeFromArg](std::vector<Value>& a) -> Value {
+        if (a.empty() || (a[0].type != ValueType::STRING && a[0].type != ValueType::HTML))
+            throw std::runtime_error("tensor_from_bytes(bytes, shape): the first argument must be a string of raw bytes.");
+        const std::string& bytes = a[0].str;
+        auto shape = shapeFromArg(a, 1, "tensor_from_bytes");
+        long long n = 1;
+        for (auto s : shape) n *= s;
+        if ((long long)bytes.size() != n * (long long)sizeof(double))
+            throw std::runtime_error("tensor_from_bytes(): byte length (" + std::to_string(bytes.size()) +
+                                      ") doesn't match shape's element count * 8 (" + std::to_string(n * (long long)sizeof(double)) + ").");
+        std::vector<Value> out(n);
+        for (long long i = 0; i < n; i++) {
+            double v;
+            std::memcpy(&v, bytes.data() + i * sizeof(double), sizeof(double));
+            out[i] = Value::Number(v);
+        }
+        return makeTensor(shape, out);
     });
 }
