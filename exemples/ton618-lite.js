@@ -14,9 +14,10 @@
 // What it deliberately leaves out:
 //   - ton.sys / ton.os / ton.requests (real process/filesystem/network access
 //     — there's no sandbox equivalent to fall back to)
-//   - ton.encoding / ton.regex / ton.path (not reimplemented here yet, though
-//     nothing stops them from being — see the real interpreter's
-//     registerBuiltinEncoding/Regex/Path in src/Interpreter.cpp)
+//   - ton.encoding / ton.regex / ton.path / ton.tensor (not reimplemented
+//     here yet, though nothing stops them from being — see the real
+//     interpreter's registerBuiltinEncoding/Regex/Path/Tensor in
+//     src/Interpreter.cpp)
 //   - IMPORT://<file> user modules (no filesystem to read them from)
 //   - get/post/serve (no HTTP server), readfile/writefile
 // Every native/module function is documented in DOCUMENTATION.md; this
@@ -1095,7 +1096,7 @@ class Interpreter {
       if (builtin === "sys" || builtin === "os" || builtin === "requests") {
         this.error(line, `'ton.${builtin}' needs real process/filesystem/network access, which the browser playground cannot provide. Install the real interpreter (see DOCUMENTATION.md) to use it.`);
       }
-      if (builtin === "encoding" || builtin === "regex" || builtin === "path") {
+      if (builtin === "encoding" || builtin === "regex" || builtin === "path" || builtin === "tensor") {
         this.error(line, `'ton.${builtin}' isn't implemented in the playground yet (it exists in the real interpreter — see DOCUMENTATION.md). Install the real interpreter to use it.`);
       }
       this.error(line, `Unknown built-in module 'ton.${builtin}'.`);
