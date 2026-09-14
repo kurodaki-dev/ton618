@@ -213,6 +213,13 @@ IMPORT://ton.regex      regex_test(s,pat) regex_match(s,pat) regex_find_all(s,pa
                         regex_replace(s,pat,repl) regex_split(s,pat)   — std::regex ECMAScript syntax
 IMPORT://ton.path       path_join(...) path_basename(p) path_dirname(p) path_extension(p)
                         path_stem(p) path_absolute(p)
+IMPORT://ton.tensor     tensor_zeros/ones/full/random(shape) tensor_from_array(arr) tensor_to_array(t)
+                        tensor_shape(t) tensor_size(t) tensor_clone(t) tensor_reshape(t,shape)
+                        tensor_get(t,idx) tensor_set(t,idx,v) tensor_add/sub/mul/div(a,b)
+                        tensor_add_bias(mat,bias) tensor_matmul(a,b) tensor_transpose(t)
+                        tensor_sum/mean/max/min(t) tensor_relu/sigmoid/tanh/exp/log(t) tensor_softmax(t)
+                        tensor_relu_grad(in)/sigmoid_grad(out)/tanh_grad(out) tensor_map(t,fn)
+                        — 1D/2D only, CPU only, no autograd (see the community "atome" module for that)
 ```
 
 A function from an unimported module fails with "undefined function" — always emit the matching `IMPORT://` line at the top of the script before using any of its functions.

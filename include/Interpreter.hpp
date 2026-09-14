@@ -79,6 +79,7 @@ private:
     void registerBuiltinEncoding();
     void registerBuiltinRegex();
     void registerBuiltinPath();
+    void registerBuiltinTensor();
 
     [[noreturn]] void runtimeError(int line, const std::string& msg);
 };

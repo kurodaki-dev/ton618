@@ -637,9 +637,10 @@ void Interpreter::runImport(const std::string& moduleName, int line) {
         if (builtin == "encoding") { registerBuiltinEncoding(); return; }
         if (builtin == "regex") { registerBuiltinRegex(); return; }
         if (builtin == "path") { registerBuiltinPath(); return; }
+        if (builtin == "tensor") { registerBuiltinTensor(); return; }
         runtimeError(line, "Unknown built-in module 'ton." + builtin +
                      "'. Available: ton.sys, ton.os, ton.requests, ton.random, ton.time, ton.json, "
-                     "ton.mathutils, ton.strings, ton.encoding, ton.regex, ton.path.");
+                     "ton.mathutils, ton.strings, ton.encoding, ton.regex, ton.path, ton.tensor.");
     }
 
     std::vector<std::string> candidates = {
@@ -1959,5 +1960,375 @@ void Interpreter::registerBuiltinPath() {
         std::error_code ec;
         auto p = std::filesystem::absolute(a[0].toString(), ec);
         return ec ? a[0] : Value::String(p.generic_string());
+    });
+}
+
+// ---- ton.tensor — small 1D/2D numeric arrays for basic ML work -------------
+//
+// A tensor is a plain ton.dict with two fields:
+//   "shape": ton.array of dimension sizes (exactly 1 or 2 entries)
+//   "data":  flat ton.array of numbers, row-major
+// so a tensor prints/serializes (str()/json()) like any other dict, and only
+// the functions below need to know the convention. This exact representation
+// is also what the "atome" community module (a plain .ton file — not part of
+// this interpreter) builds its autograd engine on top of, so a script mixing
+// atome_tensor_* and tensor_* calls can pass tensors between them freely.
+//
+// Honesty about scope: this is CPU-only (there is no GPU compute backend —
+// no CUDA/OpenCL — anywhere in this interpreter), limited to 1D/2D shapes,
+// and only broadcasts a plain scalar against a tensor (the one exception is
+// tensor_add_bias, which explicitly broadcasts a 1D bias across a 2D
+// matrix's rows — exactly what a dense/linear layer needs). Element-wise/
+// matmul/reduction ops are implemented as real C++ loops over the underlying
+// std::vector<Value> (bypassing the AST entirely), a genuine, meaningful
+// speed-up over the same loop hand-written in TON618 — just not remotely
+// competitive with a real BLAS/cuDNN-backed library.
+
+static std::vector<long long> tensorShapeVec(const Value& t) {
+    std::vector<long long> shape;
+    Value* s = t.findDictEntry("shape");
+    if (s && s->type == ValueType::ARRAY) for (auto& v : *s->array) shape.push_back((long long)v.number);
+    return shape;
+}
+
+static long long tensorSizeOf(const std::vector<long long>& shape) {
+    if (shape.empty()) return 0;
+    long long n = 1;
+    for (auto d : shape) n *= d;
+    return n;
+}
+
+static bool isTensorValue(const Value& v) {
+    return v.type == ValueType::DICT && v.findDictEntry("shape") && v.findDictEntry("data");
+}
+
+static Value makeTensor(const std::vector<long long>& shape, std::vector<Value> data) {
+    std::vector<Value> shapeArr;
+    for (auto d : shape) shapeArr.push_back(Value::Number((double)d));
+    std::vector<std::pair<std::string, Value>> entries;
+    entries.push_back({"shape", Value::Array(shapeArr)});
+    entries.push_back({"data", Value::Array(std::move(data))});
+    return Value::Dict(entries);
+}
+
+void Interpreter::registerBuiltinTensor() {
+    auto def = [this](const std::string& name, NativeFn fn) {
+        Value v; v.type = ValueType::NATIVE_FUNCTION;
+        v.nativeFn = std::make_shared<NativeFn>(std::move(fn));
+        globals->define(name, v);
+    };
+
+    auto requireTensor = [](std::vector<Value>& a, size_t i, const char* fnName) -> Value& {
+        if (i >= a.size() || !isTensorValue(a[i]))
+            throw std::runtime_error(std::string(fnName) + "() expects a tensor (from tensor_zeros/tensor_from_array/...) at argument " + std::to_string(i + 1) + ".");
+        return a[i];
+    };
+
+    auto shapeFromArg = [](std::vector<Value>& a, size_t i, const char* fnName) -> std::vector<long long> {
+        if (i >= a.size() || a[i].type != ValueType::ARRAY)
+            throw std::runtime_error(std::string(fnName) + "() expects a shape array, e.g. [3, 4].");
+        std::vector<long long> shape;
+        for (auto& v : *a[i].array) shape.push_back((long long)v.number);
+        if (shape.empty() || shape.size() > 2)
+            throw std::runtime_error(std::string(fnName) + "(): only 1D and 2D shapes are supported (got " + std::to_string(shape.size()) + " dimensions).");
+        return shape;
+    };
+
+    def("tensor_zeros", [shapeFromArg](std::vector<Value>& a) -> Value {
+        auto shape = shapeFromArg(a, 0, "tensor_zeros");
+        return makeTensor(shape, std::vector<Value>(tensorSizeOf(shape), Value::Number(0)));
+    });
+    def("tensor_ones", [shapeFromArg](std::vector<Value>& a) -> Value {
+        auto shape = shapeFromArg(a, 0, "tensor_ones");
+        return makeTensor(shape, std::vector<Value>(tensorSizeOf(shape), Value::Number(1)));
+    });
+    def("tensor_full", [shapeFromArg](std::vector<Value>& a) -> Value {
+        auto shape = shapeFromArg(a, 0, "tensor_full");
+        if (a.size() < 2) throw std::runtime_error("tensor_full(shape, value) expects a fill value.");
+        return makeTensor(shape, std::vector<Value>(tensorSizeOf(shape), Value::Number(a[1].number)));
+    });
+    // tensor_random(shape, [lo=0, hi=1)) -> uniformly random values, using the
+    // same std::rand() the always-available random() and ton.random use —
+    // seed it with random_seed() (see ton.random) for reproducible runs.
+    def("tensor_random", [shapeFromArg](std::vector<Value>& a) -> Value {
+        auto shape = shapeFromArg(a, 0, "tensor_random");
+        double lo = a.size() > 1 ? a[1].number : 0.0, hi = a.size() > 2 ? a[2].number : 1.0;
+        long long n = tensorSizeOf(shape);
+        std::vector<Value> data;
+        data.reserve(n);
+        for (long long i = 0; i < n; i++) {
+            double r = (double)std::rand() / ((double)RAND_MAX + 1.0);
+            data.push_back(Value::Number(lo + r * (hi - lo)));
+        }
+        return makeTensor(shape, data);
+    });
+
+    def("tensor_shape", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_shape");
+        return *t.findDictEntry("shape");
+    });
+    def("tensor_size", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_size");
+        return Value::Number((double)t.findDictEntry("data")->array->size());
+    });
+    def("tensor_clone", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_clone");
+        auto& d = *t.findDictEntry("data")->array;
+        return makeTensor(tensorShapeVec(t), std::vector<Value>(d.begin(), d.end()));
+    });
+    def("tensor_reshape", [requireTensor, shapeFromArg](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_reshape");
+        auto newShape = shapeFromArg(a, 1, "tensor_reshape");
+        auto& d = *t.findDictEntry("data")->array;
+        if (tensorSizeOf(newShape) != (long long)d.size())
+            throw std::runtime_error("tensor_reshape(): new shape doesn't match the tensor's element count (" + std::to_string(d.size()) + ").");
+        return makeTensor(newShape, std::vector<Value>(d.begin(), d.end()));
+    });
+
+    // tensor_get(t, indices) / tensor_set(t, indices, value) — indices is
+    // [i] for a 1D tensor, or [row, col] for a 2D tensor.
+    auto flatIndex = [](const std::vector<long long>& shape, std::vector<Value>& idx, const char* fnName) -> long long {
+        if (idx.size() != shape.size())
+            throw std::runtime_error(std::string(fnName) + "(): expected " + std::to_string(shape.size()) + " index/indices for this tensor's shape.");
+        if (shape.size() == 1) {
+            long long i = (long long)idx[0].number;
+            if (i < 0 || i >= shape[0]) throw std::runtime_error(std::string(fnName) + "(): index out of bounds.");
+            return i;
+        }
+        long long row = (long long)idx[0].number, col = (long long)idx[1].number;
+        if (row < 0 || row >= shape[0] || col < 0 || col >= shape[1])
+            throw std::runtime_error(std::string(fnName) + "(): index out of bounds.");
+        return row * shape[1] + col;
+    };
+    def("tensor_get", [requireTensor, flatIndex](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_get");
+        if (a.size() < 2 || a[1].type != ValueType::ARRAY) throw std::runtime_error("tensor_get(t, indices) expects an index array.");
+        return (*t.findDictEntry("data")->array)[flatIndex(tensorShapeVec(t), *a[1].array, "tensor_get")];
+    });
+    def("tensor_set", [requireTensor, flatIndex](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_set");
+        if (a.size() < 3 || a[1].type != ValueType::ARRAY) throw std::runtime_error("tensor_set(t, indices, value) expects an index array and a value.");
+        (*t.findDictEntry("data")->array)[flatIndex(tensorShapeVec(t), *a[1].array, "tensor_set")] = Value::Number(a[2].number);
+        return t;
+    });
+
+    // Element-wise binary ops: both tensors of the same shape, or one side a
+    // plain number (scalar broadcast) — never two differently-shaped tensors.
+    auto elementwise = [](std::vector<Value>& a, const char* fnName, double (*op)(double, double)) -> Value {
+        bool leftIsTensor = !a.empty() && isTensorValue(a[0]);
+        bool rightIsTensor = a.size() > 1 && isTensorValue(a[1]);
+        if (a.size() < 2 || (!leftIsTensor && !rightIsTensor))
+            throw std::runtime_error(std::string(fnName) + "(a, b): at least one side must be a tensor.");
+        if (leftIsTensor && rightIsTensor) {
+            auto shapeA = tensorShapeVec(a[0]), shapeB = tensorShapeVec(a[1]);
+            if (shapeA != shapeB)
+                throw std::runtime_error(std::string(fnName) + "(): tensors must have the same shape (no broadcasting between two differently-shaped tensors).");
+            auto& da = *a[0].findDictEntry("data")->array;
+            auto& db = *a[1].findDictEntry("data")->array;
+            std::vector<Value> out(da.size());
+            for (size_t i = 0; i < da.size(); i++) out[i] = Value::Number(op(da[i].number, db[i].number));
+            return makeTensor(shapeA, out);
+        }
+        Value& tensor = leftIsTensor ? a[0] : a[1];
+        double scalar = leftIsTensor ? a[1].number : a[0].number;
+        auto shape = tensorShapeVec(tensor);
+        auto& d = *tensor.findDictEntry("data")->array;
+        std::vector<Value> out(d.size());
+        for (size_t i = 0; i < d.size(); i++) out[i] = Value::Number(leftIsTensor ? op(d[i].number, scalar) : op(scalar, d[i].number));
+        return makeTensor(shape, out);
+    };
+    def("tensor_add", [elementwise](std::vector<Value>& a) -> Value { return elementwise(a, "tensor_add", [](double x, double y) { return x + y; }); });
+    def("tensor_sub", [elementwise](std::vector<Value>& a) -> Value { return elementwise(a, "tensor_sub", [](double x, double y) { return x - y; }); });
+    def("tensor_mul", [elementwise](std::vector<Value>& a) -> Value { return elementwise(a, "tensor_mul", [](double x, double y) { return x * y; }); });
+    def("tensor_div", [elementwise](std::vector<Value>& a) -> Value { return elementwise(a, "tensor_div", [](double x, double y) { return x / y; }); });
+
+    // tensor_add_bias(mat, bias) — adds a 1D bias to every row of a 2D
+    // matrix. The one deliberate, explicit exception to "no broadcasting" —
+    // exactly what a dense/linear layer needs, and nothing more general.
+    def("tensor_add_bias", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& mat = requireTensor(a, 0, "tensor_add_bias");
+        Value& bias = requireTensor(a, 1, "tensor_add_bias");
+        auto shape = tensorShapeVec(mat);
+        if (shape.size() != 2) throw std::runtime_error("tensor_add_bias(): the first argument must be a 2D tensor.");
+        long long rows = shape[0], cols = shape[1];
+        auto& biasData = *bias.findDictEntry("data")->array;
+        if ((long long)biasData.size() != cols)
+            throw std::runtime_error("tensor_add_bias(): bias length must match the column count (" + std::to_string(cols) + ").");
+        auto& d = *mat.findDictEntry("data")->array;
+        std::vector<Value> out(d.size());
+        for (long long r = 0; r < rows; r++)
+            for (long long c = 0; c < cols; c++)
+                out[r * cols + c] = Value::Number(d[r * cols + c].number + biasData[c].number);
+        return makeTensor(shape, out);
+    });
+
+    // Element-wise unary ops.
+    auto unaryOp = [requireTensor](std::vector<Value>& a, const char* fnName, double (*op)(double)) -> Value {
+        Value& t = requireTensor(a, 0, fnName);
+        auto shape = tensorShapeVec(t);
+        auto& d = *t.findDictEntry("data")->array;
+        std::vector<Value> out(d.size());
+        for (size_t i = 0; i < d.size(); i++) out[i] = Value::Number(op(d[i].number));
+        return makeTensor(shape, out);
+    };
+    def("tensor_relu", [unaryOp](std::vector<Value>& a) -> Value { return unaryOp(a, "tensor_relu", [](double x) { return x > 0 ? x : 0.0; }); });
+    def("tensor_sigmoid", [unaryOp](std::vector<Value>& a) -> Value { return unaryOp(a, "tensor_sigmoid", [](double x) { return 1.0 / (1.0 + std::exp(-x)); }); });
+    def("tensor_tanh", [unaryOp](std::vector<Value>& a) -> Value { return unaryOp(a, "tensor_tanh", [](double x) { return std::tanh(x); }); });
+    def("tensor_exp", [unaryOp](std::vector<Value>& a) -> Value { return unaryOp(a, "tensor_exp", [](double x) { return std::exp(x); }); });
+    def("tensor_log", [unaryOp](std::vector<Value>& a) -> Value { return unaryOp(a, "tensor_log", [](double x) { return std::log(x); }); });
+
+    // Gradient helpers for backprop — each takes the *output* of the
+    // matching forward op (not its input), which is the convenient form for
+    // an autograd implementation built on top of this module (see the
+    // "atome" module): relu needs the input's sign, so tensor_relu_grad
+    // takes the input; sigmoid'/tanh' are cheapest expressed in terms of
+    // their own output, so those two take the output.
+    def("tensor_relu_grad", [unaryOp](std::vector<Value>& a) -> Value { return unaryOp(a, "tensor_relu_grad", [](double x) { return x > 0 ? 1.0 : 0.0; }); });
+    def("tensor_sigmoid_grad", [unaryOp](std::vector<Value>& a) -> Value { return unaryOp(a, "tensor_sigmoid_grad", [](double s) { return s * (1.0 - s); }); });
+    def("tensor_tanh_grad", [unaryOp](std::vector<Value>& a) -> Value { return unaryOp(a, "tensor_tanh_grad", [](double t) { return 1.0 - t * t; }); });
+
+    // tensor_map(t, fn) — apply a ton.function/native function element-wise.
+    // Slower than the natives above (it calls back into the interpreter once
+    // per element) but works for any custom scalar function.
+    def("tensor_map", [this, requireTensor](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_map");
+        if (a.size() < 2 || (a[1].type != ValueType::FUNCTION && a[1].type != ValueType::NATIVE_FUNCTION))
+            throw std::runtime_error("tensor_map(t, fn) expects a function as the second argument.");
+        auto shape = tensorShapeVec(t);
+        auto& d = *t.findDictEntry("data")->array;
+        std::vector<Value> out(d.size());
+        for (size_t i = 0; i < d.size(); i++) {
+            std::vector<Value> callArgs = {d[i]};
+            out[i] = callFunction(a[1], callArgs, 0);
+        }
+        return makeTensor(shape, out);
+    });
+
+    // tensor_matmul(a, b) — 2D matrix multiply only (a: m x k, b: k x n -> m x n).
+    def("tensor_matmul", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& x = requireTensor(a, 0, "tensor_matmul");
+        Value& y = requireTensor(a, 1, "tensor_matmul");
+        auto shapeX = tensorShapeVec(x), shapeY = tensorShapeVec(y);
+        if (shapeX.size() != 2 || shapeY.size() != 2) throw std::runtime_error("tensor_matmul(): both tensors must be 2D.");
+        if (shapeX[1] != shapeY[0])
+            throw std::runtime_error("tensor_matmul(): inner dimensions must match (" + std::to_string(shapeX[1]) + " vs " + std::to_string(shapeY[0]) + ").");
+        long long m = shapeX[0], k = shapeX[1], n = shapeY[1];
+        auto& dx = *x.findDictEntry("data")->array;
+        auto& dy = *y.findDictEntry("data")->array;
+        std::vector<double> raw(m * n, 0.0);
+        for (long long i = 0; i < m; i++) {
+            for (long long p = 0; p < k; p++) {
+                double xv = dx[i * k + p].number;
+                if (xv == 0.0) continue;
+                for (long long j = 0; j < n; j++) raw[i * n + j] += xv * dy[p * n + j].number;
+            }
+        }
+        std::vector<Value> out(raw.size());
+        for (size_t i = 0; i < raw.size(); i++) out[i] = Value::Number(raw[i]);
+        return makeTensor({m, n}, out);
+    });
+
+    def("tensor_transpose", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_transpose");
+        auto shape = tensorShapeVec(t);
+        if (shape.size() != 2) throw std::runtime_error("tensor_transpose(): only 2D tensors are supported.");
+        long long rows = shape[0], cols = shape[1];
+        auto& d = *t.findDictEntry("data")->array;
+        std::vector<Value> out(d.size());
+        for (long long i = 0; i < rows; i++)
+            for (long long j = 0; j < cols; j++)
+                out[j * rows + i] = d[i * cols + j];
+        return makeTensor({cols, rows}, out);
+    });
+
+    def("tensor_sum", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_sum");
+        double s = 0;
+        for (auto& v : *t.findDictEntry("data")->array) s += v.number;
+        return Value::Number(s);
+    });
+    def("tensor_mean", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_mean");
+        auto& d = *t.findDictEntry("data")->array;
+        if (d.empty()) return Value::Number(0);
+        double s = 0;
+        for (auto& v : d) s += v.number;
+        return Value::Number(s / (double)d.size());
+    });
+    def("tensor_max", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_max");
+        auto& d = *t.findDictEntry("data")->array;
+        if (d.empty()) throw std::runtime_error("tensor_max(): tensor is empty.");
+        double m = d[0].number;
+        for (auto& v : d) m = std::max(m, v.number);
+        return Value::Number(m);
+    });
+    def("tensor_min", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_min");
+        auto& d = *t.findDictEntry("data")->array;
+        if (d.empty()) throw std::runtime_error("tensor_min(): tensor is empty.");
+        double m = d[0].number;
+        for (auto& v : d) m = std::min(m, v.number);
+        return Value::Number(m);
+    });
+
+    // tensor_softmax(t) — over the whole vector for a 1D tensor, or row-wise for a 2D tensor.
+    def("tensor_softmax", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_softmax");
+        auto shape = tensorShapeVec(t);
+        auto& d = *t.findDictEntry("data")->array;
+        std::vector<Value> out(d.size());
+        if (shape.size() == 1) {
+            double mx = d.empty() ? 0.0 : d[0].number;
+            for (auto& v : d) mx = std::max(mx, v.number);
+            double sum = 0;
+            std::vector<double> exps(d.size());
+            for (size_t i = 0; i < d.size(); i++) { exps[i] = std::exp(d[i].number - mx); sum += exps[i]; }
+            for (size_t i = 0; i < d.size(); i++) out[i] = Value::Number(exps[i] / sum);
+        } else {
+            long long rows = shape[0], cols = shape[1];
+            for (long long r = 0; r < rows; r++) {
+                double mx = d[r * cols].number;
+                for (long long c = 0; c < cols; c++) mx = std::max(mx, d[r * cols + c].number);
+                double sum = 0;
+                std::vector<double> exps(cols);
+                for (long long c = 0; c < cols; c++) { exps[c] = std::exp(d[r * cols + c].number - mx); sum += exps[c]; }
+                for (long long c = 0; c < cols; c++) out[r * cols + c] = Value::Number(exps[c] / sum);
+            }
+        }
+        return makeTensor(shape, out);
+    });
+
+    // tensor_from_array(arr) — arr is a flat array (-> 1D tensor) or an
+    // array of same-length arrays (-> 2D tensor).
+    def("tensor_from_array", [](std::vector<Value>& a) -> Value {
+        if (a.empty() || a[0].type != ValueType::ARRAY) throw std::runtime_error("tensor_from_array() expects an array (1D) or array-of-arrays (2D).");
+        auto& arr = *a[0].array;
+        if (arr.empty()) throw std::runtime_error("tensor_from_array(): array is empty.");
+        if (arr[0].type == ValueType::ARRAY) {
+            long long rows = (long long)arr.size(), cols = (long long)arr[0].array->size();
+            std::vector<Value> data;
+            data.reserve(rows * cols);
+            for (auto& row : arr) {
+                if (row.type != ValueType::ARRAY || (long long)row.array->size() != cols)
+                    throw std::runtime_error("tensor_from_array(): all rows must be arrays of the same length.");
+                for (auto& v : *row.array) data.push_back(Value::Number(v.number));
+            }
+            return makeTensor({rows, cols}, data);
+        }
+        std::vector<Value> data;
+        data.reserve(arr.size());
+        for (auto& v : arr) data.push_back(Value::Number(v.number));
+        return makeTensor({(long long)arr.size()}, data);
+    });
+    def("tensor_to_array", [requireTensor](std::vector<Value>& a) -> Value {
+        Value& t = requireTensor(a, 0, "tensor_to_array");
+        auto shape = tensorShapeVec(t);
+        auto& d = *t.findDictEntry("data")->array;
+        if (shape.size() == 1) return Value::Array(std::vector<Value>(d.begin(), d.end()));
+        long long rows = shape[0], cols = shape[1];
+        std::vector<Value> rowsOut;
+        for (long long r = 0; r < rows; r++) rowsOut.push_back(Value::Array(std::vector<Value>(d.begin() + r * cols, d.begin() + (r + 1) * cols)));
+        return Value::Array(rowsOut);
     });
 }
