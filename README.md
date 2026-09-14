@@ -27,9 +27,10 @@ ton618 --help
 ton618 script.ton
 ton618 --version          # current version, platform, architecture
 ton618 --update           # update to the latest release
-ton618 --update beta-1.0.3 # pin to a specific release
+ton618 --update beta-1.0.4 # pin to a specific release
 ton618 install <module>    # fetch a module from the TON618 module registry
-ton618 --uninstall
+ton618 uninstall <module>  # remove a module fetched with install
+ton618 --uninstall-ton
 ```
 
 No compiler required. Contributing to the interpreter itself and need to build from source instead? See [DOCUMENTATION.md](DOCUMENTATION.md#architecture--how-the-interpreter-works).

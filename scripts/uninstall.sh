@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TON618 uninstaller — Linux & Termux
 # Usage: curl -fsSL https://raw.githubusercontent.com/kurodaki-dev/ton618/main/scripts/uninstall.sh | bash
-# (or simply: ton618 --uninstall)
+# (or simply: ton618 --uninstall-ton)
 set -uo pipefail
 
 BIN_NAME="ton618"

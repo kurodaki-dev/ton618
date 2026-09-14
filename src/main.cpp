@@ -53,12 +53,13 @@ static void printUsage(const char* prog) {
               << "Options:\n"
               << "  --debug              run in debug mode (pause at start)\n"
               << "  --break=<line>        add a breakpoint at a given line (repeatable)\n"
-              << "  --uninstall           remove this ton618 install (binary + PATH entry)\n"
+              << "  --uninstall-ton       remove this ton618 install (binary + PATH entry)\n"
               << "  --update [version]    update ton618 from GitHub Releases (latest if no version given)\n"
               << "  --version, -v         print the interpreter's version, platform and architecture\n"
               << "  --help, -h            show this message\n"
               << "\nOther commands:\n"
-              << "  " << prog << " install <module>    fetch a module from the TON618 module registry into ./modules/\n"
+              << "  " << prog << " install <module>      fetch a module from the TON618 module registry into ./modules/\n"
+              << "  " << prog << " uninstall <module>    remove a module previously fetched with install, from ./modules/\n"
               << "\nExample:\n"
               << "  " << prog << " myscript.ton --debug --break=5\n";
 }
@@ -343,6 +344,34 @@ static int runInstall(const std::string& moduleName) {
     return 0;
 }
 
+// `ton618 --uninstall <module>` — removes "./modules/<module>.ton", the
+// exact file `install` (above) places there. Only touches that one file —
+// it never contacts the registry, and it doesn't error if the module was
+// installed some other way as long as it's at that same path.
+static int runUninstallModule(const std::string& moduleName) {
+    if (!isSafeToken(moduleName)) {
+        std::cerr << "Invalid module name '" << moduleName
+                   << "': only letters, digits, '.', '-', '_' are allowed.\n";
+        return 1;
+    }
+
+    std::string path = "modules/" + moduleName + ".ton";
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec)) {
+        std::cerr << "[ton618] '" << path << "' doesn't exist — nothing to uninstall.\n";
+        return 1;
+    }
+
+    if (!std::filesystem::remove(path, ec) || ec) {
+        std::cerr << "[ton618] Could not remove " << path
+                   << (ec ? ": " + ec.message() : "") << "\n";
+        return 1;
+    }
+
+    std::cout << "[ton618] Removed " << path << ".\n";
+    return 0;
+}
+
 // --update [version] — re-downloads the precompiled binary matching this
 // platform (auto-detected: Linux, Termux, or Windows — see Platform.hpp)
 // from GitHub Releases and replaces the currently running executable.
@@ -399,7 +428,7 @@ static int runUpdate(const std::string& version) {
 
 #ifdef _WIN32
     // A running .exe can't overwrite itself directly on Windows: spawn a
-    // detached helper (same trick as --uninstall) that waits for this
+    // detached helper (same trick as --uninstall-ton) that waits for this
     // process to exit, then swaps the new binary into place.
     std::string cmd = "cmd /C \"timeout /T 1 /NOBREAK >NUL & move /Y \"" + tmpPath + "\" \"" + self + "\"\"";
     STARTUPINFOA si{};
@@ -429,7 +458,7 @@ int main(int argc, char** argv) {
     // Flags that work standalone, without a script file, wherever they appear.
     for (size_t i = 0; i < args.size(); i++) {
         const std::string& arg = args[i];
-        if (arg == "--uninstall") return runUninstall();
+        if (arg == "--uninstall-ton") return runUninstall();
         if (arg == "-h" || arg == "--help") { printUsage(argv[0]); return 0; }
         if (arg == "-v" || arg == "--version") { printVersion(); return 0; }
         if (arg == "--update") {
@@ -447,6 +476,14 @@ int main(int argc, char** argv) {
             return 1;
         }
         return runInstall(args[1]);
+    }
+
+    if (args[0] == "uninstall") {
+        if (args.size() < 2) {
+            std::cerr << "Usage: " << argv[0] << " uninstall <module>\n";
+            return 1;
+        }
+        return runUninstallModule(args[1]);
     }
 
     std::string path = args[0];

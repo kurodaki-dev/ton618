@@ -327,7 +327,7 @@ curl -fsSL https://raw.githubusercontent.com/kurodaki-dev/ton618/main/scripts/in
 powershell -c "irm https://raw.githubusercontent.com/kurodaki-dev/ton618/main/scripts/install.ps1 | iex"
 ```
 
-Install a specific release instead of the latest one by setting `TON618_VERSION` (`install.sh`) or `$env:TON618_VERSION` (`install.ps1`) to a release tag (e.g. `beta-1.0.1`) before running the command above. Uninstall any time with `ton618 --uninstall`, or the matching `uninstall.sh`/`uninstall.ps1` script.
+Install a specific release instead of the latest one by setting `TON618_VERSION` (`install.sh`) or `$env:TON618_VERSION` (`install.ps1`) to a release tag (e.g. `beta-1.0.1`) before running the command above. Uninstall any time with `ton618 --uninstall-ton`, or the matching `uninstall.sh`/`uninstall.ps1` script.
 
 No compiler needed for any of this — a precompiled binary is all you ever run. If you're contributing to the interpreter itself and need to build it from source, see [Architecture](#architecture--how-the-interpreter-works) and [Extending the interpreter itself](#extending-the-interpreter-itself) below (the project just needs a C++17 compiler and `make` — `make` builds `./ton618`, `make docs` regenerates `exemples/documentation.html` from this file after an edit).
 
@@ -348,7 +348,14 @@ Options:
 | `-h`, `--help` | Show usage |
 | `-v`, `--version` | Print the version, auto-detected platform (`linux`/`termux`/`windows`/`macos`), and architecture |
 | `--update [version]` | Re-download the binary matching this platform from [GitHub Releases](https://github.com/kurodaki-dev/ton618/releases) and replace the running one — the latest release if `version` (a release tag) is omitted |
-| `--uninstall` | Remove this ton618 install (binary + PATH entry) |
+| `--uninstall-ton` | Remove this ton618 install (binary + PATH entry) |
+
+Two more commands, used as `ton618 <command> <module>` rather than as a flag on a script:
+
+| Command | Effect |
+|---|---|
+| `install <module>` | Fetch `<module>` from the [TON618 module registry](#installing-modules-ton618-install) and download its code into `./modules/` |
+| `uninstall <module>` | Remove `./modules/<module>.ton` (undoes `install`) |
 
 Anything after the script path that isn't one of these flags is passed through to the script itself, readable via `sys_args()` (see [ton.sys](#built-in-system-modules)).
 
@@ -357,6 +364,8 @@ Example:
 ton618 exemples/test.ton --break=10 --break=20
 ton618 --update             # update to the latest release
 ton618 --update beta-1.0.1  # pin to a specific release tag
+ton618 install stringutils   # fetch a module from the registry
+ton618 uninstall stringutils # remove it again
 ```
 
 ---
@@ -803,7 +812,7 @@ ton618 install greetings
 
 This looks `greetings` up in the **TON618 module registry** — a small, separately-hosted index of community modules that stores only a module's **name, GitHub link, and version** (never its actual code) — then downloads `greetings.ton` straight from that GitHub repo's default branch into `./modules/greetings.ton`, right where `IMPORT://greetings` already looks for it (see [Creating a TON618 module](#creating-a-ton618-module--full-guide)).
 
-The registry's URL defaults to a placeholder (see `TON618_REGISTRY_URL` in `include/Version.hpp`) and can be pointed at any deployment — your own, or someone else's — without rebuilding, via the `TON618_REGISTRY_URL` environment variable:
+The registry's URL defaults to a value baked into `include/Version.hpp` (`TON618_REGISTRY_URL`) and can be pointed at a different deployment without rebuilding, via the `TON618_REGISTRY_URL` environment variable:
 
 ```
 TON618_REGISTRY_URL=https://your-registry.example ton618 install greetings
@@ -812,6 +821,14 @@ TON618_REGISTRY_URL=https://your-registry.example ton618 install greetings
 Like `--update`, `install` has no bundled TLS client of its own — it shells out to `curl` (or `wget`/PowerShell) for both the registry lookup and the GitHub download, the same as every other network operation in the CLI itself (as opposed to `ton.requests`, which is a separate, sandboxed HTTP client exposed to scripts — see [Built-in system modules](#built-in-system-modules)).
 
 A module author doesn't need anything special to be installable this way: just a public GitHub repo with `<name>.ton` at its root, registered once in the registry with that repo's link and a version string.
+
+To remove a module fetched this way, use `ton618 uninstall <module>` — it just deletes `./modules/<module>.ton` (the exact file `install` created), no registry lookup involved:
+
+```
+ton618 uninstall greetings
+```
+
+(Not to be confused with `ton618 --uninstall-ton`, which removes the `ton618` interpreter itself — see [Installing & building the interpreter](#installing--building-the-interpreter).)
 
 ---
 
@@ -1167,7 +1184,7 @@ ton618/
 ├── src/                     # implementations (.cpp), one per header above,
 │                              plus main.cpp (CLI entry point: reads a file, runs the
 │                              Lexer -> Parser -> Interpreter pipeline, and wires up
-│                              --debug / --break / --version / --update / --uninstall)
+│                              --debug / --break / --version / --update / --uninstall-ton / install / uninstall)
 ├── exemples/                # example .ton scripts, including one that exercises most
 │                              of the language (test_new_features.ton), plus
 │                              documentation.html, playground.html, and ton618-lite.js
@@ -1245,6 +1262,11 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 ---
 
 ### Changelog
+
+**beta-1.0.4** — `ton618 uninstall <module>`, and a clearer name for the old `--uninstall`:
+
+- **`ton618 --uninstall`** (which removed the `ton618` interpreter itself) is renamed to **`ton618 --uninstall-ton`**, to make room for the new command below and avoid the two being confused.
+- **`ton618 uninstall <module>`**: removes `./modules/<module>.ton` — the counterpart to `ton618 install <module>` (see [Installing modules](#installing-modules-ton618-install)).
 
 **beta-1.0.3** — new operators, flexible function parameters, and `finally`:
 
@@ -1366,7 +1388,7 @@ curl -fsSL https://raw.githubusercontent.com/kurodaki-dev/ton618/main/scripts/in
 powershell -c "irm https://raw.githubusercontent.com/kurodaki-dev/ton618/main/scripts/install.ps1 | iex"
 ```
 
-Installe une release précise plutôt que la dernière en mettant `TON618_VERSION` (`install.sh`) ou `$env:TON618_VERSION` (`install.ps1`) à un tag de release (ex. `beta-1.0.1`) avant de lancer la commande ci-dessus. Désinstalle à tout moment avec `ton618 --uninstall`, ou les scripts `uninstall.sh`/`uninstall.ps1` correspondants.
+Installe une release précise plutôt que la dernière en mettant `TON618_VERSION` (`install.sh`) ou `$env:TON618_VERSION` (`install.ps1`) à un tag de release (ex. `beta-1.0.1`) avant de lancer la commande ci-dessus. Désinstalle à tout moment avec `ton618 --uninstall-ton`, ou les scripts `uninstall.sh`/`uninstall.ps1` correspondants.
 
 Aucun compilateur requis pour tout ça — un binaire précompilé est tout ce que tu lances jamais. Si tu contribues à l'interpréteur lui-même et as besoin de le compiler depuis les sources, voir [Architecture](#architecture--comment-fonctionne-linterpréteur) et [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même) plus bas (le projet a juste besoin d'un compilateur C++17 et de `make` — `make` compile `./ton618`, `make docs` régénère `exemples/documentation.html` depuis ce fichier après une modification).
 
@@ -1387,7 +1409,14 @@ Options :
 | `-h`, `--help` | Affiche l'aide |
 | `-v`, `--version` | Affiche la version, la plateforme détectée (`linux`/`termux`/`windows`/`macos`) et l'architecture |
 | `--update [version]` | Retélécharge le binaire correspondant à cette plateforme depuis les [GitHub Releases](https://github.com/kurodaki-dev/ton618/releases) et remplace celui en cours d'exécution — la dernière release si `version` (un tag de release) est omis |
-| `--uninstall` | Désinstalle ton618 (binaire + entrée PATH) |
+| `--uninstall-ton` | Désinstalle ton618 (binaire + entrée PATH) |
+
+Deux autres commandes, utilisées comme `ton618 <commande> <module>` plutôt que comme une option sur un script :
+
+| Commande | Effet |
+|---|---|
+| `install <module>` | Récupère `<module>` depuis le [registre de modules TON618](#installer-des-modules--ton618-install) et télécharge son code dans `./modules/` |
+| `uninstall <module>` | Supprime `./modules/<module>.ton` (annule `install`) |
 
 Tout ce qui suit le chemin du script et n'est pas une de ces options est transmis tel quel au script, lisible via `sys_args()` (voir [ton.sys](#modules-système-intégrés)).
 
@@ -1396,6 +1425,8 @@ Exemple :
 ton618 exemples/test.ton --break=10 --break=20
 ton618 --update             # met à jour vers la dernière release
 ton618 --update beta-1.0.1  # épingle une release précise
+ton618 install stringutils   # récupère un module depuis le registre
+ton618 uninstall stringutils # le supprime à nouveau
 ```
 
 ---
@@ -1842,7 +1873,7 @@ ton618 install greetings
 
 Cela cherche `greetings` dans le **registre de modules TON618** — un petit index hébergé séparément qui recense les modules communautaires en stockant seulement le **nom, le lien GitHub, et la version** d'un module (jamais son code) — puis télécharge `greetings.ton` directement depuis la branche par défaut de ce dépôt GitHub vers `./modules/greetings.ton`, exactement là où `IMPORT://greetings` va déjà le chercher (voir [Créer un module TON618](#créer-un-module-ton618--guide-complet)).
 
-L'URL du registre a une valeur par défaut de type placeholder (voir `TON618_REGISTRY_URL` dans `include/Version.hpp`) et peut être redirigée vers n'importe quel déploiement — le tien, ou celui de quelqu'un d'autre — sans recompiler, via la variable d'environnement `TON618_REGISTRY_URL` :
+L'URL du registre a une valeur par défaut intégrée dans `include/Version.hpp` (`TON618_REGISTRY_URL`) et peut être redirigée vers un autre déploiement sans recompiler, via la variable d'environnement `TON618_REGISTRY_URL` :
 
 ```
 TON618_REGISTRY_URL=https://ton-registre.exemple ton618 install greetings
@@ -1851,6 +1882,14 @@ TON618_REGISTRY_URL=https://ton-registre.exemple ton618 install greetings
 Comme `--update`, `install` n'a pas de client TLS intégré à lui — il délègue à `curl` (ou `wget`/PowerShell) à la fois pour l'interrogation du registre et le téléchargement GitHub, comme toute autre opération réseau du CLI lui-même (contrairement à `ton.requests`, qui est un client HTTP séparé et bac-à-sable exposé aux scripts — voir [Modules système intégrés](#modules-système-intégrés)).
 
 Un auteur de module n'a besoin de rien de spécial pour être installable ainsi : juste un dépôt GitHub public avec `<nom>.ton` à sa racine, enregistré une fois dans le registre avec le lien de ce dépôt et une chaîne de version.
+
+Pour retirer un module récupéré ainsi, utilise `ton618 uninstall <module>` — ça supprime juste `./modules/<module>.ton` (exactement le fichier créé par `install`), sans interroger le registre :
+
+```
+ton618 uninstall greetings
+```
+
+(À ne pas confondre avec `ton618 --uninstall-ton`, qui désinstalle l'interpréteur `ton618` lui-même — voir [Installer & compiler l'interpréteur](#installer--compiler-linterpréteur).)
 
 ---
 
@@ -2206,7 +2245,7 @@ ton618/
 ├── src/                     # implémentations (.cpp), une par en-tête ci-dessus,
 │                              plus main.cpp (point d'entrée CLI : lit un fichier, lance
 │                              le pipeline Lexer -> Parser -> Interpreter, et câble
-│                              --debug / --break / --version / --update / --uninstall)
+│                              --debug / --break / --version / --update / --uninstall-ton / install / uninstall)
 ├── exemples/                # scripts .ton d'exemple, dont un qui exerce la majorité
 │                              du langage (test_new_features.ton), plus documentation.html,
 │                              playground.html, et ton618-lite.js (une réimplémentation JS
@@ -2284,6 +2323,11 @@ Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/
 ---
 
 ### Changelog
+
+**beta-1.0.4** — `ton618 uninstall <module>`, et un nom plus clair pour l'ancien `--uninstall` :
+
+- **`ton618 --uninstall`** (qui désinstallait l'interpréteur `ton618` lui-même) est renommé en **`ton618 --uninstall-ton`**, pour laisser la place à la commande ci-dessous et éviter de confondre les deux.
+- **`ton618 uninstall <module>`** : supprime `./modules/<module>.ton` — le pendant de `ton618 install <module>` (voir [Installer des modules](#installer-des-modules--ton618-install)).
 
 **beta-1.0.3** — nouveaux opérateurs, paramètres de fonction flexibles, et `finally` :
 
