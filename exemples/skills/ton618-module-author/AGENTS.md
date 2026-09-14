@@ -1,11 +1,8 @@
----
-name: ton618-module-author
-description: Write a reusable TON618 (.ton) module meant to be imported by other scripts via IMPORT://, and optionally published to the TON618 module registry so others can fetch it with `ton618 install`. Use this whenever asked to create, package, or publish a TON618 module — as opposed to writing an ordinary script, which the "ton618" skill already covers.
----
+# TON618 module authoring — instructions for AI coding agents
 
-# Authoring TON618 modules for AI coding agents
+This file is about **writing a module** — a `.ton` file meant to be `IMPORT://`ed by other scripts, possibly by people other than its author. If you're just writing an ordinary `.ton` script (not a module for reuse), use the general TON618 `AGENTS.md` instead; this file assumes you already know the language basics it covers and focuses only on the module-authoring conventions.
 
-This skill is about **writing a module** — a `.ton` file meant to be `IMPORT://`ed by other scripts, possibly by people other than its author. If you're just writing an ordinary `.ton` script (not a module for reuse), use the general **`ton618`** skill instead; this file assumes you already know the language basics it covers and focuses only on the module-authoring conventions.
+Full docs: `DOCUMENTATION.md` in the project repo, or `https://github.com/kurodaki-dev/ton618`.
 
 ## What a module is
 
