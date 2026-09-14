@@ -86,7 +86,12 @@ struct Expr {
     // FUNCTION_EXPR — an inline "ton.function(params) { ... }" value, most often
     // passed straight into map()/filter()/reduce()/get()/post() as a callback.
     // Reuses "name" for an optional debug name and "params"/"body"-shaped fields below.
+    // fnParamDefaults is parallel to fnParams (nullptr = no default value); if
+    // fnHasRestParam is true, the LAST entry of fnParams collects every extra
+    // argument into a ton.array instead of binding a single value.
     std::vector<std::string> fnParams;
+    std::vector<ExprPtr> fnParamDefaults;
+    bool fnHasRestParam = false;
     StmtPtr fnBody;
 };
 
@@ -119,15 +124,25 @@ struct Stmt {
     StmtPtr thenBranch;
     StmtPtr elseBranch;
 
+    // TRY_CATCH — the optional "finally { ... }" block, run exactly once no
+    // matter what happens in the try/catch above (success, a caught error, an
+    // error raised from inside the catch block itself, or a break/continue/
+    // return unwinding through it). Null if there's no finally clause.
+    StmtPtr finallyBranch;
+
     // FOR
     StmtPtr forInit;
     ExprPtr forCondition;
     ExprPtr forIncrement;
     StmtPtr forBody;
 
-    // FN_DECL
+    // FN_DECL — paramDefaults is parallel to params (nullptr = no default
+    // value); if hasRestParam is true, the LAST entry of params collects
+    // every extra argument into a ton.array instead of binding a single value.
     std::string fnName;
     std::vector<std::string> params;
+    std::vector<ExprPtr> paramDefaults;
+    bool hasRestParam = false;
     StmtPtr body;
 
     // IMPORT

@@ -62,6 +62,8 @@ print(format("Hello {}, you'll be {} next year!", name, age + 1))
 - Comparison `< <= > >=`: **both sides must be two numbers, or two strings/html** — comparing anything else (arrays, dicts, bools, mixed types) is a runtime error. No implicit coercion.
 - Equality `== !=`: structural. Numbers/bools/nil by value; a string and an html with the same text are equal; arrays/dicts compare recursively element-by-element (`[1,2] == [1,2]` is `true`). Functions never compare equal to anything.
 - Logical: `&& / and`, `|| / or`, `!` — `and`/`or` are exact keyword synonyms for `&&`/`||`.
+- Nil-coalescing `??`: `left ?? right` — returns `left` unless it's `nil`, else evaluates and returns `right`. Right side is never evaluated when `left` isn't `nil` (short-circuits). Handy for dict lookups: `d["missing"] ?? "default"`.
+- Membership `in`: `v in array` (element match, `==` rules), `v in dict` (tests **keys**), `v in string` (substring). Right side must be array/dict/string — anything else throws.
 - Assignment: `= += -= *= /= %=`; postfix `++ --`.
 - Ternary: `cond ? a : b`.
 
@@ -101,10 +103,24 @@ switch status {                                       // no fallthrough, ever
 ```
 ton.function add(a, b) { return a + b }
 print(add(2, 3))   // 5
+
+ton.function greet(name, greeting = "Hello") { return greeting + ", " + name + "!" }
+print(greet("kuro"))              // Hello, kuro!
+print(greet("kuro", "Salut"))     // Salut, kuro!
+
+ton.function sum(...nums) {
+    ton.int total = 0
+    for ton.n in nums { total += n }
+    return total
+}
+print(sum(1, 2, 3))   // 6
+print(sum())            // 0
 ```
 
-- **Arity is strictly enforced.** Calling with the wrong number of arguments throws — there's no default/optional/variadic parameters.
-- Function expressions (anonymous, for callbacks): `ton.function(n) { return n * 2 }` — optionally with a debug-only name: `ton.function label(n) { ... }`.
+- **Default parameters**: `name = expr` makes a parameter optional; defaults are evaluated at call time, left to right, so a later default can reference an earlier parameter (`function pair(a, b = a + 1) {...}`).
+- **Rest parameters**: `...name` as the *last* parameter collects extra args into an array. Can be mixed with fixed params before it.
+- **Arity is enforced but flexible now**: with defaults/rest, the error message adapts — `expects 2 argument(s) but got 1.` / `expects between 1 and 2 argument(s) but got 0.` / `expects at least 1 argument(s) but got 0.`
+- Function expressions (anonymous, for callbacks): `ton.function(n) { return n * 2 }` — optionally with a debug-only name: `ton.function label(n) { ... }`. Function expressions support defaults/rest too.
 - Closures capture the enclosing scope normally.
 
 ## Arrays
@@ -139,6 +155,19 @@ try {
 }
 ```
 Any runtime error (div by zero, wrong arity, index out of bounds, bad comparison, explicit `throw`, ...) is catchable this way.
+
+`finally` adds a block that always runs — success, caught error, or a `return` inside `try` all still run it:
+
+```
+ton.function withFinally() {
+    try {
+        return "value"
+    } finally {
+        print("cleanup")   // runs before the function actually returns
+    }
+}
+```
+`catch` is optional as long as `finally` is present (`try { ... } finally { ... }`, useful for cleanup while letting the error keep propagating) — but at least one of `catch`/`finally` is required.
 
 ## Full native-function list (always available, no import needed)
 
@@ -201,7 +230,7 @@ Handler returning `ton.html` -> `Content-Type: text/html`; anything else -> `tex
 ## Gotchas an AI should not trip on
 
 1. **No f-strings/interpolation** — use `format("{} {}", a, b)` or `+`.
-2. **Function arity is exact** — never call with more/fewer args than declared.
+2. **Function arity is enforced** — a parameter is only optional if it has a `= default` or is the `...rest` parameter; never call with fewer required args or more args than a function without `...rest` accepts.
 3. **Comparisons throw on type mismatch** — don't compare a number to a string or an array to anything with `<`/`>`.
 4. **`/` and `%` throw on zero divisor** — wrap in `try`/`catch` if the divisor might be zero and you want to handle it gracefully.
 5. **Strings are immutable** — `s[0] = "x"` is a runtime error; build a new string instead.

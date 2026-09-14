@@ -766,16 +766,28 @@ void Interpreter::execute(const StmtPtr& stmt, std::shared_ptr<Environment> env)
         }
 
         case StmtType::TRY_CATCH: {
+            // The optional "finally" block runs exactly once no matter what:
+            // the try succeeds, the catch handles an error, the catch block
+            // itself raises, or a break/continue/return unwinds through
+            // either — so it's run both on the normal path below and from the
+            // catch-all rethrow here before letting anything propagate further.
             try {
-                execute(stmt->thenBranch, env);
-            } catch (BreakException&) { throw; }
-            catch (ContinueException&) { throw; }
-            catch (ReturnException&) { throw; }
-            catch (std::exception& e) {
-                auto catchEnv = std::make_shared<Environment>(env);
-                catchEnv->define(stmt->name, Value::String(e.what()));
-                execute(stmt->elseBranch, catchEnv);
+                try {
+                    execute(stmt->thenBranch, env);
+                } catch (BreakException&) { throw; }
+                catch (ContinueException&) { throw; }
+                catch (ReturnException&) { throw; }
+                catch (std::exception& e) {
+                    if (!stmt->elseBranch) throw; // no catch clause: let it propagate (finally still runs, below)
+                    auto catchEnv = std::make_shared<Environment>(env);
+                    catchEnv->define(stmt->name, Value::String(e.what()));
+                    execute(stmt->elseBranch, catchEnv);
+                }
+            } catch (...) {
+                if (stmt->finallyBranch) execute(stmt->finallyBranch, env);
+                throw;
             }
+            if (stmt->finallyBranch) execute(stmt->finallyBranch, env);
             break;
         }
 
@@ -788,6 +800,8 @@ void Interpreter::execute(const StmtPtr& stmt, std::shared_ptr<Environment> env)
             auto fn = std::make_shared<FunctionObj>();
             fn->name = stmt->fnName;
             fn->params = stmt->params;
+            fn->paramDefaults = stmt->paramDefaults;
+            fn->hasRestParam = stmt->hasRestParam;
             fn->body = stmt->body;
             fn->closure = env;
             Value v; v.type = ValueType::FUNCTION; v.function = fn;
@@ -888,7 +902,8 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
         case ExprType::LOGICAL: {
             Value left = evaluate(expr->left, env);
             if (expr->op == TokenType::OR) { if (left.isTruthy()) return left; }
-            else { if (!left.isTruthy()) return left; }
+            else if (expr->op == TokenType::AND) { if (!left.isTruthy()) return left; }
+            else { if (left.type != ValueType::NIL) return left; } // "??"
             return evaluate(expr->right, env);
         }
 
@@ -952,6 +967,24 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
                 }
                 case TokenType::EQUAL_EQUAL: return Value::Bool(valuesEqual(left, right));
                 case TokenType::BANG_EQUAL: return Value::Bool(!valuesEqual(left, right));
+                // "value in collection" — an element of an array (structural
+                // equality, like contains()), a key of a dict (like has()), or
+                // a substring of a string/html (like contains() on a string).
+                case TokenType::IN: {
+                    if (right.type == ValueType::ARRAY) {
+                        for (auto& item : *right.array) if (valuesEqual(item, left)) return Value::Bool(true);
+                        return Value::Bool(false);
+                    }
+                    if (right.type == ValueType::DICT) {
+                        std::string key = (left.type == ValueType::STRING) ? left.str : left.toString();
+                        return Value::Bool(right.findDictEntry(key) != nullptr);
+                    }
+                    if (right.type == ValueType::STRING || right.type == ValueType::HTML) {
+                        return Value::Bool(right.str.find(left.toString()) != std::string::npos);
+                    }
+                    runtimeError(expr->line, "'in' expects an array, dict, or string on the right-hand side (got " +
+                                 right.typeName() + ").");
+                }
                 default: break;
             }
             return Value::Nil();
@@ -982,6 +1015,8 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
             auto fn = std::make_shared<FunctionObj>();
             fn->name = expr->name.empty() ? "<anonymous>" : expr->name;
             fn->params = expr->fnParams;
+            fn->paramDefaults = expr->fnParamDefaults;
+            fn->hasRestParam = expr->fnHasRestParam;
             fn->body = expr->fnBody;
             fn->closure = env;
             Value v; v.type = ValueType::FUNCTION; v.function = fn;
@@ -1043,13 +1078,31 @@ Value Interpreter::callFunction(const Value& callee, std::vector<Value>& args, i
     if (callee.type != ValueType::FUNCTION) runtimeError(line, "Only functions can be called.");
 
     auto fn = callee.function;
-    if (args.size() != fn->params.size()) {
-        runtimeError(line, "'ton." + fn->name + "' expects " + std::to_string(fn->params.size()) +
+    // The rest parameter (if any) is always last and isn't counted below; a
+    // fixed parameter is "required" only if it has no default value.
+    size_t fixedCount = fn->hasRestParam ? fn->params.size() - 1 : fn->params.size();
+    size_t requiredCount = 0;
+    for (size_t i = 0; i < fixedCount; i++) if (!fn->paramDefaults[i]) requiredCount++;
+
+    if (args.size() < requiredCount || (!fn->hasRestParam && args.size() > fixedCount)) {
+        std::string expectation;
+        if (fn->hasRestParam) expectation = "at least " + std::to_string(requiredCount);
+        else if (requiredCount == fixedCount) expectation = std::to_string(fixedCount);
+        else expectation = "between " + std::to_string(requiredCount) + " and " + std::to_string(fixedCount);
+        runtimeError(line, "'ton." + fn->name + "' expects " + expectation +
                      " argument(s) but got " + std::to_string(args.size()) + ".");
     }
 
     auto callEnv = std::make_shared<Environment>(fn->closure);
-    for (size_t i = 0; i < fn->params.size(); i++) callEnv->define(fn->params[i], args[i]);
+    for (size_t i = 0; i < fixedCount; i++) {
+        Value v = (i < args.size()) ? args[i] : evaluate(fn->paramDefaults[i], callEnv);
+        callEnv->define(fn->params[i], v);
+    }
+    if (fn->hasRestParam) {
+        std::vector<Value> rest;
+        for (size_t i = fixedCount; i < args.size(); i++) rest.push_back(args[i]);
+        callEnv->define(fn->params.back(), Value::Array(rest));
+    }
 
     debugger.callStack.push_back({fn->name, line, callEnv});
     Value result = Value::Nil();

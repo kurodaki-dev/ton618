@@ -285,19 +285,20 @@
 10. [Functions](#functions)
 11. [Arrays](#arrays)
 12. [Dictionaries](#dictionaries)
-13. [Error handling: try / catch / throw](#error-handling-try--catch--throw)
+13. [Error handling: try / catch / throw / finally](#error-handling-try--catch--throw--finally)
 14. [Built-in native functions](#built-in-native-functions)
 15. [HTML type](#html-type)
 16. [Modules (IMPORT://)](#modules-import)
 17. [Creating a TON618 module — full guide](#creating-a-ton618-module--full-guide)
-18. [Built-in system modules](#built-in-system-modules)
-19. [Local server & routes (API)](#local-server--routes-api)
-20. [The debugger](#the-debugger)
-21. [Architecture — how the interpreter works](#architecture--how-the-interpreter-works)
-22. [Extending the interpreter itself](#extending-the-interpreter-itself)
-23. [Publishing the docs to GitHub Pages](#publishing-the-docs-to-github-pages)
-24. [Known limitations](#known-limitations)
-25. [Changelog](#changelog)
+18. [Installing modules: `ton618 install`](#installing-modules-ton618-install)
+19. [Built-in system modules](#built-in-system-modules)
+20. [Local server & routes (API)](#local-server--routes-api)
+21. [The debugger](#the-debugger)
+22. [Architecture — how the interpreter works](#architecture--how-the-interpreter-works)
+23. [Extending the interpreter itself](#extending-the-interpreter-itself)
+24. [Publishing the docs to GitHub Pages](#publishing-the-docs-to-github-pages)
+25. [Known limitations](#known-limitations)
+26. [Changelog](#changelog)
 
 ---
 
@@ -453,6 +454,8 @@ An argument can be any value — a number, a string, the result of a function ca
 | Arithmetic | `+` `-` `*` `/` `%` |
 | Comparison | `==` `!=` `<` `<=` `>` `>=` |
 | Logical | `&&`/`and`, `\|\|`/`or`, `!` |
+| Nil-coalescing | `??` |
+| Membership | `in` |
 | Assignment | `=` `+=` `-=` `*=` `/=` `%=` |
 | Increment/decrement | `++` `--` (postfix) |
 | Ternary | `cond ? a : b` |
@@ -463,6 +466,8 @@ Notes:
 - `==`/`!=` use structural equality: numbers/bools/nil compare by value, a string and an html value with the same text are equal, and arrays/dicts compare element-by-element (recursively) rather than by reference — `[1, 2] == [1, 2]` is `true`.
 - `/` and `%` both raise "Division by zero" for a zero right-hand side, rather than producing `inf`/`NaN` silently.
 - `and`/`or` are exact synonyms for `&&`/`||` — use whichever reads better.
+- `??` ("nil-coalescing") evaluates its left side and returns it as-is unless it's `nil`, in which case it evaluates and returns the right side instead — the right side is never evaluated otherwise, so it's safe to put a fallback that has side effects. Handy with dict lookups: `dict["missing"] ?? "default"`.
+- `in` tests membership: `value in array` checks the array's elements (using the same equality rules as `==`), `value in dict` checks the dict's **keys**, and `value in string` checks for a substring. The right-hand side must be an array, dict, or string/`ton.html` — anything else is a runtime error.
 
 ---
 
@@ -547,7 +552,36 @@ ton.array doubled = map([1, 2, 3], ton.function(n) { return n * 2 })
 
 A function expression can optionally carry a name (`ton.function label(n) { ... }`) used only for friendlier debugger/error output — it isn't bound as a variable by that name.
 
-Calling a function with the wrong number of arguments is a runtime error (`'ton.f' expects 2 argument(s) but got 1.`) — there's no default-argument or variadic-parameter syntax.
+**Default parameters** — give a parameter `= expression` to make it optional; the default is evaluated at call time (in order, so a later default can reference an earlier parameter) and only when the argument is omitted:
+
+```
+ton.function greet(name, greeting = "Hello") {
+    return greeting + ", " + name + "!"
+}
+print(greet("kuro"))            // Hello, kuro!
+print(greet("kuro", "Salut"))   // Salut, kuro!
+
+ton.function pair(a, b = a + 1) {
+    return str(a) + "-" + str(b)
+}
+print(pair(5))   // 5-6
+```
+
+**Rest parameters** — prefix the last parameter with `...` to collect any extra arguments into an array:
+
+```
+ton.function sum(...nums) {
+    ton.int total = 0
+    for ton.n in nums { total += n }
+    return total
+}
+print(sum(1, 2, 3, 4))   // 10
+print(sum())              // 0
+```
+
+A function can mix fixed and rest parameters (`function label(prefix, ...items) { ... }`), but `...` may only appear on the last one.
+
+Calling a function with too few required arguments (or too many, when there's no rest parameter) is a runtime error — the message adapts to whether the function has defaults/rest (`'ton.f' expects 2 argument(s) but got 1.`, `'ton.f' expects between 1 and 2 argument(s) but got 0.`, `'ton.f' expects at least 1 argument(s) but got 0.`).
 
 Closures work as expected: a function remembers the variables in scope where it was declared, even after that scope has otherwise finished.
 
@@ -584,7 +618,7 @@ Dict keys are always strings (see [Known limitations](#known-limitations)): a ba
 
 ---
 
-### Error handling: try / catch / throw
+### Error handling: try / catch / throw / finally
 
 ```
 try {
@@ -595,6 +629,20 @@ try {
 ```
 
 Any runtime error — a native error (division by zero, wrong argument count, index out of bounds, ...) or an explicit `throw` — is catchable. The caught value is always the error's message as a string, bound to the name given in `catch (name)`. `break`, `continue`, and `return` pass straight through an enclosing `try` untouched (they aren't errors).
+
+`finally` adds a block that always runs after the `try` (and its `catch`, if any) — whether the block completed normally, threw, or hit a `return`:
+
+```
+ton.function readSafely() {
+    try {
+        return risky()
+    } finally {
+        print("cleanup ran")
+    }
+}
+```
+
+`try` needs at least one of `catch`/`finally`; `catch` alone (as above), `finally` alone (`try { ... } finally { ... }`, useful for cleanup when you want the error to keep propagating), or both together are all valid.
 
 ---
 
@@ -744,6 +792,26 @@ print(greetings_bye("kuro"))
 - **Prefix every function with the module's own name** (`greetings_hello`, not `hello`) — since importing flattens everything into one global scope, this is the only thing preventing two modules (or a module and the main script) from silently overwriting each other's functions.
 - Keep a module focused on one concern; compose several small modules rather than one large one.
 - A module is only executed the first time it's imported — importing the same name twice (from anywhere) is a no-op the second time, so it's safe for two different modules to both import a third one they both depend on.
+
+---
+
+### Installing modules: `ton618 install`
+
+```
+ton618 install greetings
+```
+
+This looks `greetings` up in the **TON618 module registry** — a small, separately-hosted index of community modules that stores only a module's **name, GitHub link, and version** (never its actual code) — then downloads `greetings.ton` straight from that GitHub repo's default branch into `./modules/greetings.ton`, right where `IMPORT://greetings` already looks for it (see [Creating a TON618 module](#creating-a-ton618-module--full-guide)).
+
+The registry's URL defaults to a placeholder (see `TON618_REGISTRY_URL` in `include/Version.hpp`) and can be pointed at any deployment — your own, or someone else's — without rebuilding, via the `TON618_REGISTRY_URL` environment variable:
+
+```
+TON618_REGISTRY_URL=https://your-registry.example ton618 install greetings
+```
+
+Like `--update`, `install` has no bundled TLS client of its own — it shells out to `curl` (or `wget`/PowerShell) for both the registry lookup and the GitHub download, the same as every other network operation in the CLI itself (as opposed to `ton.requests`, which is a separate, sandboxed HTTP client exposed to scripts — see [Built-in system modules](#built-in-system-modules)).
+
+A module author doesn't need anything special to be installable this way: just a public GitHub repo with `<name>.ton` at its root, registered once in the registry with that repo's link and a version string.
 
 ---
 
@@ -1178,6 +1246,16 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 
 ### Changelog
 
+**beta-1.0.3** — new operators, flexible function parameters, and `finally`:
+
+- **Default parameters**: `function greet(name, greeting = "Hello") { ... }` — the default is evaluated at call time, in order, so a later default can reference an earlier parameter.
+- **Rest parameters**: `function sum(...nums) { ... }` collects any extra arguments into an array; may be mixed with fixed parameters as long as `...` is last. Arity-error messages now adapt (`expects between 1 and 2 argument(s)`, `expects at least 1 argument(s)`).
+- **`??` (nil-coalescing operator)**: `value ?? fallback` returns `value` unless it's `nil`, in which case it returns `fallback` — the fallback is never evaluated otherwise (short-circuiting). See [Operators](#operators).
+- **`in` (membership operator)**: `value in array`, `value in dict` (tests keys), `value in string` (substring test). See [Operators](#operators).
+- **`finally`**: `try`/`catch` gained a `finally` block that always runs — on success, on a caught error, or through a `return` — and `catch` is now optional as long as `finally` is present (`try { ... } finally { ... }`). See [Error handling](#error-handling-try--catch--throw--finally).
+- **`ton618 install <module>`**: fetches a module's metadata from the TON618 module registry and downloads its code straight from GitHub into `./modules/`. See [Installing modules](#installing-modules-ton618-install).
+- **A new AI skill for authoring TON618 modules** (as opposed to writing scripts), alongside the existing general-purpose skill — see `exemples/skills/ton618-module-author/`.
+
 **beta-1.0.2** — simpler string formatting, and an AI-coding skill:
 
 - **String interpolation (`"Hello ${name}!"`) has been removed** in favor of the much simpler **`format(template, ...args)`**: `format("Hello {}!", name)`. Interpolation required the lexer to recursively re-lex arbitrary expressions embedded inside string literals (tracking nested quotes and braces) — a lot of machinery for what a single string-processing function does just as well, with far less to reason about. See [String formatting](#string-formatting).
@@ -1246,19 +1324,20 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 10. [Fonctions](#fonctions)
 11. [Tableaux](#tableaux)
 12. [Dictionnaires](#dictionnaires)
-13. [Gestion des erreurs : try / catch / throw](#gestion-des-erreurs--try--catch--throw)
+13. [Gestion des erreurs : try / catch / throw / finally](#gestion-des-erreurs--try--catch--throw--finally)
 14. [Fonctions natives](#fonctions-natives)
 15. [Type HTML](#type-html)
 16. [Modules (IMPORT://)](#modules-import-1)
 17. [Créer un module TON618 — guide complet](#créer-un-module-ton618--guide-complet)
-18. [Modules système intégrés](#modules-système-intégrés)
-19. [Serveur local & routes (API)](#serveur-local--routes-api)
-20. [Le débogueur](#le-débogueur)
-21. [Architecture — comment fonctionne l'interpréteur](#architecture--comment-fonctionne-linterpréteur)
-22. [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même)
-23. [Publier la doc sur GitHub Pages](#publier-la-doc-sur-github-pages)
-24. [Limitations connues](#limitations-connues)
-25. [Changelog](#changelog-1)
+18. [Installer des modules : `ton618 install`](#installer-des-modules--ton618-install)
+19. [Modules système intégrés](#modules-système-intégrés)
+20. [Serveur local & routes (API)](#serveur-local--routes-api)
+21. [Le débogueur](#le-débogueur)
+22. [Architecture — comment fonctionne l'interpréteur](#architecture--comment-fonctionne-linterpréteur)
+23. [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même)
+24. [Publier la doc sur GitHub Pages](#publier-la-doc-sur-github-pages)
+25. [Limitations connues](#limitations-connues)
+26. [Changelog](#changelog-1)
 
 ---
 
@@ -1414,6 +1493,8 @@ Un argument peut être n'importe quelle valeur — un nombre, une chaîne, le r�
 | Arithmétique | `+` `-` `*` `/` `%` |
 | Comparaison | `==` `!=` `<` `<=` `>` `>=` |
 | Logique | `&&`/`and`, `\|\|`/`or`, `!` |
+| Coalescence nulle | `??` |
+| Appartenance | `in` |
 | Assignation | `=` `+=` `-=` `*=` `/=` `%=` |
 | Incrémentation/décrémentation | `++` `--` (postfixe) |
 | Ternaire | `cond ? a : b` |
@@ -1424,6 +1505,8 @@ Notes :
 - `==`/`!=` utilisent l'égalité structurelle : nombres/booléens/nil comparent par valeur, une chaîne et une valeur html avec le même texte sont égales, et les tableaux/dicts comparent élément par élément (récursivement) plutôt que par référence — `[1, 2] == [1, 2]` vaut `true`.
 - `/` et `%` lèvent tous les deux "Division by zero" pour un côté droit à zéro, plutôt que de produire silencieusement `inf`/`NaN`.
 - `and`/`or` sont des synonymes exacts de `&&`/`||` — utilise celui qui se lit le mieux.
+- `??` ("coalescence nulle") évalue son côté gauche et le retourne tel quel sauf s'il vaut `nil`, auquel cas il évalue et retourne le côté droit à la place — le côté droit n'est jamais évalué autrement, donc on peut y mettre un fallback avec effets de bord sans risque. Pratique avec les accès aux dicts : `dict["manquant"] ?? "defaut"`.
+- `in` teste l'appartenance : `valeur in tableau` vérifie les éléments du tableau (avec les mêmes règles d'égalité que `==`), `valeur in dict` vérifie les **clés** du dict, et `valeur in chaine` cherche une sous-chaîne. Le côté droit doit être un tableau, un dict, ou une chaîne/`ton.html` — toute autre valeur est une erreur d'exécution.
 
 ---
 
@@ -1508,7 +1591,36 @@ ton.array doubles = map([1, 2, 3], ton.function(n) { return n * 2 })
 
 Une expression de fonction peut optionnellement porter un nom (`ton.function label(n) { ... }`) utilisé seulement pour un affichage débogueur/erreur plus clair — il n'est pas lié comme variable sous ce nom.
 
-Appeler une fonction avec le mauvais nombre d'arguments est une erreur d'exécution (`'ton.f' expects 2 argument(s) but got 1.`) — il n'y a pas de syntaxe d'arguments par défaut ou variadiques.
+**Paramètres par défaut** — donne à un paramètre `= expression` pour le rendre optionnel ; le défaut est évalué au moment de l'appel (dans l'ordre, donc un défaut plus tardif peut référencer un paramètre précédent) et seulement quand l'argument est omis :
+
+```
+ton.function saluer(nom, salutation = "Bonjour") {
+    return salutation + ", " + nom + " !"
+}
+print(saluer("kuro"))              // Bonjour, kuro !
+print(saluer("kuro", "Salut"))     // Salut, kuro !
+
+ton.function paire(a, b = a + 1) {
+    return str(a) + "-" + str(b)
+}
+print(paire(5))   // 5-6
+```
+
+**Paramètres rest** — préfixe le dernier paramètre par `...` pour collecter les arguments en trop dans un tableau :
+
+```
+ton.function somme(...nombres) {
+    ton.int total = 0
+    for ton.n in nombres { total += n }
+    return total
+}
+print(somme(1, 2, 3, 4))   // 10
+print(somme())              // 0
+```
+
+Une fonction peut mélanger paramètres fixes et rest (`function label(prefixe, ...items) { ... }`), mais `...` ne peut apparaître que sur le dernier.
+
+Appeler une fonction avec trop peu d'arguments requis (ou trop, sans paramètre rest) est une erreur d'exécution — le message s'adapte selon que la fonction a des défauts/un rest (`'ton.f' expects 2 argument(s) but got 1.`, `'ton.f' expects between 1 and 2 argument(s) but got 0.`, `'ton.f' expects at least 1 argument(s) but got 0.`).
 
 Les fermetures (closures) fonctionnent comme attendu : une fonction se souvient des variables du scope où elle a été déclarée, même après que ce scope ait par ailleurs terminé.
 
@@ -1545,7 +1657,7 @@ Les clés de dict sont toujours des chaînes (voir [Limitations connues](#limita
 
 ---
 
-### Gestion des erreurs : try / catch / throw
+### Gestion des erreurs : try / catch / throw / finally
 
 ```
 try {
@@ -1556,6 +1668,20 @@ try {
 ```
 
 Toute erreur d'exécution — une erreur native (division par zéro, mauvais nombre d'arguments, index hors limites, ...) ou un `throw` explicite — peut être attrapée. La valeur attrapée est toujours le message de l'erreur sous forme de chaîne, lié au nom donné dans `catch (nom)`. `break`, `continue`, et `return` traversent un `try` englobant sans y être affectés (ce ne sont pas des erreurs).
+
+`finally` ajoute un bloc qui s'exécute toujours après le `try` (et son `catch`, s'il y en a un) — que le bloc se soit terminé normalement, ait levé une erreur, ou ait rencontré un `return` :
+
+```
+ton.function lireSansRisque() {
+    try {
+        return risque()
+    } finally {
+        print("nettoyage effectué")
+    }
+}
+```
+
+`try` a besoin d'au moins un `catch`/`finally` : `catch` seul (comme ci-dessus), `finally` seul (`try { ... } finally { ... }`, utile pour du nettoyage quand on veut que l'erreur continue de se propager), ou les deux ensemble sont tous valides.
 
 ---
 
@@ -1705,6 +1831,26 @@ print(greetings_bye("kuro"))
 - **Préfixe chaque fonction avec le nom du module lui-même** (`greetings_hello`, pas `hello`) — puisque l'importation aplatit tout dans un seul scope global, c'est la seule chose empêchant deux modules (ou un module et le script principal) de silencieusement écraser les fonctions l'un de l'autre.
 - Garde un module centré sur une seule responsabilité ; compose plusieurs petits modules plutôt qu'un seul gros.
 - Un module n'est exécuté que la première fois qu'il est importé — importer le même nom deux fois (depuis n'importe où) ne fait rien la seconde fois, donc il est sûr que deux modules différents importent tous les deux un troisième dont ils dépendent tous les deux.
+
+---
+
+### Installer des modules : `ton618 install`
+
+```
+ton618 install greetings
+```
+
+Cela cherche `greetings` dans le **registre de modules TON618** — un petit index hébergé séparément qui recense les modules communautaires en stockant seulement le **nom, le lien GitHub, et la version** d'un module (jamais son code) — puis télécharge `greetings.ton` directement depuis la branche par défaut de ce dépôt GitHub vers `./modules/greetings.ton`, exactement là où `IMPORT://greetings` va déjà le chercher (voir [Créer un module TON618](#créer-un-module-ton618--guide-complet)).
+
+L'URL du registre a une valeur par défaut de type placeholder (voir `TON618_REGISTRY_URL` dans `include/Version.hpp`) et peut être redirigée vers n'importe quel déploiement — le tien, ou celui de quelqu'un d'autre — sans recompiler, via la variable d'environnement `TON618_REGISTRY_URL` :
+
+```
+TON618_REGISTRY_URL=https://ton-registre.exemple ton618 install greetings
+```
+
+Comme `--update`, `install` n'a pas de client TLS intégré à lui — il délègue à `curl` (ou `wget`/PowerShell) à la fois pour l'interrogation du registre et le téléchargement GitHub, comme toute autre opération réseau du CLI lui-même (contrairement à `ton.requests`, qui est un client HTTP séparé et bac-à-sable exposé aux scripts — voir [Modules système intégrés](#modules-système-intégrés)).
+
+Un auteur de module n'a besoin de rien de spécial pour être installable ainsi : juste un dépôt GitHub public avec `<nom>.ton` à sa racine, enregistré une fois dans le registre avec le lien de ce dépôt et une chaîne de version.
 
 ---
 
@@ -2138,6 +2284,16 @@ Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/
 ---
 
 ### Changelog
+
+**beta-1.0.3** — nouveaux opérateurs, paramètres de fonction flexibles, et `finally` :
+
+- **Paramètres par défaut** : `function saluer(nom, salutation = "Bonjour") { ... }` — le défaut est évalué au moment de l'appel, dans l'ordre, donc un défaut plus tardif peut référencer un paramètre précédent.
+- **Paramètres rest** : `function somme(...nombres) { ... }` collecte les arguments en trop dans un tableau ; peut être mélangé avec des paramètres fixes tant que `...` est en dernier. Les messages d'erreur d'arité s'adaptent maintenant (`expects between 1 and 2 argument(s)`, `expects at least 1 argument(s)`).
+- **`??` (opérateur de coalescence nulle)** : `valeur ?? defaut` retourne `valeur` sauf si elle vaut `nil`, auquel cas il retourne `defaut` — le défaut n'est jamais évalué autrement (court-circuit). Voir [Opérateurs](#opérateurs).
+- **`in` (opérateur d'appartenance)** : `valeur in tableau`, `valeur in dict` (teste les clés), `valeur in chaine` (test de sous-chaîne). Voir [Opérateurs](#opérateurs).
+- **`finally`** : `try`/`catch` gagne un bloc `finally` qui s'exécute toujours — en cas de succès, d'erreur attrapée, ou à travers un `return` — et `catch` est maintenant optionnel tant que `finally` est présent (`try { ... } finally { ... }`). Voir [Gestion des erreurs](#gestion-des-erreurs--try--catch--throw--finally).
+- **`ton618 install <module>`** : récupère les métadonnées d'un module depuis le registre de modules TON618 et télécharge son code directement depuis GitHub dans `./modules/`. Voir [Installer des modules](#installer-des-modules--ton618-install).
+- **Un nouveau skill IA pour créer des modules TON618** (par opposition à écrire des scripts), en plus du skill généraliste existant — voir `exemples/skills/ton618-module-author/`.
 
 **beta-1.0.2** — formatage de chaînes simplifié, et un skill IA :
 

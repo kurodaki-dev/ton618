@@ -30,6 +30,10 @@ enum class TokenType {
     PLUS_PLUS, MINUS_MINUS,
     // Ternary: cond ? a : b
     QUESTION, COLON,
+    // Nil-coalescing: a ?? b
+    QUESTION_QUESTION,
+    // Rest parameter: ton.function f(a, ...rest) { ... }
+    ELLIPSIS,
 
     // Symboles
     LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET,
@@ -44,7 +48,7 @@ enum class TokenType {
 
     // Keywords
     IF, ELSE, WHILE, FOR, IN, FUNCTION, RETURN, BREAK, CONTINUE,
-    TRY, CATCH, THROW,
+    TRY, CATCH, THROW, FINALLY,
     SWITCH, CASE, DEFAULT,
     PRINT,
 

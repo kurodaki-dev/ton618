@@ -191,6 +191,12 @@
       <p>The same reference as a plain <code>AGENTS.md</code> — the emerging open convention several coding agents (Cursor, Copilot, and others) read automatically from a project root.</p>
       <a class="btn" href="skills/AGENTS.md">View AGENTS.md</a>
     </div>
+    <div class="card">
+      <span class="file">skills/ton618-module-author/SKILL.md</span>
+      <h3>Module-author skill</h3>
+      <p>A separate, focused skill for <em>writing a reusable module</em> (naming/prefix conventions, file placement, publishing to the module registry) rather than an ordinary script — pairs with the skill above, doesn't replace it.</p>
+      <a class="btn" href="skills/ton618-module-author/SKILL.md">View SKILL.md</a>
+    </div>
   </div>
 </section>
 
@@ -205,6 +211,9 @@
   <pre id="prompt-agents"><button class="copy" data-copy="prompt-agents">copy</button>Install this AGENTS.md file for me: https://raw.githubusercontent.com/kurodaki-dev/ton618/main/exemples/skills/AGENTS.md</pre>
   <p>If the project already has its own <code>AGENTS.md</code>, ask it to merge this one in as a new section instead of overwriting it.</p>
 
+  <h3>Writing a module instead of a script? Add this one too</h3>
+  <pre id="prompt-module"><button class="copy" data-copy="prompt-module">copy</button>Install this skill for me: https://raw.githubusercontent.com/kurodaki-dev/ton618/main/exemples/skills/ton618-module-author/SKILL.md</pre>
+
   <h3>Any other agent</h3>
   <p>Same idea — "install this skill for me: &lt;link&gt;" — or paste the raw file content directly into the system prompt or project-instructions field if it can't fetch URLs itself. Both files are plain Markdown; there's nothing Claude-specific in the content, only in how <code>SKILL.md</code> is auto-discovered by Claude Code.</p>
 
@@ -213,7 +222,7 @@
 
 <section>
   <h2>Keeping it in sync</h2>
-  <p>Both files are hand-written to match <code>DOCUMENTATION.md</code> and the interpreter's actual behavior — whenever the language changes, update <code>exemples/skills/ton618/SKILL.md</code> and <code>exemples/skills/AGENTS.md</code> together (their content is identical, only the framing/frontmatter differs) alongside the documentation itself.</p>
+  <p>All three files are hand-written to match <code>DOCUMENTATION.md</code> and the interpreter's actual behavior — whenever the language changes, update <code>exemples/skills/ton618/SKILL.md</code> and <code>exemples/skills/AGENTS.md</code> together (their content is identical, only the framing/frontmatter differs), and <code>exemples/skills/ton618-module-author/SKILL.md</code> whenever module-authoring or registry conventions change, alongside the documentation itself.</p>
 </section>
 
 </div>

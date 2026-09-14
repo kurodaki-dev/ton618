@@ -15,6 +15,7 @@ const std::unordered_map<std::string, TokenType> Lexer::keywords = {
     {"try", TokenType::TRY},
     {"catch", TokenType::CATCH},
     {"throw", TokenType::THROW},
+    {"finally", TokenType::FINALLY},
     {"switch", TokenType::SWITCH},
     {"case", TokenType::CASE},
     {"default", TokenType::DEFAULT},
@@ -153,8 +154,13 @@ void Lexer::scanToken() {
         case ']': addToken(TokenType::RBRACKET); break;
         case ',': addToken(TokenType::COMMA); break;
         case ';': addToken(TokenType::SEMICOLON); break;
-        case '.': addToken(TokenType::DOT); break;
-        case '?': addToken(TokenType::QUESTION); break;
+        case '.':
+            if (peek() == '.' && peekNext() == '.') { advance(); advance(); addToken(TokenType::ELLIPSIS); }
+            else addToken(TokenType::DOT);
+            break;
+        case '?':
+            addToken(match('?') ? TokenType::QUESTION_QUESTION : TokenType::QUESTION);
+            break;
         case ':': addToken(TokenType::COLON); break;
         case '+':
             if (match('+')) addToken(TokenType::PLUS_PLUS);
