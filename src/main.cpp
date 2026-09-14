@@ -8,14 +8,18 @@
 #include <cstring>
 #include <cerrno>
 #include <cctype>
+#include <filesystem>
 #include "Lexer.hpp"
 #include "Parser.hpp"
 #include "Interpreter.hpp"
+#include "JsonParser.hpp"
 #include "Platform.hpp"
 #include "Version.hpp"
 
 #ifdef _WIN32
   #include <windows.h>
+  #define popen _popen
+  #define pclose _pclose
 #else
   #include <unistd.h>
   #include <climits>
@@ -53,6 +57,8 @@ static void printUsage(const char* prog) {
               << "  --update [version]    update ton618 from GitHub Releases (latest if no version given)\n"
               << "  --version, -v         print the interpreter's version, platform and architecture\n"
               << "  --help, -h            show this message\n"
+              << "\nOther commands:\n"
+              << "  " << prog << " install <module>    fetch a module from the TON618 module registry into ./modules/\n"
               << "\nExample:\n"
               << "  " << prog << " myscript.ton --debug --break=5\n";
 }
@@ -181,6 +187,162 @@ static bool downloadFile(const std::string& url, const std::string& outPath) {
     return std::system(cmd.c_str()) == 0;
 }
 
+// Same tooling as downloadFile() above, but captures the response body as a
+// string instead of writing it to a file — used to fetch the small JSON
+// documents the module registry serves (see runInstall() below). Sets `ok`
+// to false (and returns an empty string) on any failure.
+static std::string fetchText(const std::string& url, bool& ok) {
+    std::string cmd;
+#ifdef _WIN32
+    if (commandExists("curl")) {
+        cmd = "curl -fsSL \"" + url + "\"";
+    } else {
+        cmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+              "\"$ProgressPreference='SilentlyContinue'; (Invoke-WebRequest -Uri '" + url + "').Content\"";
+    }
+#else
+    if (commandExists("curl")) {
+        cmd = "curl -fsSL '" + url + "'";
+    } else if (commandExists("wget")) {
+        cmd = "wget -q -O- '" + url + "'";
+    } else {
+        ok = false;
+        return "";
+    }
+#endif
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) { ok = false; return ""; }
+    std::string result;
+    char buf[4096];
+    size_t n;
+    while ((n = std::fread(buf, 1, sizeof(buf), pipe)) > 0) result.append(buf, n);
+    ok = (pclose(pipe) == 0);
+    return result;
+}
+
+// True if every character of `s` is a letter, digit, '.', '-', or '_' (and
+// `s` is non-empty) — the same restrictive charset runUpdate() validates its
+// version argument against, reused here because these strings all end up
+// interpolated into a shell command line (see downloadFile/fetchText): a
+// module name typed by the user, or an owner/repo pulled out of a registry
+// response, must never be able to smuggle in shell metacharacters.
+static bool isSafeToken(const std::string& s) {
+    if (s.empty()) return false;
+    for (char c : s) {
+        if (!std::isalnum((unsigned char)c) && c != '.' && c != '-' && c != '_') return false;
+    }
+    return true;
+}
+
+// Pulls "owner/repo" out of a github field that may be a full URL
+// (https://github.com/owner/repo, optionally with a trailing slash or
+// ".git") or already just "owner/repo". Returns "" if it doesn't look like
+// a github.com link at all, or if owner/repo contain anything outside
+// isSafeToken()'s charset.
+static std::string parseGithubOwnerRepo(std::string github) {
+    const std::string marker = "github.com/";
+    size_t pos = github.find(marker);
+    std::string rest = (pos != std::string::npos) ? github.substr(pos + marker.size()) : github;
+    while (!rest.empty() && rest.back() == '/') rest.pop_back();
+    if (rest.size() > 4 && rest.compare(rest.size() - 4, 4, ".git") == 0) rest.erase(rest.size() - 4);
+
+    size_t slash = rest.find('/');
+    if (slash == std::string::npos) return "";
+    std::string owner = rest.substr(0, slash);
+    std::string repo = rest.substr(slash + 1);
+    if (repo.find('/') != std::string::npos) return ""; // extra path segments: not a bare repo link
+    if (!isSafeToken(owner) || !isSafeToken(repo)) return "";
+    return owner + "/" + repo;
+}
+
+// `ton618 install <module>` — looks `module` up in the TON618 module
+// registry (see TON618_REGISTRY_URL in Version.hpp, overridable via the
+// TON618_REGISTRY_URL environment variable), which maps a module name to
+// {name, github, version} — the registry stores that metadata only, never
+// the module's actual code. The module's source is then downloaded straight
+// from its GitHub repo (as "<name>.ton" on the default branch) into
+// ./modules/, where IMPORT://<module> already knows to look for it.
+static int runInstall(const std::string& moduleName) {
+    if (!isSafeToken(moduleName)) {
+        std::cerr << "Invalid module name '" << moduleName
+                   << "': only letters, digits, '.', '-', '_' are allowed.\n";
+        return 1;
+    }
+
+    const char* envRegistry = std::getenv("TON618_REGISTRY_URL");
+    std::string registry = envRegistry ? envRegistry : TON618_REGISTRY_URL;
+    std::string indexUrl = registry + "/api/modules/" + moduleName;
+
+    std::cout << "[ton618] Looking up '" << moduleName << "' in the registry (" << registry << ") ...\n";
+    bool ok = false;
+    std::string body = fetchText(indexUrl, ok);
+    if (!ok || body.empty()) {
+        std::cerr << "[ton618] Could not reach the module registry, or '" << moduleName << "' isn't listed there.\n";
+        return 1;
+    }
+
+    Value doc;
+    try {
+        doc = parseJson(body);
+    } catch (std::exception& e) {
+        std::cerr << "[ton618] The registry's response wasn't valid JSON: " << e.what() << "\n";
+        return 1;
+    }
+
+    Value* errorField = doc.findDictEntry("error");
+    if (errorField) {
+        std::cerr << "[ton618] Registry error: " << errorField->toString() << "\n";
+        return 1;
+    }
+
+    Value* githubField = doc.findDictEntry("github");
+    Value* versionField = doc.findDictEntry("version");
+    if (!githubField || githubField->type != ValueType::STRING) {
+        std::cerr << "[ton618] The registry entry for '" << moduleName << "' has no usable 'github' link.\n";
+        return 1;
+    }
+
+    std::string ownerRepo = parseGithubOwnerRepo(githubField->str);
+    if (ownerRepo.empty()) {
+        std::cerr << "[ton618] The registry's 'github' field ('" << githubField->str
+                   << "') isn't a recognizable github.com/owner/repo link.\n";
+        return 1;
+    }
+
+    std::string rawUrl = "https://raw.githubusercontent.com/" + ownerRepo + "/HEAD/" + moduleName + ".ton";
+
+    std::error_code ec;
+    std::filesystem::create_directories("modules", ec);
+    std::string outPath = "modules/" + moduleName + ".ton";
+
+    std::cout << "[ton618] Downloading " << moduleName
+              << (versionField ? " (" + versionField->toString() + ")" : "")
+              << " from " << rawUrl << " ...\n";
+
+    if (!downloadFile(rawUrl, outPath)) {
+        std::cerr << "[ton618] Download failed.\n";
+        std::remove(outPath.c_str());
+        return 1;
+    }
+
+    // A missing "<name>.ton" at the repo root 404s into a short plain-text
+    // body rather than failing the download command's exit code outright —
+    // reject anything implausibly small rather than install it as-is.
+    {
+        std::ifstream check(outPath, std::ios::binary | std::ios::ate);
+        if (!check || check.tellg() < 1) {
+            std::cerr << "[ton618] The downloaded file is empty (wrong module name, or no '"
+                       << moduleName << ".ton' at the repo root?). Aborting.\n";
+            std::remove(outPath.c_str());
+            return 1;
+        }
+    }
+
+    std::cout << "[ton618] Installed to " << outPath << " — use IMPORT://" << moduleName
+              << " in your script to load it.\n";
+    return 0;
+}
+
 // --update [version] — re-downloads the precompiled binary matching this
 // platform (auto-detected: Linux, Termux, or Windows — see Platform.hpp)
 // from GitHub Releases and replaces the currently running executable.
@@ -278,6 +440,14 @@ int main(int argc, char** argv) {
     }
 
     if (args.empty()) { printUsage(argv[0]); return 1; }
+
+    if (args[0] == "install") {
+        if (args.size() < 2) {
+            std::cerr << "Usage: " << argv[0] << " install <module>\n";
+            return 1;
+        }
+        return runInstall(args[1]);
+    }
 
     std::string path = args[0];
     bool debugMode = false;

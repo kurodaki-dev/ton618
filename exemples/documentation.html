@@ -290,14 +290,15 @@
 15. [HTML type](#html-type)
 16. [Modules (IMPORT://)](#modules-import)
 17. [Creating a TON618 module — full guide](#creating-a-ton618-module--full-guide)
-18. [Built-in system modules](#built-in-system-modules)
-19. [Local server & routes (API)](#local-server--routes-api)
-20. [The debugger](#the-debugger)
-21. [Architecture — how the interpreter works](#architecture--how-the-interpreter-works)
-22. [Extending the interpreter itself](#extending-the-interpreter-itself)
-23. [Publishing the docs to GitHub Pages](#publishing-the-docs-to-github-pages)
-24. [Known limitations](#known-limitations)
-25. [Changelog](#changelog)
+18. [Installing modules: `ton618 install`](#installing-modules-ton618-install)
+19. [Built-in system modules](#built-in-system-modules)
+20. [Local server & routes (API)](#local-server--routes-api)
+21. [The debugger](#the-debugger)
+22. [Architecture — how the interpreter works](#architecture--how-the-interpreter-works)
+23. [Extending the interpreter itself](#extending-the-interpreter-itself)
+24. [Publishing the docs to GitHub Pages](#publishing-the-docs-to-github-pages)
+25. [Known limitations](#known-limitations)
+26. [Changelog](#changelog)
 
 ---
 
@@ -794,6 +795,26 @@ print(greetings_bye("kuro"))
 
 ---
 
+### Installing modules: `ton618 install`
+
+```
+ton618 install greetings
+```
+
+This looks `greetings` up in the **TON618 module registry** — a small, separately-hosted index of community modules that stores only a module's **name, GitHub link, and version** (never its actual code) — then downloads `greetings.ton` straight from that GitHub repo's default branch into `./modules/greetings.ton`, right where `IMPORT://greetings` already looks for it (see [Creating a TON618 module](#creating-a-ton618-module--full-guide)).
+
+The registry's URL defaults to a placeholder (see `TON618_REGISTRY_URL` in `include/Version.hpp`) and can be pointed at any deployment — your own, or someone else's — without rebuilding, via the `TON618_REGISTRY_URL` environment variable:
+
+```
+TON618_REGISTRY_URL=https://your-registry.example ton618 install greetings
+```
+
+Like `--update`, `install` has no bundled TLS client of its own — it shells out to `curl` (or `wget`/PowerShell) for both the registry lookup and the GitHub download, the same as every other network operation in the CLI itself (as opposed to `ton.requests`, which is a separate, sandboxed HTTP client exposed to scripts — see [Built-in system modules](#built-in-system-modules)).
+
+A module author doesn't need anything special to be installable this way: just a public GitHub repo with `<name>.ton` at its root, registered once in the registry with that repo's link and a version string.
+
+---
+
 ### Built-in system modules
 
 TON618 ships with eleven **built-in system modules**. They aren't files on disk — they live inside the interpreter — but you still `IMPORT://ton.<name>` them before using them, exactly like a user module:
@@ -1232,6 +1253,8 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 - **`??` (nil-coalescing operator)**: `value ?? fallback` returns `value` unless it's `nil`, in which case it returns `fallback` — the fallback is never evaluated otherwise (short-circuiting). See [Operators](#operators).
 - **`in` (membership operator)**: `value in array`, `value in dict` (tests keys), `value in string` (substring test). See [Operators](#operators).
 - **`finally`**: `try`/`catch` gained a `finally` block that always runs — on success, on a caught error, or through a `return` — and `catch` is now optional as long as `finally` is present (`try { ... } finally { ... }`). See [Error handling](#error-handling-try--catch--throw--finally).
+- **`ton618 install <module>`**: fetches a module's metadata from the TON618 module registry and downloads its code straight from GitHub into `./modules/`. See [Installing modules](#installing-modules-ton618-install).
+- **A new AI skill for authoring TON618 modules** (as opposed to writing scripts), alongside the existing general-purpose skill — see `exemples/skills/ton618-module-author/`.
 
 **beta-1.0.2** — simpler string formatting, and an AI-coding skill:
 
@@ -1306,14 +1329,15 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 15. [Type HTML](#type-html)
 16. [Modules (IMPORT://)](#modules-import-1)
 17. [Créer un module TON618 — guide complet](#créer-un-module-ton618--guide-complet)
-18. [Modules système intégrés](#modules-système-intégrés)
-19. [Serveur local & routes (API)](#serveur-local--routes-api)
-20. [Le débogueur](#le-débogueur)
-21. [Architecture — comment fonctionne l'interpréteur](#architecture--comment-fonctionne-linterpréteur)
-22. [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même)
-23. [Publier la doc sur GitHub Pages](#publier-la-doc-sur-github-pages)
-24. [Limitations connues](#limitations-connues)
-25. [Changelog](#changelog-1)
+18. [Installer des modules : `ton618 install`](#installer-des-modules--ton618-install)
+19. [Modules système intégrés](#modules-système-intégrés)
+20. [Serveur local & routes (API)](#serveur-local--routes-api)
+21. [Le débogueur](#le-débogueur)
+22. [Architecture — comment fonctionne l'interpréteur](#architecture--comment-fonctionne-linterpréteur)
+23. [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même)
+24. [Publier la doc sur GitHub Pages](#publier-la-doc-sur-github-pages)
+25. [Limitations connues](#limitations-connues)
+26. [Changelog](#changelog-1)
 
 ---
 
@@ -1810,6 +1834,26 @@ print(greetings_bye("kuro"))
 
 ---
 
+### Installer des modules : `ton618 install`
+
+```
+ton618 install greetings
+```
+
+Cela cherche `greetings` dans le **registre de modules TON618** — un petit index hébergé séparément qui recense les modules communautaires en stockant seulement le **nom, le lien GitHub, et la version** d'un module (jamais son code) — puis télécharge `greetings.ton` directement depuis la branche par défaut de ce dépôt GitHub vers `./modules/greetings.ton`, exactement là où `IMPORT://greetings` va déjà le chercher (voir [Créer un module TON618](#créer-un-module-ton618--guide-complet)).
+
+L'URL du registre a une valeur par défaut de type placeholder (voir `TON618_REGISTRY_URL` dans `include/Version.hpp`) et peut être redirigée vers n'importe quel déploiement — le tien, ou celui de quelqu'un d'autre — sans recompiler, via la variable d'environnement `TON618_REGISTRY_URL` :
+
+```
+TON618_REGISTRY_URL=https://ton-registre.exemple ton618 install greetings
+```
+
+Comme `--update`, `install` n'a pas de client TLS intégré à lui — il délègue à `curl` (ou `wget`/PowerShell) à la fois pour l'interrogation du registre et le téléchargement GitHub, comme toute autre opération réseau du CLI lui-même (contrairement à `ton.requests`, qui est un client HTTP séparé et bac-à-sable exposé aux scripts — voir [Modules système intégrés](#modules-système-intégrés)).
+
+Un auteur de module n'a besoin de rien de spécial pour être installable ainsi : juste un dépôt GitHub public avec `<nom>.ton` à sa racine, enregistré une fois dans le registre avec le lien de ce dépôt et une chaîne de version.
+
+---
+
 ### Modules système intégrés
 
 TON618 est livré avec onze **modules système intégrés**. Ce ne sont pas des fichiers sur le disque — ils vivent dans l'interpréteur — mais tu les importes quand même avec `IMPORT://ton.<nom>` avant de les utiliser, exactement comme un module utilisateur :
@@ -2248,6 +2292,8 @@ Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/
 - **`??` (opérateur de coalescence nulle)** : `valeur ?? defaut` retourne `valeur` sauf si elle vaut `nil`, auquel cas il retourne `defaut` — le défaut n'est jamais évalué autrement (court-circuit). Voir [Opérateurs](#opérateurs).
 - **`in` (opérateur d'appartenance)** : `valeur in tableau`, `valeur in dict` (teste les clés), `valeur in chaine` (test de sous-chaîne). Voir [Opérateurs](#opérateurs).
 - **`finally`** : `try`/`catch` gagne un bloc `finally` qui s'exécute toujours — en cas de succès, d'erreur attrapée, ou à travers un `return` — et `catch` est maintenant optionnel tant que `finally` est présent (`try { ... } finally { ... }`). Voir [Gestion des erreurs](#gestion-des-erreurs--try--catch--throw--finally).
+- **`ton618 install <module>`** : récupère les métadonnées d'un module depuis le registre de modules TON618 et télécharge son code directement depuis GitHub dans `./modules/`. Voir [Installer des modules](#installer-des-modules--ton618-install).
+- **Un nouveau skill IA pour créer des modules TON618** (par opposition à écrire des scripts), en plus du skill généraliste existant — voir `exemples/skills/ton618-module-author/`.
 
 **beta-1.0.2** — formatage de chaînes simplifié, et un skill IA :
 

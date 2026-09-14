@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="ton618-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff7a3d"/>
+      <stop offset="1" stop-color="#7a3d1f"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="4" y="4" width="192" height="192" rx="36" fill="url(#ton618-bg)" stroke="#0a0a0d" stroke-width="6"/>
+
+  <!-- black hole: accretion-disk ring with the event horizon drawn on top -->
+  <ellipse cx="100" cy="80" rx="60" ry="20" fill="none" stroke="#ffe3cf" stroke-width="5" opacity="0.9"/>
+  <ellipse cx="100" cy="80" rx="60" ry="20" fill="none" stroke="#ffb08a" stroke-width="2"/>
+  <circle cx="100" cy="80" r="34" fill="#0a0a0d"/>
+
+  <text x="100" y="160" font-family="SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace"
+        font-size="46" font-weight="700" fill="#0a0a0d" text-anchor="middle">Ton</text>
+</svg>

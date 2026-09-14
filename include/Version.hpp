@@ -15,3 +15,10 @@
 // that install.sh / install.ps1 point at. Change this if the project ever
 // moves to a different GitHub location.
 #define TON618_REPO "kurodaki-dev/ton618"
+
+// Default base URL for the module registry that `ton618 install <module>`
+// queries (see main.cpp's runInstall()) — a small JSON API, not part of this
+// repo, that maps a module name to {name, github, version}. Override without
+// rebuilding by setting the TON618_REGISTRY_URL environment variable (no
+// trailing slash) to point at your own deployment.
+#define TON618_REGISTRY_URL "https://registry.ton618.dev"
