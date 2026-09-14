@@ -35,7 +35,7 @@ using StmtPtr = std::shared_ptr<Stmt>;
 
 enum class ExprType {
     LITERAL, VARIABLE, ASSIGN, BINARY, UNARY, LOGICAL, CALL, GROUPING, ARRAY, INDEX,
-    TERNARY, DICT, FUNCTION_EXPR
+    TERNARY, DICT, FUNCTION_EXPR, SPREAD
 };
 
 struct Expr {
@@ -57,7 +57,7 @@ struct Expr {
     ExprPtr left, right;
     TokenType op;
 
-    // UNARY
+    // UNARY / SPREAD ("...expr" inside an array or dict literal — see ARRAY/DICT below)
     ExprPtr operand;
 
     // CALL
@@ -67,7 +67,8 @@ struct Expr {
     // GROUPING
     ExprPtr inner;
 
-    // ARRAY
+    // ARRAY — an element may itself be a SPREAD node ("...arr"), splicing that
+    // array's items in place instead of contributing a single element.
     std::vector<ExprPtr> elements;
 
     // INDEX
@@ -81,6 +82,9 @@ struct Expr {
 
     // DICT — one literal entry per (key expression, value expression) pair.
     // Keys are always evaluated to strings at parse time (bare identifier or string literal).
+    // A spread entry ("...dict") is stored as {nullptr, spreadNode} where
+    // spreadNode->type == SPREAD — its keys/values are merged in, later entries
+    // (spread or not) overriding earlier ones with the same key.
     std::vector<std::pair<ExprPtr, ExprPtr>> dictEntries;
 
     // FUNCTION_EXPR — an inline "ton.function(params) { ... }" value, most often

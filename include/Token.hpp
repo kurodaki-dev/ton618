@@ -26,6 +26,8 @@ enum class TokenType {
 
     // Compound assignment: += -= *= /= %=
     PLUS_EQUAL, MINUS_EQUAL, STAR_EQUAL, SLASH_EQUAL, PERCENT_EQUAL,
+    // Compound assignment, bitwise: &= |= ^= <<= >>=
+    AMPERSAND_EQUAL, PIPE_EQUAL, CARET_EQUAL, LESS_LESS_EQUAL, GREATER_GREATER_EQUAL,
     // Increment / decrement: ++ --
     PLUS_PLUS, MINUS_MINUS,
     // Ternary: cond ? a : b
@@ -34,6 +36,8 @@ enum class TokenType {
     QUESTION_QUESTION,
     // Rest parameter: ton.function f(a, ...rest) { ... }
     ELLIPSIS,
+    // Bitwise: & | ^ ~ << >> (operate on numbers truncated to a 64-bit integer)
+    AMPERSAND, PIPE, CARET, TILDE, LESS_LESS, GREATER_GREATER,
 
     // Symboles
     LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET,

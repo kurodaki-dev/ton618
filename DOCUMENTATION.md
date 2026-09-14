@@ -200,7 +200,8 @@ An argument can be any value — a number, a string, the result of a function ca
 | Logical | `&&`/`and`, `\|\|`/`or`, `!` |
 | Nil-coalescing | `??` |
 | Membership | `in` |
-| Assignment | `=` `+=` `-=` `*=` `/=` `%=` |
+| Bitwise | `&` `\|` `^` `~` `<<` `>>` |
+| Assignment | `=` `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` |
 | Increment/decrement | `++` `--` (postfix) |
 | Ternary | `cond ? a : b` |
 
@@ -212,6 +213,7 @@ Notes:
 - `and`/`or` are exact synonyms for `&&`/`||` — use whichever reads better.
 - `??` ("nil-coalescing") evaluates its left side and returns it as-is unless it's `nil`, in which case it evaluates and returns the right side instead — the right side is never evaluated otherwise, so it's safe to put a fallback that has side effects. Handy with dict lookups: `dict["missing"] ?? "default"`.
 - `in` tests membership: `value in array` checks the array's elements (using the same equality rules as `==`), `value in dict` checks the dict's **keys**, and `value in string` checks for a substring. The right-hand side must be an array, dict, or string/`ton.html` — anything else is a runtime error.
+- `&`, `|`, `^`, `~`, `<<`, `>>` treat both sides as integers (truncating any fractional part), operate on a 64-bit two's-complement representation, then convert the result back to TON618's usual number type — there's no separate integer type, so `6 & 3` is just a number like any other (`2`). Both operands must be numbers; anything else is a runtime error. `&`/`|`/`^` all share one precedence level (looser than `==`, tighter than `&&`) — use parentheses when mixing them for clarity.
 
 ---
 
@@ -345,6 +347,14 @@ See [Built-in native functions](#built-in-native-functions) for the full set of 
 
 Strings also support read-only indexing — `s[0]` is the first character, as a 1-character string. Strings are immutable: `s[0] = "x"` is a runtime error; build a new string with `replace()`/`substring()`/the `ton.strings` module instead.
 
+**Spread** (`...`) splices another array's elements into a literal in place:
+```
+ton.array a = [1, 2, 3]
+ton.array b = [0, ...a, 4]   // [0, 1, 2, 3, 4]
+ton.array both = [...a, ...a] // [1, 2, 3, 1, 2, 3]
+```
+The spread expression must itself be an array — spreading anything else is a runtime error.
+
 ---
 
 ### Dictionaries
@@ -359,6 +369,13 @@ print(has(user, "age"))    // true
 ```
 
 Dict keys are always strings (see [Known limitations](#known-limitations)): a bare identifier key (`name: ...`) is treated as its own name, and a non-identifier key needs a string literal (`"first name": ...`). Reading a missing key returns `nil` rather than erroring; writing to a new key adds it. `keys()`/`values()` iterate in insertion order.
+
+**Spread** (`...`) merges another dict's entries into a literal in place — a later entry (spread or not) overrides an earlier one with the same key, keeping that key's original position rather than moving it to the end:
+```
+ton.dict base = {a: 1, b: 2}
+ton.dict merged = {...base, b: 99, c: 3}   // {a: 1, b: 99, c: 3}
+```
+The spread expression must itself be a dict — spreading anything else is a runtime error.
 
 ---
 
@@ -998,6 +1015,12 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 
 ### Changelog
 
+**beta-1.0.5** — bitwise operators and spread:
+
+- **Bitwise operators**: `&`, `|`, `^`, `~`, `<<`, `>>`, plus their compound-assignment forms (`&=`, `|=`, `^=`, `<<=`, `>>=`). Operands are truncated to 64-bit integers, operated on, and converted back — see [Operators](#operators).
+- **Spread (`...`) in array literals**: `[...a, x, ...b]` splices other arrays' elements in place — see [Arrays](#arrays).
+- **Spread (`...`) in dict literals**: `{...d1, key: val, ...d2}` merges other dicts' entries in place, later entries overriding earlier ones with the same key (in their original position) — see [Dictionaries](#dictionaries).
+
 **beta-1.0.4** — `ton618 uninstall <module>`, and a clearer name for the old `--uninstall`:
 
 - **`ton618 --uninstall`** (which removed the `ton618` interpreter itself) is renamed to **`ton618 --uninstall-ton`**, to make room for the new command below and avoid the two being confused.
@@ -1261,7 +1284,8 @@ Un argument peut être n'importe quelle valeur — un nombre, une chaîne, le r�
 | Logique | `&&`/`and`, `\|\|`/`or`, `!` |
 | Coalescence nulle | `??` |
 | Appartenance | `in` |
-| Assignation | `=` `+=` `-=` `*=` `/=` `%=` |
+| Binaire (bits) | `&` `\|` `^` `~` `<<` `>>` |
+| Assignation | `=` `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` |
 | Incrémentation/décrémentation | `++` `--` (postfixe) |
 | Ternaire | `cond ? a : b` |
 
@@ -1273,6 +1297,7 @@ Notes :
 - `and`/`or` sont des synonymes exacts de `&&`/`||` — utilise celui qui se lit le mieux.
 - `??` ("coalescence nulle") évalue son côté gauche et le retourne tel quel sauf s'il vaut `nil`, auquel cas il évalue et retourne le côté droit à la place — le côté droit n'est jamais évalué autrement, donc on peut y mettre un fallback avec effets de bord sans risque. Pratique avec les accès aux dicts : `dict["manquant"] ?? "defaut"`.
 - `in` teste l'appartenance : `valeur in tableau` vérifie les éléments du tableau (avec les mêmes règles d'égalité que `==`), `valeur in dict` vérifie les **clés** du dict, et `valeur in chaine` cherche une sous-chaîne. Le côté droit doit être un tableau, un dict, ou une chaîne/`ton.html` — toute autre valeur est une erreur d'exécution.
+- `&`, `|`, `^`, `~`, `<<`, `>>` traitent les deux côtés comme des entiers (en tronquant la partie décimale), opèrent sur une représentation 64 bits en complément à deux, puis reconvertissent le résultat dans le type nombre habituel de TON618 — il n'y a pas de type entier séparé, donc `6 & 3` est juste un nombre comme un autre (`2`). Les deux opérandes doivent être des nombres, sinon c'est une erreur d'exécution. `&`/`|`/`^` partagent tous le même niveau de priorité (moins prioritaire que `==`, plus prioritaire que `&&`) — utilise des parenthèses en les mélangeant pour plus de clarté.
 
 ---
 
@@ -1406,6 +1431,14 @@ Voir [Fonctions natives](#fonctions-natives) pour l'ensemble des opérations sur
 
 Les chaînes prennent aussi en charge l'indexation en lecture seule — `s[0]` est le premier caractère, sous forme de chaîne d'un caractère. Les chaînes sont immuables : `s[0] = "x"` est une erreur d'exécution ; construis une nouvelle chaîne avec `replace()`/`substring()`/le module `ton.strings` à la place.
 
+**Spread** (`...`) éclate les éléments d'un autre tableau directement dans un littéral :
+```
+ton.array a = [1, 2, 3]
+ton.array b = [0, ...a, 4]    // [0, 1, 2, 3, 4]
+ton.array deux = [...a, ...a]  // [1, 2, 3, 1, 2, 3]
+```
+L'expression étalée doit elle-même être un tableau — étaler autre chose est une erreur d'exécution.
+
 ---
 
 ### Dictionnaires
@@ -1420,6 +1453,13 @@ print(has(utilisateur, "age"))     // true
 ```
 
 Les clés de dict sont toujours des chaînes (voir [Limitations connues](#limitations-connues)) : une clé identifiant nue (`nom: ...`) est traitée comme son propre nom, et une clé non-identifiant nécessite un littéral chaîne (`"prénom nom": ...`). Lire une clé absente renvoie `nil` plutôt que de lever une erreur ; écrire sur une nouvelle clé l'ajoute. `keys()`/`values()` itèrent dans l'ordre d'insertion.
+
+**Spread** (`...`) fusionne les entrées d'un autre dict directement dans un littéral — une entrée plus tardive (étalée ou non) écrase une entrée précédente avec la même clé, en gardant la position d'origine de cette clé plutôt que de la déplacer à la fin :
+```
+ton.dict base = {a: 1, b: 2}
+ton.dict fusion = {...base, b: 99, c: 3}   // {a: 1, b: 99, c: 3}
+```
+L'expression étalée doit elle-même être un dict — étaler autre chose est une erreur d'exécution.
 
 ---
 
@@ -2058,6 +2098,12 @@ Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/
 ---
 
 ### Changelog
+
+**beta-1.0.5** — opérateurs binaires (bits) et spread :
+
+- **Opérateurs binaires** : `&`, `|`, `^`, `~`, `<<`, `>>`, plus leurs formes d'assignation composée (`&=`, `|=`, `^=`, `<<=`, `>>=`). Les opérandes sont tronqués en entiers 64 bits, l'opération appliquée, puis reconvertis — voir [Opérateurs](#opérateurs).
+- **Spread (`...`) dans les littéraux de tableau** : `[...a, x, ...b]` éclate les éléments d'autres tableaux directement dedans — voir [Tableaux](#tableaux).
+- **Spread (`...`) dans les littéraux de dict** : `{...d1, cle: val, ...d2}` fusionne les entrées d'autres dicts, une entrée plus tardive écrasant une entrée précédente avec la même clé (à sa position d'origine) — voir [Dictionnaires](#dictionnaires).
 
 **beta-1.0.4** — `ton618 uninstall <module>`, et un nom plus clair pour l'ancien `--uninstall` :
 

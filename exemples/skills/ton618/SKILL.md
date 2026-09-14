@@ -67,7 +67,8 @@ print(format("Hello {}, you'll be {} next year!", name, age + 1))
 - Logical: `&& / and`, `|| / or`, `!` — `and`/`or` are exact keyword synonyms for `&&`/`||`.
 - Nil-coalescing `??`: `left ?? right` — returns `left` unless it's `nil`, else evaluates and returns `right`. Right side is never evaluated when `left` isn't `nil` (short-circuits). Handy for dict lookups: `d["missing"] ?? "default"`.
 - Membership `in`: `v in array` (element match, `==` rules), `v in dict` (tests **keys**), `v in string` (substring). Right side must be array/dict/string — anything else throws.
-- Assignment: `= += -= *= /= %=`; postfix `++ --`.
+- Bitwise: `& | ^ ~ << >>` — both sides truncated to 64-bit integers, operated on, converted back to a plain number (no separate int type). Both operands must be numbers or it throws. `&`/`|`/`^` share one precedence level, looser than `==`, tighter than `&&`.
+- Assignment: `= += -= *= /= %= &= |= ^= <<= >>=`; postfix `++ --`.
 - Ternary: `cond ? a : b`.
 
 ## Control flow
@@ -136,6 +137,8 @@ print(len(a))
 ```
 Natives: `push pop shift unshift slice join sort reverse contains indexOf map filter reduce find any all`. `map`/`filter`/`reduce`/`find`/`any`/`all` take a `ton.function`/function-expression callback.
 
+Spread: `[...a, x, ...b]` splices other arrays' elements in place. The spread expression must be an array or it throws.
+
 ## Dicts
 
 ```
@@ -147,6 +150,8 @@ print(has(d, "age"))     // true
 print(d["missing"])       // nil, not an error
 ```
 Bare-identifier keys (`name: ...`) or string-literal keys (`"first name": ...`) for non-identifier names.
+
+Spread: `{...d1, key: val, ...d2}` merges other dicts' entries in place — a later entry (spread or not) overrides an earlier same-key one, keeping its original position. The spread expression must be a dict or it throws.
 
 ## Error handling
 

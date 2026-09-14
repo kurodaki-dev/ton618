@@ -111,12 +111,17 @@ function lex(source) {
 
     if (c === "." && peek(1) === "." && peek(2) === ".") { push("ELLIPSIS"); i += 3; continue; }
 
+    const three = source.slice(i, i + 3);
+    const threeMap = { "<<=": "LESS_LESS_EQUAL", ">>=": "GREATER_GREATER_EQUAL" };
+    if (threeMap[three]) { push(threeMap[three]); i += 3; continue; }
+
     const two = source.slice(i, i + 2);
     const twoMap = {
       "==": "EQUAL_EQUAL", "!=": "BANG_EQUAL", "<=": "LESS_EQUAL", ">=": "GREATER_EQUAL",
       "&&": "AND", "||": "OR", "+=": "PLUS_EQUAL", "-=": "MINUS_EQUAL", "*=": "STAR_EQUAL",
       "/=": "SLASH_EQUAL", "%=": "PERCENT_EQUAL", "++": "PLUS_PLUS", "--": "MINUS_MINUS",
-      "??": "QUESTION_QUESTION",
+      "??": "QUESTION_QUESTION", "<<": "LESS_LESS", ">>": "GREATER_GREATER",
+      "&=": "AMPERSAND_EQUAL", "|=": "PIPE_EQUAL", "^=": "CARET_EQUAL",
     };
     if (twoMap[two]) { push(twoMap[two]); i += 2; continue; }
 
@@ -124,7 +129,7 @@ function lex(source) {
       "(": "LPAREN", ")": "RPAREN", "{": "LBRACE", "}": "RBRACE", "[": "LBRACKET", "]": "RBRACKET",
       ",": "COMMA", ";": "SEMICOLON", ".": "DOT", "+": "PLUS", "-": "MINUS", "*": "STAR",
       "/": "SLASH", "%": "PERCENT", "=": "EQUAL", "!": "BANG", "<": "LESS", ">": "GREATER",
-      "?": "QUESTION", ":": "COLON",
+      "?": "QUESTION", ":": "COLON", "&": "AMPERSAND", "|": "PIPE", "^": "CARET", "~": "TILDE",
     };
     if (oneMap[c]) { push(oneMap[c]); i++; continue; }
 
@@ -429,7 +434,11 @@ function parse(tokens) {
     throw new Error(`Line ${line}: invalid assignment target.`);
   }
 
-  const COMPOUND_OPS = { PLUS_EQUAL: "PLUS", MINUS_EQUAL: "MINUS", STAR_EQUAL: "STAR", SLASH_EQUAL: "SLASH", PERCENT_EQUAL: "PERCENT" };
+  const COMPOUND_OPS = {
+    PLUS_EQUAL: "PLUS", MINUS_EQUAL: "MINUS", STAR_EQUAL: "STAR", SLASH_EQUAL: "SLASH", PERCENT_EQUAL: "PERCENT",
+    AMPERSAND_EQUAL: "AMPERSAND", PIPE_EQUAL: "PIPE", CARET_EQUAL: "CARET",
+    LESS_LESS_EQUAL: "LESS_LESS", GREATER_GREATER_EQUAL: "GREATER_GREATER",
+  };
 
   function assignment() {
     const expr = ternary();
@@ -487,17 +496,21 @@ function parse(tokens) {
     return expr;
   }
   function logicAnd() {
-    let expr = equality();
-    while (match("AND")) { const line = previous().line; expr = { kind: "Logical", line, op: "and", left: expr, right: equality() }; }
+    let expr = bitwise();
+    while (match("AND")) { const line = previous().line; expr = { kind: "Logical", line, op: "and", left: expr, right: bitwise() }; }
     return expr;
   }
+  // "a & b", "a | b", "a ^ b" — one precedence level (left to right), between
+  // logicAnd and equality, mirroring src/Parser.cpp's bitwise().
+  const bitwise = binaryLevel(() => equality(), ["AMPERSAND", "PIPE", "CARET"]);
   const equality = binaryLevel(() => comparison(), ["EQUAL_EQUAL", "BANG_EQUAL"]);
-  const comparison = binaryLevel(() => term(), ["LESS", "LESS_EQUAL", "GREATER", "GREATER_EQUAL", "IN"]);
+  const comparison = binaryLevel(() => shift(), ["LESS", "LESS_EQUAL", "GREATER", "GREATER_EQUAL", "IN"]);
+  const shift = binaryLevel(() => term(), ["LESS_LESS", "GREATER_GREATER"]);
   const term = binaryLevel(() => factor(), ["PLUS", "MINUS"]);
   const factor = binaryLevel(() => unary(), ["STAR", "SLASH", "PERCENT"]);
 
   function unary() {
-    if (match("BANG", "MINUS")) {
+    if (match("BANG", "MINUS", "TILDE")) {
       const opTok = previous();
       return { kind: "Unary", line: opTok.line, op: opTok.type, operand: unary() };
     }
@@ -563,7 +576,12 @@ function parse(tokens) {
     }
     if (match("LBRACKET")) {
       const elements = [];
-      if (!check("RBRACKET")) { do { elements.push(expression()); } while (match("COMMA")); }
+      if (!check("RBRACKET")) {
+        do {
+          if (match("ELLIPSIS")) elements.push({ kind: "Spread", line: previous().line, expr: expression() });
+          else elements.push(expression());
+        } while (match("COMMA"));
+      }
       consume("RBRACKET", "expected ']' after the array elements.");
       return { kind: "ArrayLit", elements };
     }
@@ -571,6 +589,10 @@ function parse(tokens) {
       const entries = [];
       if (!check("RBRACE")) {
         do {
+          if (match("ELLIPSIS")) {
+            entries.push([null, { kind: "Spread", line: previous().line, expr: expression() }]);
+            continue;
+          }
           let key;
           if (check("STRING")) key = advance().value;
           else key = consume("IDENTIFIER", "expected a key name in the dict literal.").value;
@@ -860,11 +882,31 @@ class Interpreter {
 
       case "FnExpr": return new TonFunction(expr.name, expr.params, expr.body, env, expr.paramDefaults, expr.hasRest);
 
-      case "ArrayLit": return expr.elements.map((e) => this.evaluate(e, env));
+      case "ArrayLit": {
+        const out = [];
+        for (const e of expr.elements) {
+          if (e.kind === "Spread") {
+            const spread = this.evaluate(e.expr, env);
+            if (!Array.isArray(spread)) this.error(e.line, `'...' inside an array literal expects an array (got ${typeName(spread)}).`);
+            out.push(...spread);
+          } else {
+            out.push(this.evaluate(e, env));
+          }
+        }
+        return out;
+      }
 
       case "DictLit": {
         const m = new Map();
-        for (const [k, vExpr] of expr.entries) m.set(k, this.evaluate(vExpr, env));
+        for (const [k, vExpr] of expr.entries) {
+          if (k === null) { // spread entry: [null, {kind:"Spread", expr}]
+            const spread = this.evaluate(vExpr.expr, env);
+            if (!(spread instanceof Map)) this.error(vExpr.line, `'...' inside a dict literal expects a dict (got ${typeName(spread)}).`);
+            for (const [sk, sv] of spread) m.set(sk, sv);
+          } else {
+            m.set(k, this.evaluate(vExpr, env));
+          }
+        }
         return m;
       }
 
@@ -875,6 +917,10 @@ class Interpreter {
         if (expr.op === "MINUS") {
           if (typeof v !== "number") this.error(expr.line, "Operand of '-' must be a number.");
           return -v;
+        }
+        if (expr.op === "TILDE") {
+          if (typeof v !== "number") this.error(expr.line, "Operand of '~' must be a number.");
+          return Number(~BigInt(Math.trunc(v)));
         }
         return !isTruthy(v);
       }
@@ -982,6 +1028,20 @@ class Interpreter {
         if (isStrLike(right)) return strOf(right).includes(strOf(left));
         this.error(expr.line, `'in' expects an array, dict, or string on the right-hand side (got ${typeName(right)}).`);
         break;
+      }
+      // Bitwise: same semantics as src/Interpreter.cpp — truncate both sides to
+      // a 64-bit integer (via BigInt, since JS's native &|^<<>> are 32-bit
+      // only) and convert the result back to a plain number.
+      case "AMPERSAND": case "PIPE": case "CARET": case "LESS_LESS": case "GREATER_GREATER": {
+        if (typeof left !== "number" || typeof right !== "number") {
+          this.error(expr.line, `Bitwise operators need two numbers (got ${typeName(left)} and ${typeName(right)}).`);
+        }
+        const a = BigInt(Math.trunc(left)), b = BigInt(Math.trunc(right));
+        if (op === "AMPERSAND") return Number(a & b);
+        if (op === "PIPE") return Number(a | b);
+        if (op === "CARET") return Number(a ^ b);
+        if (op === "LESS_LESS") return Number(BigInt.asIntN(64, a << b));
+        return Number(a >> b);
       }
       default: return null;
     }

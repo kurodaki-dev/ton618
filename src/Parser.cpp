@@ -456,6 +456,11 @@ ExprPtr Parser::assignment() {
         {TokenType::STAR_EQUAL, TokenType::STAR},
         {TokenType::SLASH_EQUAL, TokenType::SLASH},
         {TokenType::PERCENT_EQUAL, TokenType::PERCENT},
+        {TokenType::AMPERSAND_EQUAL, TokenType::AMPERSAND},
+        {TokenType::PIPE_EQUAL, TokenType::PIPE},
+        {TokenType::CARET_EQUAL, TokenType::CARET},
+        {TokenType::LESS_LESS_EQUAL, TokenType::LESS_LESS},
+        {TokenType::GREATER_GREATER_EQUAL, TokenType::GREATER_GREATER},
     };
     for (auto& [tokenType, binaryOp] : compoundOps) {
         if (check(tokenType)) {
@@ -516,11 +521,27 @@ ExprPtr Parser::logicOr() {
 }
 
 ExprPtr Parser::logicAnd() {
-    ExprPtr expr = equality();
+    ExprPtr expr = bitwise();
     while (match({TokenType::AND})) {
-        Token op = previous(); ExprPtr right = equality();
+        Token op = previous(); ExprPtr right = bitwise();
         auto e = std::make_shared<Expr>();
         e->type = ExprType::LOGICAL; e->line = op.line;
+        e->left = expr; e->op = op.type; e->right = right;
+        expr = e;
+    }
+    return expr;
+}
+
+// "a & b", "a | b", "a ^ b" — all one precedence level (left to right), rather
+// than the three separate levels C uses; a small language doesn't need
+// `a | b & c` to be meaningfully different in precedence from `a & b | c`,
+// and parentheses read better than that ordering anyway.
+ExprPtr Parser::bitwise() {
+    ExprPtr expr = equality();
+    while (match({TokenType::AMPERSAND, TokenType::PIPE, TokenType::CARET})) {
+        Token op = previous(); ExprPtr right = equality();
+        auto e = std::make_shared<Expr>();
+        e->type = ExprType::BINARY; e->line = op.line;
         e->left = expr; e->op = op.type; e->right = right;
         expr = e;
     }
@@ -542,8 +563,20 @@ ExprPtr Parser::equality() {
 // Also handles "value in collection" (membership test on an array, a dict's
 // keys, or a substring of a string) at the same precedence as < <= > >=.
 ExprPtr Parser::comparison() {
-    ExprPtr expr = term();
+    ExprPtr expr = shift();
     while (match({TokenType::LESS, TokenType::LESS_EQUAL, TokenType::GREATER, TokenType::GREATER_EQUAL, TokenType::IN})) {
+        Token op = previous(); ExprPtr right = shift();
+        auto e = std::make_shared<Expr>();
+        e->type = ExprType::BINARY; e->line = op.line;
+        e->left = expr; e->op = op.type; e->right = right;
+        expr = e;
+    }
+    return expr;
+}
+
+ExprPtr Parser::shift() {
+    ExprPtr expr = term();
+    while (match({TokenType::LESS_LESS, TokenType::GREATER_GREATER})) {
         Token op = previous(); ExprPtr right = term();
         auto e = std::make_shared<Expr>();
         e->type = ExprType::BINARY; e->line = op.line;
@@ -578,7 +611,7 @@ ExprPtr Parser::factor() {
 }
 
 ExprPtr Parser::unary() {
-    if (match({TokenType::BANG, TokenType::MINUS})) {
+    if (match({TokenType::BANG, TokenType::MINUS, TokenType::TILDE})) {
         Token op = previous(); ExprPtr right = unary();
         auto e = std::make_shared<Expr>();
         e->type = ExprType::UNARY; e->line = op.line;
@@ -706,7 +739,17 @@ ExprPtr Parser::primary() {
         Token br = previous();
         std::vector<ExprPtr> elems;
         if (!check(TokenType::RBRACKET)) {
-            do { elems.push_back(expression()); } while (match({TokenType::COMMA}));
+            do {
+                if (match({TokenType::ELLIPSIS})) {
+                    Token dots = previous();
+                    auto spread = std::make_shared<Expr>();
+                    spread->type = ExprType::SPREAD; spread->line = dots.line;
+                    spread->operand = expression();
+                    elems.push_back(spread);
+                } else {
+                    elems.push_back(expression());
+                }
+            } while (match({TokenType::COMMA}));
         }
         consume(TokenType::RBRACKET, "expected ']' after the array elements.");
         auto e = std::make_shared<Expr>(); e->type = ExprType::ARRAY; e->line = br.line;
@@ -720,6 +763,14 @@ ExprPtr Parser::primary() {
         std::vector<std::pair<ExprPtr, ExprPtr>> entries;
         if (!check(TokenType::RBRACE)) {
             do {
+                if (match({TokenType::ELLIPSIS})) {
+                    Token dots = previous();
+                    auto spread = std::make_shared<Expr>();
+                    spread->type = ExprType::SPREAD; spread->line = dots.line;
+                    spread->operand = expression();
+                    entries.push_back({nullptr, spread});
+                    continue;
+                }
                 ExprPtr key;
                 if (check(TokenType::STRING)) {
                     Token k = advance();
