@@ -35,7 +35,13 @@ using StmtPtr = std::shared_ptr<Stmt>;
 
 enum class ExprType {
     LITERAL, VARIABLE, ASSIGN, BINARY, UNARY, LOGICAL, CALL, GROUPING, ARRAY, INDEX,
-    TERNARY, DICT, FUNCTION_EXPR, SPREAD
+    TERNARY, DICT, FUNCTION_EXPR, SPREAD,
+    // beta-2.0.0
+    GET,      // object.name  /  object?.name   (assignment: "value" is set -> obj.name = value)
+    SUPER,    // super.name — a method of the enclosing class's parent, bound to self
+    RANGE,    // a..b / a..=b — "left"/"right" are the bounds, "inclusive" says which
+    SLICE,    // target[start:end] — either bound may be null
+    FSTRING   // f"Hello {name}" — "elements" alternates literal and expression parts
 };
 
 struct Expr {
@@ -52,6 +58,20 @@ struct Expr {
     // (the prefix is just a syntax requirement, not a separate scope)
     std::string name;
     ExprPtr value;
+    int sym = -1; // "name" interned (see Symbols, Environment.hpp) — filled lazily by the interpreter
+
+    // GET — "object.name" (the property name is in "name"). With "value" set,
+    // it's an assignment (obj.name = value). "optional" marks "?." — the
+    // result is nil instead of an error when the object is nil (also used by
+    // INDEX "a?.[i]" and CALL "f?.()").
+    ExprPtr object;
+    bool optional = false;
+
+    // RANGE — inclusive is true for "..=".
+    bool inclusive = false;
+
+    // SLICE — "indexTarget" is the sliced value; either bound may be null.
+    ExprPtr sliceStart, sliceEnd;
 
     // BINARY / LOGICAL
     ExprPtr left, right;
@@ -99,11 +119,14 @@ struct Expr {
     StmtPtr fnBody;
 };
 
-enum class VarKind { NONE, INT, FLOAT, STRING, BOOL, ARRAY, HTML, DICT };
+// CLASS = "ton.Point p = ..." (declared with a class name: Stmt::typeName).
+// ANY   = "ton.let x = ..." / "ton.const X = ..." (no type check).
+enum class VarKind { NONE, INT, FLOAT, STRING, BOOL, ARRAY, HTML, DICT, CLASS, ANY };
 
 enum class StmtType {
     EXPR_STMT, VAR_DECL, BLOCK, IF, WHILE, FOR, FOR_IN, FN_DECL, RETURN, PRINT,
-    BREAK, CONTINUE, IMPORT, TRY_CATCH, THROW, SWITCH
+    BREAK, CONTINUE, IMPORT, TRY_CATCH, THROW, SWITCH,
+    CLASS_DECL // ton.class Name extends Parent { fields and methods } — see below
 };
 
 struct Stmt {
@@ -116,9 +139,30 @@ struct Stmt {
     std::string name;
     ExprPtr initializer;
     VarKind declaredType = VarKind::NONE;
+    bool isConst = false;      // ton.const — reassigning it is an error
+    std::string typeName;      // VarKind::CLASS: the class the value must be an instance of
+    // Destructuring: "ton.let [a, b, ...rest] = arr" (destructKind 1) or
+    // "ton.let {name, age: years} = dict" (destructKind 2). Each entry is
+    // (dict key or "" for arrays, variable name); destructRest is the
+    // "...rest" name ("" if none).
+    int destructKind = 0;
+    std::vector<std::pair<std::string, std::string>> destructNames;
+    std::string destructRest;
 
-    // BLOCK
+    int sym = -1, sym2 = -1;   // interned name / name2, filled lazily by the interpreter
+
+    // BLOCK — needsScope is false when the block declares nothing itself, so
+    // the interpreter can skip allocating a new Environment for it.
+    // CLASS_DECL also stores its body (field VAR_DECLs and method FN_DECLs) here.
     std::vector<StmtPtr> statements;
+    bool needsScope = true;
+
+    // FOR_IN — the optional second loop variable: "for ton.k, ton.v in dict"
+    // (key, value) or "for ton.i, ton.x in array" (index, value).
+    std::string name2;
+
+    // CLASS_DECL — "name" is the class name, superName the parent ("" if none).
+    std::string superName;
 
     // IF
     // Also reused by:

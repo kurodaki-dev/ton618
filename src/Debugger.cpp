@@ -42,7 +42,7 @@ void Debugger::pauseAndPrompt(int currentLine, std::shared_ptr<Environment> curr
             else std::cout << "Variable '" << varName << "' not found.\n";
         } else if (cmd == "vars" || cmd == "locals") {
             std::cout << "Local variables:\n";
-            for (auto& [name, val] : currentEnv->values) std::cout << "  " << name << " = " << val.toString() << "\n";
+            for (auto& slot : currentEnv->slots) std::cout << "  " << Symbols::name(slot.id) << " = " << slot.value.toString() << "\n";
         } else if (cmd == "bt" || cmd == "backtrace" || cmd == "stack") {
             std::cout << "Call stack:\n";
             for (auto it = callStack.rbegin(); it != callStack.rend(); ++it)

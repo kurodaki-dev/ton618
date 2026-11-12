@@ -1,0 +1,12 @@
+Error at line 5: Division by zero.
+Error at line 6: Index 5 out of bounds (length 2).
+Error at line 7: Cannot read property 'name' of nil (use '?.' to get nil instead of an error).
+Error at line 8: Undefined variable or function 'ton.undefinedThing'.
+Error at line 9: Invalid operands for '-': string and int/float.
+Error at line 10: len() of a int/float makes no sense.
+Error at line 11: sum() expects an array of numbers (found a string).
+Error at line 13: 'P' object has no property 'y'.
+Error at line 14: 'ton.P.init' expects 1 argument(s) but got 2.
+Error at line 15: 'P' object has no method 'nothing' (and there is no function 'nothing' to call on it).
+Error at line 17: Cannot reassign 'ton.K': it was declared with ton.const.
+Error at line 18: int(): cannot convert "abc" to an integer.

@@ -1,0 +1,44 @@
+now a string
+const: Error at line 6: Cannot reassign 'ton.PI2': it was declared with ton.const.
+0.30000000000000004 3.14 1000000 255 10 1000 1024 -4
+3.14 2.718 42 1.5
+Hello kuro, next year you'll be 22! {braces}
+nested: [2, 4, 6]
+8 2 3
+[1, 2, 3] HELLO [a, b, c] 6
+4-16-36
+[0:x, 1:y]
+16
+[0, 1, 2, 3, 4] [1, 2, 3] true
+5050
+50 [20, 30] [10, 20] [40, 50] [40, 50]
+TON 618 c
+10 20 [30, 40, 50]
+rusher 30
+a = 1
+b = 2
+0 p
+1 q
+lyon nil nil
+default
+8081 localhost {port: 8081, host: localhost}
+Rex says woof! 2
+<Dog Rex> Dog true true
+Rex says woof!
+typed: Error at line 85: Invalid type for 'ton.bad': expected Dog but got Animal.
+5 Vec{x: 3, y: 4} {"x":3,"y":4}
+3 4
+404 not found
+[0, 1, 2]
+6
+[1, 2, 3] [1, 2, 3, [4]] [[1, a], [2, b]]
+[a, bb, ccc] {odd: [1, 3], even: [2, 4]}
+007 ababab [1, 2, 3] [[a, 1]] {a: 1, b: 2}
+9 2 2 3 [0, 3, 6, 9]
+raw \n string café "q"
+hello_world
+caught: true
+n = 0
+n = 2
+n = 3
+done

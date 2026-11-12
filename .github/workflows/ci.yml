@@ -21,6 +21,9 @@ jobs:
       - name: Build
         run: make
 
+      - name: Run the test suite (tests/*.ton vs tests/*.expected)
+        run: make test
+
       - name: Run example scripts (smoke test)
         run: |
           ./ton618 exemples/test.ton

@@ -1,0 +1,135 @@
+// ---- ton.let / ton.const ----
+ton.let a = 10
+ton.const PI2 = 6.28
+a = "now a string"
+print(a)
+try { PI2 = 1 } catch (e) { print("const:", e) }
+
+// ---- numbers ----
+print(0.1 + 0.2, 3.14, 1_000_000, 0xFF, 0b1010, 1e3, 2 ** 10, -2 ** 2)
+print(fixed(3.14159, 2), round(2.71828, 3), int("42"), float("1.5"))
+
+// ---- f-strings ----
+ton.string name = "kuro"
+ton.int age = 21
+print(f"Hello {name}, next year you'll be {age + 1}! {{braces}}")
+print(f"nested: {[1, 2, 3].map(x => x * 2)}")
+
+// ---- arrow functions & methods (uniform call syntax) ----
+ton.let double = x => x * 2
+ton.let add = (x, y = 1) => x + y
+print(double(4), add(1), add(1, 2))
+print([3, 1, 2].sort(), "hello".upper(), "a,b,c".split(","), [1, 2, 3].sum())
+print([1, 2, 3, 4, 5, 6].filter(n => n % 2 == 0).map(n => n * n).join("-"))
+print(["x", "y"].map((v, i) => f"{i}:{v}"))
+
+// ---- pipe ----
+ton.function inc(x, by = 1) { return x + by }
+print(5 |> inc |> inc(10) |> str)
+
+// ---- ranges ----
+print(0..5, 1..=3, 3 in 0..10)
+ton.int total = 0
+for i in 1..=100 { total += i }
+print(total)
+
+// ---- slicing & negative indices ----
+ton.array arr = [10, 20, 30, 40, 50]
+print(arr[-1], arr[1:3], arr[:2], arr[3:], arr[-2:])
+print("TON618"[0:3], "TON618"[-3:], "abc"[-1])
+
+// ---- destructuring ----
+ton.let [first, second, ...others] = arr
+print(first, second, others)
+ton.let {name: who, age} = {name: "rusher", age: 30, city: "paris"}
+print(who, age)
+
+// ---- for with two variables ----
+for k, v in {a: 1, b: 2} { print(k, "=", v) }
+for i, x in ["p", "q"] { print(i, x) }
+
+// ---- optional chaining & ??= ----
+ton.dict user = {profile: {city: "lyon"}}
+print(user?.profile?.city, user.missing?.city, user["nope"]?.x)
+ton.let maybe = nil
+maybe ??= "default"
+print(maybe)
+
+// ---- dot access on dicts ----
+ton.dict cfg = {port: 8080}
+cfg.host = "localhost"
+cfg.port += 1
+print(cfg.port, cfg.host, cfg)
+
+// ---- classes ----
+ton.class Animal {
+    ton.string sound = "..."
+    ton.function init(name) { self.name = name }
+    ton.function speak() { return f"{self.name} says {self.sound}" }
+    ton.function toString() { return f"<{type(self)} {self.name}>" }
+}
+ton.class Dog extends Animal {
+    ton.int tricks = 0
+    ton.function init(name) {
+        super.init(name)
+        self.sound = "woof"
+    }
+    ton.function speak() { return super.speak() + "!" }
+    ton.function learn() { self.tricks++; return self }
+}
+ton.Dog rex = Dog("Rex")
+print(rex.speak(), rex.learn().learn().tricks)
+print(rex, type(rex), isinstance(rex, Animal), isinstance(rex, Dog))
+ton.let speak = rex.speak
+print(speak())
+try { ton.Dog bad = Animal("cat") } catch (e) { print("typed:", e) }
+
+ton.class Vec {
+    ton.function init(x, y) { self.x = x; self.y = y }
+    ton.function plus(o) { return Vec(self.x + o.x, self.y + o.y) }
+    ton.function len() { return sqrt(self.x ** 2 + self.y ** 2) }
+}
+ton.let v = Vec(3, 4).plus(Vec(0, 0))
+print(v.len(), v, json(v))
+ton.let {x, y} = v
+print(x, y)
+
+// ---- throw any value ----
+try {
+    throw {code: 404, message: "not found"}
+} catch (err) {
+    print(err.code, err.message)
+}
+
+// ---- closures in loops capture each iteration ----
+ton.array fns = []
+for i in 0..3 { push(fns, () => i) }
+print(fns.map(f => f()))
+
+// ---- spread in calls ----
+ton.function sum3(a, b, c) { return a + b + c }
+print(sum3(...[1, 2, 3]))
+
+// ---- stdlib extras ----
+print(unique([1, 2, 2, 3, 1]), flatten([[1, 2], [3, [4]]]), zip([1, 2], ["a", "b"]))
+print(sorted(["ccc", "a", "bb"], w => len(w)), groupBy([1, 2, 3, 4], n => n % 2 == 0 ? "even" : "odd"))
+print("7".padStart(3, "0"), "ab" * 3, [1, 2] + [3], items({a: 1}), merge({a: 1}, {b: 2}))
+print(max([4, 9, 2]), min(4, 9, 2), count([1, 2, 1], 1), "banana".count("a"), range(0, 10, 3))
+print(`raw \n string`, "caf\u{e9}", repr("q"))
+
+// ---- modules as namespaces ----
+IMPORT://ton.strings as strs
+print(strs.snake_case("helloWorld"))
+
+// ---- recursion limit is a catchable error ----
+ton.function forever(n) { return forever(n + 1) }
+try { forever(0) } catch (e) { print("caught:", contains(e, "recursion")) }
+
+// ---- switch inside loop with continue ----
+for n in 0..4 {
+    switch n {
+        case 1: { continue }
+        default: { print("n =", n) }
+    }
+}
+print("done")

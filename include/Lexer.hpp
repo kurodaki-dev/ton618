@@ -41,6 +41,9 @@ private:
     void addToken(TokenType type, double numVal);
 
     void string();
+    void rawString();
+    std::string unicodeEscape();
+    bool fstringMode = false;
     void number();
     void identifierOrTon();
     void skipLineComment();

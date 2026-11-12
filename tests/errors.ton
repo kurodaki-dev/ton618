@@ -1,0 +1,18 @@
+// Error messages a user actually sees, caught so the script keeps going.
+ton.function check(code) {
+    try { code() } catch (e) { print(e) }
+}
+check(() => 1 / 0)
+check(() => [1, 2][5])
+check(() => nil.name)
+check(() => undefinedThing)
+check(() => "abc" - 1)
+check(() => len(5))
+check(() => sum([1, "a"]))
+ton.class P { ton.function init(x) { self.x = x } }
+check(() => P(1).y)
+check(() => P(1, 2))
+check(() => P(1).nothing())
+ton.const K = 1
+check(() => { K = 2 })
+check(() => int("abc"))

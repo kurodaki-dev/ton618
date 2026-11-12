@@ -9,6 +9,8 @@
 #include <cerrno>
 #include <cctype>
 #include <filesystem>
+#include <functional>
+#include <regex>
 #include "Lexer.hpp"
 #include "Parser.hpp"
 #include "Interpreter.hpp"
@@ -22,6 +24,7 @@
   #define pclose _pclose
 #else
   #include <unistd.h>
+  #include <pthread.h>
   #include <climits>
   #include <sys/stat.h>
 #endif
@@ -48,8 +51,171 @@ static std::string dirOf(const std::string& path) {
     return path.substr(0, pos);
 }
 
+// Runs `fn` on a thread with a large stack (512 MB reserved, committed only
+// as it's used), so deep — but legitimate — recursion in a .ton script hits
+// the interpreter's own catchable "Maximum recursion depth" error instead
+// of overflowing the native stack and crashing.
+static int runOnBigStack(std::function<int()> fn) {
+    static std::function<int()>* job;
+    static int result;
+    job = &fn;
+    result = 1;
+    const size_t stackSize = 512u * 1024u * 1024u;
+#ifdef _WIN32
+    HANDLE th = CreateThread(nullptr, stackSize,
+        [](LPVOID) -> DWORD { result = (*job)(); return 0; },
+        nullptr, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    if (!th) return fn();
+    WaitForSingleObject(th, INFINITE);
+    CloseHandle(th);
+    return result;
+#else
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_t th;
+    bool ok = pthread_attr_setstacksize(&attr, stackSize) == 0 &&
+              pthread_create(&th, &attr, [](void*) -> void* { result = (*job)(); return nullptr; }, nullptr) == 0;
+    pthread_attr_destroy(&attr);
+    if (!ok) return fn();
+    pthread_join(th, nullptr);
+    return result;
+#endif
+}
+
+static int lineFromMessage(const std::string& msg) {
+    std::smatch m;
+    static const std::regex re("[Ll]ine (\\d+)");
+    if (std::regex_search(msg, m, re)) return std::stoi(m[1]);
+    return 0;
+}
+
+static bool useColor() {
+#ifdef _WIN32
+    return false;
+#else
+    return isatty(2);
+#endif
+}
+
+// Prints an uncaught error: the message, the offending source line, and —
+// when the error happened inside function calls — a short traceback.
+static void reportError(const std::exception& e, Interpreter& in, const std::vector<std::string>& lines,
+                        const std::string& file) {
+    bool color = useColor();
+    const char* red = color ? "\033[1;31m" : "";
+    const char* dim = color ? "\033[2m" : "";
+    const char* reset = color ? "\033[0m" : "";
+    std::string msg = e.what();
+    int line = 0;
+    if (auto* tv = dynamic_cast<const ThrownValue*>(&e)) {
+        if (!in.errorTrace.empty()) line = in.errorTrace.back().line;
+        msg = "Uncaught error" + (line ? " at line " + std::to_string(line) : std::string()) + ": " + tv->value.toString();
+    } else {
+        line = lineFromMessage(msg);
+    }
+    std::cerr << red << msg << reset << "\n";
+    bool inModule = msg.find("in module '") != std::string::npos;
+    if (line > 0 && line <= (int)lines.size() && !inModule) {
+        std::string src = lines[line - 1];
+        size_t start = src.find_first_not_of(" \t");
+        if (start != std::string::npos) src = src.substr(start);
+        std::cerr << dim << "  --> " << file << ":" << line << reset << "\n";
+        std::cerr << "   " << line << " | " << src << "\n";
+    }
+    if (in.errorTrace.size() > 1) {
+        std::cerr << dim << "Traceback (most recent call last):" << reset << "\n";
+        size_t n = in.errorTrace.size();
+        size_t from = n > 12 ? n - 12 : 0;
+        if (from > 0) std::cerr << "  ... " << from << " earlier call(s) hidden\n";
+        for (size_t i = from; i + 1 < n; i++)
+            std::cerr << "  line " << in.errorTrace[i].line << ": called " << in.errorTrace[i].function << "()\n";
+        std::cerr << "  line " << in.errorTrace.back().line << ": "
+                  << (in.errorTrace.back().function == "throw" ? "thrown here" : "error raised here") << "\n";
+    }
+}
+
+// Rough "is this input finished?" check for the REPL: are all ( [ { closed,
+// ignoring anything inside string literals and comments?
+static int openBrackets(const std::string& src) {
+    int depth = 0;
+    char quote = 0;
+    for (size_t i = 0; i < src.size(); i++) {
+        char c = src[i];
+        if (quote) {
+            if (c == '\\' && quote == '"') i++;
+            else if (c == quote) quote = 0;
+            continue;
+        }
+        if (c == '"' || c == '`') quote = c;
+        else if (c == '/' && i + 1 < src.size() && src[i + 1] == '/') { while (i < src.size() && src[i] != '\n') i++; }
+        else if (c == '(' || c == '[' || c == '{') depth++;
+        else if (c == ')' || c == ']' || c == '}') depth--;
+    }
+    return depth;
+}
+
+// The interactive prompt: "ton618" with no arguments.
+static int runRepl() {
+    Interpreter interpreter;
+    interpreter.scriptDir = ".";
+    bool tty =
+#ifdef _WIN32
+        true;
+#else
+        isatty(0);
+#endif
+    if (tty) {
+        std::cout << "TON618 " << TON618_VERSION << " (" << detectPlatform() << "/" << detectArch() << ")\n"
+                  << "Type an expression or a statement. .help for help, .exit (or Ctrl-D) to quit.\n";
+    }
+    std::string buffer, line;
+    while (true) {
+        if (tty) std::cout << (buffer.empty() ? "ton> " : "...> ") << std::flush;
+        if (!std::getline(std::cin, line)) { if (tty) std::cout << "\n"; break; }
+        if (buffer.empty()) {
+            std::string cmd = line;
+            cmd.erase(0, cmd.find_first_not_of(" \t"));
+            while (!cmd.empty() && std::isspace((unsigned char)cmd.back())) cmd.pop_back();
+            if (cmd == ".exit" || cmd == "exit" || cmd == "quit") break;
+            if (cmd == ".help") {
+                std::cout << "  Any TON618 code works here; the value of an expression is printed.\n"
+                          << "  Unclosed ( [ { continue on the next line.\n"
+                          << "  .vars   list the variables you defined\n"
+                          << "  .exit   quit\n";
+                continue;
+            }
+            if (cmd == ".vars") {
+                for (auto& slot : interpreter.globals->slots) {
+                    if (slot.value.type == ValueType::NATIVE_FUNCTION) continue;
+                    std::cout << "  " << Symbols::name(slot.id) << " = " << slot.value.repr() << "\n";
+                }
+                continue;
+            }
+            if (cmd.empty()) continue;
+        }
+        buffer += line + "\n";
+        if (openBrackets(buffer) > 0) continue;
+        std::vector<std::string> lines = splitLines(buffer);
+        try {
+            Lexer lexer(buffer);
+            Parser parser(lexer.scanTokens());
+            auto stmts = parser.parse();
+            Value v = interpreter.interpretRepl(stmts);
+            if (v.type != ValueType::NIL) std::cout << v.repr() << "\n";
+        } catch (std::exception& e) {
+            std::cout.flush();
+            reportError(e, interpreter, lines, "<repl>");
+        }
+        interpreter.errorTrace.clear();
+        buffer.clear();
+    }
+    return 0;
+}
+
 static void printUsage(const char* prog) {
-    std::cout << "Usage: " << prog << " <file.ton> [options]\n"
+    std::cout << "Usage: " << prog << " <file.ton> [options]   run a script\n"
+              << "       " << prog << "                          start the interactive REPL\n"
+              << "       " << prog << " -e \"code\"                run a one-liner\n"
               << "Options:\n"
               << "  --debug              run in debug mode (pause at start)\n"
               << "  --break=<line>        add a breakpoint at a given line (repeatable)\n"
@@ -501,7 +667,30 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (args.empty()) { printUsage(argv[0]); return 1; }
+    // No arguments at all: the interactive REPL.
+    if (args.empty() || args[0] == "repl") return runOnBigStack([]() { return runRepl(); });
+
+    // ton618 -e "print(1 + 2)" — run a one-liner.
+    if (args[0] == "-e" || args[0] == "--eval") {
+        if (args.size() < 2) { std::cerr << "Usage: " << argv[0] << " -e \"code\"\n"; return 1; }
+        std::string code = args[1];
+        return runOnBigStack([&]() -> int {
+            Interpreter interpreter;
+            interpreter.scriptDir = ".";
+            std::vector<std::string> lines = splitLines(code);
+            try {
+                Lexer lexer(code);
+                Parser parser(lexer.scanTokens());
+                interpreter.interpret(parser.parse());
+            } catch (std::exception& e) {
+                std::cout.flush();
+                reportError(e, interpreter, lines, "<eval>");
+                return 1;
+            }
+            std::cout.flush();
+            return 0;
+        });
+    }
 
     if (args[0] == "install") {
         if (args.size() < 2) {
@@ -542,30 +731,35 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    try {
-        Lexer lexer(source);
-        std::vector<Token> tokens = lexer.scanTokens();
-
-        Parser parser(tokens);
-        std::vector<StmtPtr> statements = parser.parse();
-
+    return runOnBigStack([&]() -> int {
         Interpreter interpreter;
-        interpreter.scriptDir = dirOf(path);
-        interpreter.scriptArgs = scriptArgs;
-        interpreter.debugger.enabled = debugMode;
-        interpreter.debugger.sourceFilename = path;
-        interpreter.debugger.sourceLines = splitLines(source);
-        for (int bp : breakpoints) interpreter.debugger.addBreakpoint(bp);
-        if (debugMode) {
-            interpreter.debugger.mode = DebugMode::STEP;
-            std::cout << "=== TON618 Debugger ===\nType 'h' for help.\n";
+        std::vector<std::string> lines = splitLines(source);
+        try {
+            Lexer lexer(source);
+            std::vector<Token> tokens = lexer.scanTokens();
+
+            Parser parser(tokens);
+            std::vector<StmtPtr> statements = parser.parse();
+
+            interpreter.scriptDir = dirOf(path);
+            interpreter.scriptArgs = scriptArgs;
+            interpreter.debugger.enabled = debugMode;
+            interpreter.debugger.sourceFilename = path;
+            interpreter.debugger.sourceLines = lines;
+            for (int bp : breakpoints) interpreter.debugger.addBreakpoint(bp);
+            if (debugMode) {
+                interpreter.debugger.mode = DebugMode::STEP;
+                std::cout << "=== TON618 Debugger ===\nType 'h' for help.\n";
+            }
+
+            interpreter.interpret(statements);
+        } catch (std::exception& e) {
+            std::cout.flush();
+            reportError(e, interpreter, lines, path);
+            return 1;
         }
+        std::cout.flush();
+        return 0;
+    });
 
-        interpreter.interpret(statements);
-    } catch (std::exception& e) {
-        std::cerr << e.what() << std::endl;
-        return 1;
-    }
-
-    return 0;
 }
