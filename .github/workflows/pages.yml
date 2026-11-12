@@ -1,21 +1,24 @@
 name: Deploy Pages
 
-# Publishes exemples/ (documentation.html, playground.html, ton618-lite.js,
-# and everything else in that folder) as-is to GitHub Pages — not the whole
-# repository. documentation.html is also copied to index.html at the site
-# root, so the docs load at the bare Pages URL; playground.html and
-# ton618-lite.js stay reachable at their own paths right next to it, exactly
-# as documentation.html already links to them.
+# Builds the documentation website with Claide (https://github.com/kurodaki-dev/Claide)
+# from DOCUMENTATION.md — see website/app.py — and publishes it to GitHub
+# Pages, together with the playground (exemples/playground.html +
+# ton618-lite.js), the AI skills page, the logo and exemples/CNAME (the
+# custom domain).
 #
 # One-time setup: repo Settings → Pages → Source → "GitHub Actions" (instead
 # of "Deploy from a branch"). After that this workflow runs on every push to
-# main that touches exemples/, or manually via workflow_dispatch.
+# main that touches the docs, the site or the playground, or manually via
+# workflow_dispatch.
 
 on:
   push:
     branches: [main]
     paths:
+      - "DOCUMENTATION.md"
+      - "website/**"
       - "exemples/**"
+      - "include/Version.hpp"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -34,11 +37,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Stage the site
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Claide
+        run: pip install "claide-web==0.5.0"
+
+      - name: Build the website with Claide
+        # With a custom domain (exemples/CNAME) the site lives at the domain's
+        # root; without one, at https://<user>.github.io/<repo>/.
         run: |
-          mkdir -p _site
-          cp -r exemples/. _site/
-          cp exemples/documentation.html _site/index.html
+          if [ -s exemples/CNAME ]; then export BASE_PATH=""; else export BASE_PATH="/${{ github.event.repository.name }}"; fi
+          python website/app.py build _site
 
       - uses: actions/configure-pages@v5
 

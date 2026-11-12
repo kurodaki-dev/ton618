@@ -285,20 +285,22 @@
 10. [Functions](#functions)
 11. [Arrays](#arrays)
 12. [Dictionaries](#dictionaries)
-13. [Error handling: try / catch / throw / finally](#error-handling-try--catch--throw--finally)
-14. [Built-in native functions](#built-in-native-functions)
-15. [HTML type](#html-type)
-16. [Modules (IMPORT://)](#modules-import)
-17. [Creating a TON618 module — full guide](#creating-a-ton618-module--full-guide)
-18. [Installing modules: `ton618 install`](#installing-modules-ton618-install)
-19. [Built-in system modules](#built-in-system-modules)
-20. [Local server & routes (API)](#local-server--routes-api)
-21. [The debugger](#the-debugger)
-22. [Architecture — how the interpreter works](#architecture--how-the-interpreter-works)
-23. [Extending the interpreter itself](#extending-the-interpreter-itself)
-24. [Publishing the docs to GitHub Pages](#publishing-the-docs-to-github-pages)
-25. [Known limitations](#known-limitations)
-26. [Changelog](#changelog)
+13. [Classes & objects](#classes--objects)
+14. [Method syntax & the dot operator](#method-syntax--the-dot-operator)
+15. [Error handling: try / catch / throw / finally](#error-handling-try--catch--throw--finally)
+16. [Built-in native functions](#built-in-native-functions)
+17. [HTML type](#html-type)
+18. [Modules (IMPORT://)](#modules-import)
+19. [Creating a TON618 module — full guide](#creating-a-ton618-module--full-guide)
+20. [Installing modules: `ton618 install`](#installing-modules-ton618-install)
+21. [Built-in system modules](#built-in-system-modules)
+22. [Local server & routes (API)](#local-server--routes-api)
+23. [The debugger](#the-debugger)
+24. [Architecture — how the interpreter works](#architecture--how-the-interpreter-works)
+25. [Extending the interpreter itself](#extending-the-interpreter-itself)
+26. [Publishing the docs to GitHub Pages](#publishing-the-docs-to-github-pages)
+27. [Known limitations](#known-limitations)
+28. [Changelog](#changelog)
 
 ---
 
@@ -309,6 +311,8 @@ TON618 is a small interpreted language, similar in spirit to how Python or HolyC
 The interpreter itself (`ton618`) is written in C++17 and ships as a single, dependency-free binary. It's cross-compiled for Linux, Termux (Android), and Windows (see [Installing & building](#installing--building-the-interpreter)), and auto-detects which of those it's running on at startup.
 
 The language's defining feature is the **`ton.` prefix**: declaring a variable or a function always uses it (`ton.int x = 5`, `ton.function f() { ... }`). Once something is declared, though, referring to it again — reading it, reassigning it, or naming a function parameter — can use either `ton.name` or the bare `name`; both resolve to the same thing. This documentation uses `ton.` everywhere for clarity, except for short-lived names like loop counters and function parameters, matching the style already used throughout `exemples/`. See [Language basics](#language-basics) for exactly where the prefix is required versus optional.
+
+Since **beta-2.0.0** it is also an object-oriented, expression-friendly language: **classes** with inheritance, **method syntax on every value** (`"hi".upper()`, `nums.filter(...).map(...)`), **arrow functions**, **f-strings**, **ranges** and **slices**, **destructuring**, the **pipe operator** `|>`, an **interactive REPL**, helpful error messages with tracebacks — and an interpreter about 6x faster than 1.x. See [Classes & objects](#classes--objects) and the [Changelog](#changelog).
 
 TON618 supports **error handling** (`try`/`catch`/`throw`), a **dictionary type** (`ton.dict`), **`for ... in`** and C-style `for` loops, a **`switch`/`case`** statement, a **`format()`** helper for building strings without a chain of `+`, **compound assignment** (`+=`, `-=`, ...), **increment/decrement** (`++`, `--`), a **ternary operator** (`cond ? a : b`), **function expressions** (anonymous callbacks), and a fairly large standard library covering math, strings, arrays, dicts, files, JSON, regular expressions, and base64/hex/URL encoding — see the [Changelog](#changelog) for the full history.
 
@@ -368,6 +372,32 @@ ton618 install stringutils   # fetch a module from the registry
 ton618 uninstall stringutils # remove it again
 ```
 
+**The interactive REPL** — run `ton618` with no arguments (or `ton618 repl`) to get a prompt where every line runs immediately and the value of an expression is printed back. Unclosed `(`, `[` or `{` continue on the next line, so you can type a whole function. `.vars` lists what you defined, `.exit` (or Ctrl-D) quits.
+
+```
+$ ton618
+TON618 beta-2.0.0 (linux/x86_64)
+ton> ton.let nums = [3, 1, 2]
+ton> nums.sorted().map(n => n * 10)
+[10, 20, 30]
+ton> f"{len(nums)} items"
+"3 items"
+```
+
+**One-liners** — `ton618 -e 'print(2 ** 10)'` runs a snippet without creating a file.
+
+**Error reports** — an uncaught error prints the message, the offending source line, a "did you mean" suggestion for a misspelled name, and — when it happened inside function calls — a short traceback:
+
+```
+Error at line 2: Division by zero.
+  --> calc.ton:2
+   2 | return a / b
+Traceback (most recent call last):
+  line 9: called compute()
+  line 5: called divide()
+  line 2: error raised here
+```
+
 ---
 
 ### The browser playground
@@ -375,6 +405,8 @@ ton618 uninstall stringutils # remove it again
 Don't want to install anything just to try a snippet? Open `exemples/playground.html` in any browser (no server needed) for a live code editor with a "Run" button and example snippets to load.
 
 The playground runs **`ton618-lite.js`**, a JavaScript re-implementation of the language, entirely client-side — nothing is sent anywhere, and no installation is required. It mirrors the real interpreter closely: the full grammar (including `switch`/`case`), and the `ton.random`, `ton.time`, `ton.json`, `ton.mathutils`, and `ton.strings` built-in modules, since none of those need anything a browser can't already do.
+
+Since beta-2.0.0 it supports the whole 2.0 language (classes, method syntax, arrow functions, f-strings, ranges, slices, destructuring, `|>`, `?.`...) and the new standard functions — CI runs the `tests/` suite through both the real interpreter and `ton618-lite.js` and checks they print exactly the same thing. On the documentation website, the **Run** button on a code example opens it in the playground.
 
 What it can't do, because a browser sandbox has no filesystem, sockets, or CLI arguments to back them with:
 - `ton.sys`, `ton.os`, `ton.requests` — real process/filesystem/network access; importing any of these gives a clear error explaining why, instead of silently behaving differently from the real interpreter
@@ -421,6 +453,19 @@ Function parameters are conventionally written without the prefix (`ton.function
 
 A bare assignment can only *reassign* an existing variable — `age = 5` fails with "was never declared" unless something already declared `age` earlier. To introduce a brand-new variable you always need the full `ton.<type> name = value` form.
 
+**`ton.let`, `ton.var` and `ton.const`** — declare a variable without a fixed type with `ton.let` (`ton.var` is a synonym). `ton.const` does the same but forbids reassigning it later: `PI = 3` after `ton.const PI = 3.14` is a runtime error. Typed declarations (`ton.int`, `ton.string`, ...) still check the type of the initial value.
+
+```
+ton.let anything = 42
+anything = "now a string"     // fine: ton.let has no fixed type
+ton.const MAX_USERS = 100
+MAX_USERS = 5                 // Error: Cannot reassign 'ton.MAX_USERS': it was declared with ton.const.
+```
+
+**Number literals** — besides `42` and `3.14`: `1_000_000` (underscores are ignored), `1e9` / `2.5e-3` (exponent), `0xFF` (hexadecimal), `0b1010` (binary), `0o755` (octal).
+
+**Semicolons** are optional; use them to put several statements on one line: `self.x = x; self.y = y`.
+
 ---
 
 ### Types
@@ -439,6 +484,16 @@ A bare assignment can only *reassign* an existing variable — `age = 5` fails w
 
 `type(x)` returns a value's type name as a string: `"int/float"`, `"string"`, `"html"`, `"bool"`, `"array"`, `"dict"`, `"nil"`, or `"function"`.
 
+Since beta-2.0.0:
+
+| Declaration | Meaning | Example |
+|---|---|---|
+| `ton.let` / `ton.var` | Any type, can change later | `ton.let x = 5` |
+| `ton.const` | Any type, can't be reassigned | `ton.const PI = 3.14` |
+| `ton.<ClassName>` | An instance of that class (or of a subclass), or `nil` | `ton.Point p = Point(1, 2)` |
+
+`type(obj)` returns the class name for an object (`"Point"`), and `"class"` for a class itself. Numbers print in their shortest exact form: `0.1 + 0.2` prints `0.30000000000000004`, `3.14` prints `3.14` (versions before 2.0 printed `3.140000`). Use `fixed(x, 2)` for a fixed number of decimals.
+
 ---
 
 ### String formatting
@@ -453,6 +508,28 @@ print(format("Hello {}, you'll be {} next year!", name, age + 1))
 ```
 
 An argument can be any value — a number, a string, the result of a function call, anything `str()` can convert. Extra `{}` placeholders with no matching argument are left as-is (`{}`); extra arguments beyond the number of placeholders are simply unused.
+
+**f-strings** (since beta-2.0.0) — prefix a string with `f` to embed any expression between braces. It's the shortest way to build text out of values; `format()` keeps working.
+
+```
+ton.string name = "kuro"
+ton.int age = 21
+print(f"Hello {name}, next year you'll be {age + 1}!")
+print(f"{len(name)} letters, upper: {name.upper()}")
+print(f"Braces: {{like this}}")     // {{ and }} are literal braces
+```
+
+**Raw strings** — backticks delimit a string with no escape sequences, which can span several lines. Handy for HTML, regular expressions and Windows paths:
+
+```
+ton.html page = `<div class="card">
+  <p>C:\temp\new is not a newline here</p>
+</div>`
+```
+
+**Escapes** in double-quoted strings: `\n` `\t` `\r` `\"` `\\` `\0`, and `\u{1F680}` / `\u00e9` for any Unicode character (written as UTF-8).
+
+**Formatting numbers**: `fixed(3.14159, 2)` gives `"3.14"`, `"7".padStart(3, "0")` gives `"007"`.
 
 ---
 
@@ -479,6 +556,23 @@ Notes:
 - `??` ("nil-coalescing") evaluates its left side and returns it as-is unless it's `nil`, in which case it evaluates and returns the right side instead — the right side is never evaluated otherwise, so it's safe to put a fallback that has side effects. Handy with dict lookups: `dict["missing"] ?? "default"`.
 - `in` tests membership: `value in array` checks the array's elements (using the same equality rules as `==`), `value in dict` checks the dict's **keys**, and `value in string` checks for a substring. The right-hand side must be an array, dict, or string/`ton.html` — anything else is a runtime error.
 - `&`, `|`, `^`, `~`, `<<`, `>>` treat both sides as integers (truncating any fractional part), operate on a 64-bit two's-complement representation, then convert the result back to TON618's usual number type — there's no separate integer type, so `6 & 3` is just a number like any other (`2`). Both operands must be numbers; anything else is a runtime error. `&`/`|`/`^` all share one precedence level (looser than `==`, tighter than `&&`) — use parentheses when mixing them for clarity.
+
+Added in beta-2.0.0:
+
+| Operator | Meaning | Example |
+|---|---|---|
+| `**` / `**=` | Power (right-associative) | `2 ** 10` is `1024` |
+| `..` / `..=` | Range, end excluded / included | `0..5`, `1..=10` |
+| `\|>` | Pipe: the left value becomes the first argument | `x \|> f(y)` is `f(x, y)` |
+| `?.` | Optional chaining: `nil` instead of an error | `user?.address?.city` |
+| `??=` | Assign only if currently `nil` | `config.port ??= 8080` |
+| `.` | Property / method access | `point.x`, `"hi".upper()` |
+| `=>` | Arrow function | `n => n * 2` |
+
+- `-2 ** 2` is `-4`: `**` binds tighter than the unary minus, as in maths and Python.
+- `+` also concatenates two arrays (`[1, 2] + [3]` is `[1, 2, 3]`, a new array); `*` repeats a string (`"ab" * 3` is `"ababab"`).
+- `a..b` evaluates to an array of the integers from `a` up to `b - 1` (`a..=b` includes `b`); in a `for` loop it counts lazily, so `for i in 0..1000000` never builds an array.
+- `?.` works on property access, indexing and calls: `obj?.name`, `list?.[0]`, `callback?.()`. Use it at each step that may be `nil`.
 
 ---
 
@@ -544,6 +638,26 @@ A case can list several comma-separated values. Matching uses the same equality 
 
 `break` and `continue` are supported inside `while`, `for`, and `for ... in`.
 
+**More `for ... in` forms** (since beta-2.0.0) — the `ton.` prefix on loop variables is optional, a second variable gives the index (arrays, strings) or the value (dicts), and ranges and strings can be iterated directly:
+
+```
+for i in 0..3 { print(i) }                    // 0 1 2
+for i in 1..=3 { print(i) }                   // 1 2 3
+for i, name in ["kuro", "rusher"] { print(i, name) }
+for key, value in {a: 1, b: 2} { print(key, "=", value) }
+for c in "abc" { print(c) }
+```
+
+Each iteration has its own scope, so a function created inside the loop remembers that iteration's value:
+
+```
+ton.array fns = []
+for i in 0..3 { push(fns, () => i) }
+print(fns.map(f => f()))    // [0, 1, 2]
+```
+
+`continue` inside a `switch` that is inside a loop now continues the loop. `catch` also accepts the error name without parentheses: `catch err { ... }`.
+
 ---
 
 ### Functions
@@ -596,6 +710,34 @@ Calling a function with too few required arguments (or too many, when there's no
 
 Closures work as expected: a function remembers the variables in scope where it was declared, even after that scope has otherwise finished.
 
+**Arrow functions** (since beta-2.0.0) — a short way to write a function expression, ideal for callbacks. A single parameter needs no parentheses; an expression body is returned automatically; a `{ block }` body works like a normal function.
+
+```
+ton.let double = n => n * 2
+ton.let add = (a, b = 1) => a + b
+ton.let greet = (name) => {
+    ton.string msg = "Hello " + name
+    return msg
+}
+print(double(21), add(1), greet("kuro"))   // 42 2 Hello kuro
+```
+
+**Spread in calls** — `f(...args)` passes the elements of an array as separate arguments: `max(...[4, 9, 2])`.
+
+**The pipe operator `|>`** — `x |> f` calls `f(x)`, and `x |> f(a, b)` calls `f(x, a, b)`. It turns nested calls into a left-to-right pipeline:
+
+```
+ton.function inc(x, by = 1) { return x + by }
+print(5 |> inc |> inc(10) |> str)              // 16
+[1, 2, 3, 4] |> filter(n => n % 2 == 0) |> sum |> print   // 6
+```
+
+**`print` is also a function value**: `["a", "b"].forEach(print)`. `print(a, b, c)` prints its arguments separated by spaces.
+
+Callbacks given to `map`, `filter`, `find`, `findIndex`, `forEach`, `any`, `all`, `count` and `flatMap` receive the index as a second argument when they declare two parameters: `names.map((name, i) => f"{i}. {name}")`.
+
+Deep recursion is fine (the interpreter runs on a large stack), and runaway recursion stops with a catchable `Maximum recursion depth (10000) exceeded` error instead of crashing.
+
 ---
 
 ### Arrays
@@ -620,6 +762,29 @@ ton.array both = [...a, ...a] // [1, 2, 3, 1, 2, 3]
 ```
 The spread expression must itself be an array — spreading anything else is a runtime error.
 
+**Negative indices and slices** (since beta-2.0.0) — `a[-1]` is the last element. `a[start:end]` returns a new array from `start` up to (not including) `end`; either bound can be left out, and both can be negative. Slices work on strings too.
+
+```
+ton.array a = [10, 20, 30, 40, 50]
+print(a[-1], a[1:3], a[:2], a[3:], a[-2:])    // 50 [20, 30] [10, 20] [40, 50] [40, 50]
+print("TON618"[0:3], "TON618"[-3:])          // TON 618
+```
+
+**Destructuring** — unpack an array into variables, with `...rest` collecting what's left:
+
+```
+ton.let [first, second, ...others] = a
+print(first, second, others)                  // 10 20 [30, 40, 50]
+```
+
+**Method syntax** — every array function can be called on the array itself (see [Method syntax](#method-syntax--the-dot-operator)):
+
+```
+ton.array scores = [12, 7, 30, 18]
+print(scores.filter(s => s > 10).map(s => s * 2).sorted())   // [24, 36, 60]
+print(scores.sum(), scores.max(), scores.len(), scores.length)
+```
+
 ---
 
 ### Dictionaries
@@ -641,6 +806,119 @@ ton.dict base = {a: 1, b: 2}
 ton.dict merged = {...base, b: 99, c: 3}   // {a: 1, b: 99, c: 3}
 ```
 The spread expression must itself be a dict — spreading anything else is a runtime error.
+
+**Dot access** (since beta-2.0.0) — `d.key` reads a key (or `nil`) and `d.key = value` sets it, exactly like `d["key"]`. Use brackets for keys that aren't valid names or are computed.
+
+```
+ton.dict cfg = {port: 8080}
+cfg.host = "localhost"
+cfg.port += 1
+print(cfg.port, cfg.host)            // 8081 localhost
+print(cfg.missing?.value)            // nil (optional chaining)
+```
+
+**Destructuring** — pick keys into variables, optionally renaming them with `key: name`, and collect the rest with `...rest`:
+
+```
+ton.let {name, age: years, ...rest} = {name: "rusher", age: 30, city: "paris"}
+print(name, years, rest)             // rusher 30 {city: paris}
+```
+
+`for key, value in d { ... }` walks the pairs; `items(d)`, `dict(pairs)`, `merge(a, b)` and `remove(d, key)` complete the toolbox (see [Built-in native functions](#built-in-native-functions)).
+
+---
+
+### Classes & objects
+
+Since beta-2.0.0 you can define your own types. A class groups **fields** (data) and **methods** (functions that work on that data). Inside a method, `self` is the object the method was called on.
+
+```
+ton.class Point {
+    ton.function init(x, y) {
+        self.x = x
+        self.y = y
+    }
+    ton.function distanceTo(other) {
+        return sqrt((self.x - other.x) ** 2 + (self.y - other.y) ** 2)
+    }
+    ton.function toString() {
+        return f"({self.x}, {self.y})"
+    }
+}
+
+ton.Point a = Point(0, 0)
+ton.let b = Point(3, 4)
+print(a.distanceTo(b))     // 5
+print(b)                   // (3, 4) — print/str/f-strings use toString()
+b.x = 10                   // fields can be read and written with the dot
+```
+
+- **Creating an object**: call the class like a function. Its `init` method (the constructor) receives the arguments; without `init`, the class takes no arguments.
+- **Field declarations** in the class body (`ton.int count = 0`, `ton.let items = []`) give every new object its own initial value, before `init` runs. Fields can also be created at any time by assigning `self.name = ...`.
+- **Typed variables**: `ton.Point p = ...` checks that the value is a `Point` (or a subclass of it), or `nil`.
+- **`toString()`**, if defined, is used whenever the object is turned into text. Without it, an object prints as `Point{x: 3, y: 4}`; `json(obj)` gives `{"x":3,"y":4}`.
+- **Methods are values**: `ton.let f = point.toString` keeps `self` bound, so `f()` works later.
+- Objects are passed **by reference** (like arrays and dicts): `==` is true only for the very same object. `copy(obj)` / `deepcopy(obj)` duplicate one.
+
+**Inheritance** — `extends` makes a class reuse (and override) everything from a parent class; `super.method(...)` calls the parent's version:
+
+```
+ton.class Animal {
+    ton.string sound = "..."
+    ton.function init(name) { self.name = name }
+    ton.function speak() { return f"{self.name} says {self.sound}" }
+}
+
+ton.class Dog extends Animal {
+    ton.int tricks = 0
+    ton.function init(name) {
+        super.init(name)
+        self.sound = "woof"
+    }
+    ton.function learn() {
+        self.tricks++
+        return self              // returning self allows chaining
+    }
+}
+
+ton.Dog rex = Dog("Rex")
+print(rex.speak())                     // Rex says woof
+print(rex.learn().learn().tricks)      // 2
+print(isinstance(rex, Animal))         // true
+print(type(rex))                       // Dog
+```
+
+Objects work with the rest of the language: `"x" in point` tests a field, `keys(obj)`/`values(obj)`/`items(obj)` list fields, `ton.let {x, y} = point` destructures one, `{...point}` copies its fields into a dict, and `throw MyError("...")` throws one (the `catch` receives the object itself).
+
+---
+
+### Method syntax & the dot operator
+
+The dot works on every value, and does the obvious thing:
+
+| Expression | What it does |
+|---|---|
+| `obj.method(args)` | Calls the method of an object, with `self = obj` |
+| `obj.field` | Reads a field of an object |
+| `dict.key` | Reads a key of a dict (`nil` if missing) |
+| `module.fn(args)` | Calls a function of a module imported with `IMPORT://x as module` |
+| `value.fn(args)` | Anything else: calls the function `fn(value, args)` |
+
+The last line is called **uniform call syntax**: `x.f(a, b)` is the same as `f(x, a, b)` whenever `x` has no method or key called `f`. It means every function — built-in or your own — can be used as a method, and calls can be chained from left to right instead of being nested:
+
+```
+// The same computation, twice:
+print(join(map(filter(split("5,12,8,30", ","), s => num(s) > 6), s => "#" + s), " "))
+print("5,12,8,30".split(",").filter(s => num(s) > 6).map(s => "#" + s).join(" "))
+// #12 #8 #30
+
+ton.function shout(s) { return s.upper() + "!" }
+print("hello".shout())                  // HELLO!
+print([3, 1, 2].sort().reverse())       // [3, 2, 1]
+print("  padded ".trim().padStart(10, "."))
+```
+
+`.length` is also available as a property on strings and arrays (`"abc".length` is `3`).
 
 ---
 
@@ -669,6 +947,24 @@ ton.function readSafely() {
 ```
 
 `try` needs at least one of `catch`/`finally`; `catch` alone (as above), `finally` alone (`try { ... } finally { ... }`, useful for cleanup when you want the error to keep propagating), or both together are all valid.
+
+**Throwing any value** (since beta-2.0.0) — `throw` accepts any value, and `catch` receives exactly that value, so errors can carry structured data. Errors raised by the interpreter itself are still caught as a string (`"Error at line 3: Division by zero."`).
+
+```
+try {
+    throw {code: 404, message: "not found"}
+} catch (err) {
+    print(err.code, err.message)      // 404 not found
+}
+
+ton.class ValidationError {
+    ton.function init(field) { self.field = field }
+    ton.function toString() { return "invalid field: " + self.field }
+}
+try { throw ValidationError("email") } catch e { print(e) }   // invalid field: email
+```
+
+Errors from native functions now include the line of the call (`Error at line 7: sum() expects an array of numbers (found a string).`). A `return`, `break` or `continue` inside `finally` takes precedence over the pending one.
 
 ---
 
@@ -751,6 +1047,72 @@ All of these work with or without the `ton.` prefix (see [Language basics](#lang
 | `post(path, fn)` | Registers a POST route |
 | `serve(port)` / `serve(port, content)` | Starts the local HTTP server |
 
+**Added in beta-2.0.0** — every one of them can also be called with [method syntax](#method-syntax--the-dot-operator) (`arr.sum()`, `s.padStart(3, "0")`).
+
+*Conversions & misc*
+
+| Function | Description |
+|---|---|
+| `int(x, [base])` | Integer part of a number, or parse a string (`int("ff", 16)` is `255`) |
+| `float(x)` | Parse a string as a number (errors on garbage, unlike `num`) |
+| `bool(x)` | `true`/`false` according to truthiness |
+| `fixed(x, [digits=2])` | Number to string with a fixed number of decimals |
+| `round(x, [digits])` | Rounds, optionally to some decimals |
+| `repr(x)` | Like `str`, but strings come back quoted |
+| `isinstance(obj, Class)` | Whether `obj` is an instance of `Class` or of a subclass |
+| `copy(x)` / `deepcopy(x)` | Shallow / recursive copy of an array, dict or object |
+| `clamp(x, lo, hi)`, `sign(x)` | Number helpers |
+| `exit([code])` | Stops the script immediately |
+| `print(a, b, ...)` | `print` is also a function value, printing its arguments separated by spaces |
+
+*Arrays*
+
+| Function | Description |
+|---|---|
+| `range(end)`, `range(start, end, [step])` | Array of numbers, `end` excluded |
+| `sum(arr)`, `avg(arr)` | Sum / mean of numbers |
+| `min(arr)`, `max(arr)` | `min`/`max` also accept a single array |
+| `sorted(arr, [key])` | Sorted copy; `key(x)` gives what to sort by: `sorted(words, w => len(w))` |
+| `sort(arr, [compare])` | In place; `compare(a, b)` returns a negative number (or `true`) when `a` comes first |
+| `forEach(arr, fn)` | Calls `fn(item)` (or `fn(item, index)`) for each element |
+| `findIndex(arr, fn)` | Index of the first match, or `-1` |
+| `count(arr, valueOrFn)` | How many elements equal a value / match a predicate (also counts substrings) |
+| `flatMap(arr, fn)` | `map` then flatten one level |
+| `unique(arr)` | Copy without duplicates (first occurrence kept) |
+| `flatten(arr, [depth=1])` | Flattens nested arrays |
+| `zip(a, b, ...)` | `[[a0, b0], [a1, b1], ...]` |
+| `enumerate(arr)` | `[[0, a0], [1, a1], ...]` |
+| `chunk(arr, size)` | Splits into arrays of `size` elements |
+| `groupBy(arr, fn)` | Dict of arrays, grouped by `fn(item)` |
+| `first(arr)`, `last(arr)` | First / last element, or `nil` |
+| `insert(arr, index, value)`, `removeAt(arr, index)` | Insert / remove at a position |
+| `remove(arr, value)` | Removes the first equal element; `remove(dict, key)` removes a key |
+| `clear(x)`, `isEmpty(x)` | Empty an array/dict; test emptiness |
+| `lastIndexOf(x, item)` | Last position in an array or string, or `-1` |
+| `reduce(arr, fn)` | Without an initial value, starts from the first element |
+
+*Dicts*
+
+| Function | Description |
+|---|---|
+| `items(d)` | `[[key, value], ...]` |
+| `dict(pairs)` | Builds a dict from `[[key, value], ...]` |
+| `merge(a, b, ...)` | New dict, later keys win |
+
+`keys`, `values`, `items`, `has` and `len` also work on objects (their fields).
+
+*Strings*
+
+| Function | Description |
+|---|---|
+| `startsWith(s, p)`, `endsWith(s, p)` | Prefix / suffix test |
+| `padStart(s, width, [fill])`, `padEnd(...)` | Pad to a width |
+| `repeat(s, n)` | Repeat a string (or an array) |
+| `chars(s)`, `lines(s)` | Split into characters / lines |
+| `capitalize(s)` | First letter in upper case |
+| `reverse(s)` | `reverse` now also reverses a string |
+| `ord(c)`, `chr(n)` | Character code and back |
+
 ---
 
 ### HTML type
@@ -775,6 +1137,18 @@ IMPORT://ton.mathutils  // loads the *built-in* ton.mathutils module — note th
 ```
 
 The leading `ton.` is how the parser tells a **built-in** module apart from a **user** module — it's never a filesystem lookup. See [Built-in system modules](#built-in-system-modules) for the full list of built-ins, and the guide below for writing your own.
+
+**Namespaces** (since beta-2.0.0) — `IMPORT://name as alias` loads a module without adding its names to the global scope: they're reached through the alias instead. For a built-in module the `module_` prefix is dropped.
+
+```
+IMPORT://mathutils as m
+print(m.add(2, 3))
+
+IMPORT://ton.strings as s
+print(s.snake_case("helloWorld"))     // strings_snake_case -> s.snake_case
+```
+
+**Subfolders** — `IMPORT://utils/text` loads `utils/text.ton` (next to the script, or in `modules/`).
 
 ---
 
@@ -1265,6 +1639,17 @@ Two design choices worth calling out because they shape almost every other file:
 
 A third thing worth knowing if you're touching the standard library: `valuesEqual()` (a free function near the top of `src/Interpreter.cpp`) is the single source of truth for what "equal" means — the `==`/`!=` operators, `switch`/`case` matching, and the `contains()`/`indexOf()` natives all call it, so a fix or a new value kind only needs handling in one place.
 
+**Internals since beta-2.0.0**, for contributors:
+
+- `break`/`continue`/`return` are no longer C++ exceptions: `Interpreter::execute()` returns a `Signal` (`NONE`, `BREAK`, `CONTINUE`, `RETURN`) that loops and calls check. Only real errors use exceptions (`LineError` for interpreter errors, `ThrownValue` for `throw`).
+- Names are interned into integers (`Symbols` in `Environment.hpp`) and scopes are small flat vectors, with a hash index only for big scopes such as the globals. A block that declares nothing doesn't get its own scope at all.
+- Classes are `ClassObj` and objects `InstanceObj` (`Value.hpp`); method calls go through `Interpreter::callMethod`, which also implements uniform call syntax.
+- The standard library added in 2.0 lives in `src/Stdlib.cpp` (`defineNativesV2()`).
+- `main.cpp` runs scripts on a thread with a 512 MB stack, so deep recursion reaches the interpreter's own depth limit (10,000 calls) instead of crashing.
+- `tests/*.ton` with `tests/*.expected` is the regression suite: `make test` (also run by CI).
+
+Together these make typical scripts about 6x faster than beta-1.x (a `fib(25)` plus a 1,000,000-iteration loop: 2.0 s → 0.3 s).
+
 ---
 
 ### Extending the interpreter itself
@@ -1287,26 +1672,27 @@ After any change, run `make` and sanity-check with the scripts in `exemples/` (i
 
 ### Publishing the docs to GitHub Pages
 
-`exemples/` is fully static and self-contained — `documentation.html` embeds this very file (see `make docs` above), and `playground.html` runs entirely client-side via `ton618-lite.js`. `.github/workflows/pages.yml` publishes that whole folder to GitHub Pages as-is (not the rest of the repository): it copies `exemples/` verbatim, plus `documentation.html` as `index.html` at the site root so the docs load at the bare Pages URL, with `playground.html` and `ton618-lite.js` reachable right next to it exactly as `documentation.html` already links to them.
+The documentation website (https://c-ton618.duckdns.org/) is built with **[Claide](https://github.com/kurodaki-dev/Claide)**, a Python module for building websites, straight from this file: `website/app.py` reads `DOCUMENTATION.md`, turns every `###` section of the English and the French half into its own page (with a sidebar, a search box, "on this page" links, a language switch and "Run" buttons that open a snippet in the playground), and exports the whole site as static HTML. The playground (`exemples/playground.html` + `ton618-lite.js`), the AI skills page, the logo and `exemples/CNAME` are published next to it.
+
+Preview it locally:
+```bash
+pip install claide-web
+python website/app.py          # http://127.0.0.1:8000, reloads on save
+python website/app.py build    # static export into website/_site/ (or: make site)
+```
+
+`.github/workflows/pages.yml` installs Claide, builds the site and deploys it on every push to `main` that touches `DOCUMENTATION.md`, `website/`, `exemples/` or the version number — editing this file is all it takes to update the website. With a custom domain (`exemples/CNAME`) the site is served from the domain's root; without one, from `https://<user>.github.io/ton618/`.
 
 One-time setup:
 1. **GitHub → this repository → Settings → Pages.**
 2. Under **Build and deployment**, set **Source** to **GitHub Actions** (not "Deploy from a branch").
 
-That's it — `.github/workflows/pages.yml` runs on every push to `main` that touches `exemples/` (or manually from the **Actions** tab), and publishes to:
-```
-https://<user>.github.io/ton618/                       — documentation.html (as index.html)
-https://<user>.github.io/ton618/playground.html         — the playground
-https://<user>.github.io/ton618/ton618-lite.js          — the playground's engine
-```
-(adjust the org/user in those URLs to whichever account owns this repo.)
-
-Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `exemples/documentation.html`, and push — the workflow re-publishes automatically.
+`exemples/documentation.html` is the older single-page version of this document, still published at `/documentation.html` and regenerated with `make docs`.
 
 **Using a custom domain** (e.g. a free [DuckDNS](https://www.duckdns.org) subdomain instead of `github.io`): this needs no server of your own — GitHub hosts the site, not you.
 
 1. On DuckDNS, point your subdomain's IP at one of GitHub Pages' fixed addresses instead of any server you run: `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, or `185.199.111.153` (DuckDNS only accepts one IP per subdomain, so pick just one). If that subdomain is also kept updated by a dynamic-DNS script running somewhere (cron on a VPS, a router, etc.), that script will overwrite this the next time it runs — use a subdomain that nothing else auto-updates.
-2. `exemples/CNAME` in this repo already holds the domain the docs are pinned to; `.github/workflows/pages.yml` publishes it as-is, which is what tells GitHub Pages to serve that domain.
+2. `exemples/CNAME` in this repo already holds the domain the docs are pinned to; the workflow publishes it as-is, which is what tells GitHub Pages to serve that domain.
 3. **GitHub → this repository → Settings → Pages** should then show the custom domain under **Custom domain** (DNS propagation can take a few minutes) — once it verifies, tick **Enforce HTTPS**.
 
 ---
@@ -1314,16 +1700,49 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 ### Known limitations
 
 - `serve()` is single-threaded and blocking — one request at a time, no concurrency
-- `ton.int` and `ton.float` are currently the same internal number type (no integer-only enforcement)
+- `ton.int` and `ton.float` are the same internal number type (no integer-only enforcement)
 - Dict keys are always strings (no numeric or nested-structural keys)
-- `IMPORT://` only resolves a flat module name, no subfolders/namespacing
-- No user-defined types/classes — only the built-in scalar/array/dict/html/function kinds
+- Classes have no static fields, no private members and no operator overloading (`==` compares objects by identity)
 - `ton.requests` only speaks plain `http://` — no TLS/`https://`, no redirects, no chunked transfer-encoding
-- The browser playground (`ton618-lite.js`) doesn't implement `ton.encoding`/`ton.regex`/`ton.path` yet, and can print floats with more decimal digits than the real interpreter (a JavaScript-vs-C++ number-formatting difference, not a value difference)
+- The browser playground (`ton618-lite.js`) doesn't implement `ton.encoding`/`ton.regex`/`ton.path`/`ton.tensor`, and can print floats with more decimal digits than the real interpreter (a JavaScript-vs-C++ number-formatting difference, not a value difference)
 
 ---
 
 ### Changelog
+
+**beta-2.0.0** — a big modernization of the language, and a 6x faster interpreter:
+
+*Objects:*
+- **Classes**: `ton.class Name extends Parent { ... }` with fields, an `init` constructor, methods, `self`, `super`, `toString()`, and typed object variables (`ton.Point p = Point(1, 2)`) — see [Classes & objects](#classes--objects).
+- **The dot operator everywhere**: `obj.field`, `obj.method()`, `dict.key`, and uniform call syntax (`"hi".upper()`, `arr.filter(...).map(...)`) — see [Method syntax](#method-syntax--the-dot-operator).
+
+*New syntax:*
+- **Arrow functions** `x => x * 2`, `(a, b) => { ... }`, and the **pipe** `x |> f(y)`.
+- **f-strings** `f"Hello {name}!"`, **raw strings** in backticks, `\u{...}` escapes.
+- **Ranges** `0..10` / `1..=10`, **slices** `a[1:3]`, **negative indices** `a[-1]`.
+- **`ton.let` / `ton.var` / `ton.const`**, and **destructuring** `ton.let [a, ...rest] = arr`, `ton.let {x, y: alias} = obj`.
+- `for k, v in dict`, `for i, x in array`, `for c in "text"`, loop variables without `ton.`, a fresh scope per iteration.
+- **Optional chaining** `a?.b`, `a?.[i]`, `f?.()`; **`??=`**; **`**`** (power); **spread in calls** `f(...args)`.
+- Number literals `1_000_000`, `1e9`, `0xFF`, `0b1010`, `0o755`.
+- `throw` any value (dicts, objects); `catch err` without parentheses.
+- `IMPORT://module as alias` namespaces and `IMPORT://folder/module`.
+- `print(a, b, c)` with several arguments; `print`, `int`, `float`, `bool`, `dict` usable as function values.
+
+*Standard library:* ~45 new functions — `sum`, `avg`, `sorted`, `sort` with a comparator, `range`, `zip`, `enumerate`, `unique`, `flatten`, `chunk`, `groupBy`, `flatMap`, `count`, `findIndex`, `forEach`, `items`, `dict`, `merge`, `remove`, `insert`, `removeAt`, `padStart`, `padEnd`, `startsWith`, `endsWith`, `repeat`, `chars`, `lines`, `capitalize`, `int`, `float`, `fixed`, `isinstance`, `copy`, `deepcopy`, `exit`... — see [Built-in native functions](#built-in-native-functions).
+
+*Tooling:*
+- **REPL**: `ton618` with no arguments; **`ton618 -e "code"`** for one-liners.
+- **Better errors**: the source line, a traceback through function calls, "did you mean ...?" for misspelled names, and line numbers on errors from native functions.
+- **Catchable recursion limit** (10,000 calls) instead of a crash.
+- A regression test suite (`tests/`, `make test`, run by CI).
+
+*Behavior changes:*
+- Numbers print in their shortest exact form: `3.14` instead of `3.140000`, `0.5` instead of `0.500000` (also in `str()`, `json()` and string concatenation).
+- `continue` inside a `switch` inside a loop now continues the loop (it used to be swallowed by the switch).
+- Errors from native functions caught with `catch` now start with `Error at line N:` like every other runtime error.
+- A closure created inside a `for ... in` loop captures that iteration's variable (it used to see the last value).
+
+*Performance:* about 6x faster on typical code — names are resolved through interned symbols, scopes are flat vectors, control flow no longer uses C++ exceptions, and blocks that declare nothing don't allocate a scope.
 
 **beta-1.0.10** — `tensor_to_bytes`/`tensor_from_bytes`, real binary files:
 
@@ -1435,20 +1854,22 @@ Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `ex
 10. [Fonctions](#fonctions)
 11. [Tableaux](#tableaux)
 12. [Dictionnaires](#dictionnaires)
-13. [Gestion des erreurs : try / catch / throw / finally](#gestion-des-erreurs--try--catch--throw--finally)
-14. [Fonctions natives](#fonctions-natives)
-15. [Type HTML](#type-html)
-16. [Modules (IMPORT://)](#modules-import-1)
-17. [Créer un module TON618 — guide complet](#créer-un-module-ton618--guide-complet)
-18. [Installer des modules : `ton618 install`](#installer-des-modules--ton618-install)
-19. [Modules système intégrés](#modules-système-intégrés)
-20. [Serveur local & routes (API)](#serveur-local--routes-api)
-21. [Le débogueur](#le-débogueur)
-22. [Architecture — comment fonctionne l'interpréteur](#architecture--comment-fonctionne-linterpréteur)
-23. [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même)
-24. [Publier la doc sur GitHub Pages](#publier-la-doc-sur-github-pages)
-25. [Limitations connues](#limitations-connues)
-26. [Changelog](#changelog-1)
+13. [Classes & objets](#classes--objets)
+14. [Syntaxe méthode & l'opérateur point](#syntaxe-méthode--lopérateur-point)
+15. [Gestion des erreurs : try / catch / throw / finally](#gestion-des-erreurs--try--catch--throw--finally)
+16. [Fonctions natives](#fonctions-natives)
+17. [Type HTML](#type-html)
+18. [Modules (IMPORT://)](#modules-import-1)
+19. [Créer un module TON618 — guide complet](#créer-un-module-ton618--guide-complet)
+20. [Installer des modules : `ton618 install`](#installer-des-modules--ton618-install)
+21. [Modules système intégrés](#modules-système-intégrés)
+22. [Serveur local & routes (API)](#serveur-local--routes-api)
+23. [Le débogueur](#le-débogueur)
+24. [Architecture — comment fonctionne l'interpréteur](#architecture--comment-fonctionne-linterpréteur)
+25. [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même)
+26. [Publier la doc sur GitHub Pages](#publier-la-doc-sur-github-pages)
+27. [Limitations connues](#limitations-connues)
+28. [Changelog](#changelog-1)
 
 ---
 
@@ -1459,6 +1880,8 @@ TON618 est un petit langage interprété, dans le même esprit que Python ou Hol
 L'interpréteur lui-même (`ton618`) est écrit en C++17 et se présente comme un unique binaire, sans dépendance. Il est compilé en croisé pour Linux, Termux (Android) et Windows (voir [Installer & compiler](#installer--compiler-linterpréteur)), et détecte automatiquement lequel de ces trois il exécute au démarrage.
 
 La caractéristique principale du langage est le **préfixe `ton.`** : déclarer une variable ou une fonction l'utilise toujours (`ton.int x = 5`, `ton.function f() { ... }`). Une fois quelque chose déclaré, y faire référence à nouveau — le lire, le réassigner, ou nommer un paramètre de fonction — accepte aussi bien `ton.nom` que le simple `nom` ; les deux désignent la même chose. Cette documentation utilise `ton.` partout par souci de clarté, sauf pour des noms éphémères comme les compteurs de boucle et les paramètres de fonction, comme le fait déjà le style utilisé dans `exemples/`. Voir [Bases du langage](#bases-du-langage) pour savoir précisément où le préfixe est obligatoire ou optionnel.
+
+Depuis **beta-2.0.0**, c'est aussi un langage orienté objet et expressif : des **classes** avec héritage, la **syntaxe méthode sur toutes les valeurs** (`"hi".upper()`, `nums.filter(...).map(...)`), des **fonctions fléchées**, des **f-strings**, des **intervalles** et **tranches**, la **déstructuration**, l'**opérateur pipe** `|>`, un **REPL interactif**, des messages d'erreur utiles avec trace d'appels — et un interpréteur environ 6 fois plus rapide que la 1.x. Voir [Classes & objets](#classes--objets) et le [Changelog](#changelog-1).
 
 TON618 prend en charge la **gestion d'erreurs** (`try`/`catch`/`throw`), un **type dictionnaire** (`ton.dict`), les boucles **`for ... in`** et `for` classique (style C), une instruction **`switch`/`case`**, une fonction **`format()`** pour construire des chaînes sans enchaîner les `+`, l'**assignation composée** (`+=`, `-=`, ...), l'**incrémentation/décrémentation** (`++`, `--`), un **opérateur ternaire** (`cond ? a : b`), des **expressions de fonction** (callbacks anonymes), et une bibliothèque standard assez large couvrant maths, chaînes, tableaux, dictionnaires, fichiers, JSON, expressions régulières, et encodage base64/hex/URL — voir le [Changelog](#changelog-1) pour l'historique complet.
 
@@ -1518,6 +1941,32 @@ ton618 install stringutils   # récupère un module depuis le registre
 ton618 uninstall stringutils # le supprime à nouveau
 ```
 
+**Le REPL interactif** — lance `ton618` sans argument (ou `ton618 repl`) pour obtenir une invite où chaque ligne s'exécute immédiatement et où la valeur d'une expression est affichée. Un `(`, `[` ou `{` non fermé continue sur la ligne suivante, on peut donc taper une fonction entière. `.vars` liste ce que tu as défini, `.exit` (ou Ctrl-D) quitte.
+
+```
+$ ton618
+TON618 beta-2.0.0 (linux/x86_64)
+ton> ton.let nums = [3, 1, 2]
+ton> nums.sorted().map(n => n * 10)
+[10, 20, 30]
+ton> f"{len(nums)} éléments"
+"3 éléments"
+```
+
+**Une ligne** — `ton618 -e 'print(2 ** 10)'` exécute un extrait sans créer de fichier.
+
+**Rapports d'erreur** — une erreur non rattrapée affiche le message, la ligne de code fautive, une suggestion « did you mean » pour un nom mal orthographié, et — si elle s'est produite dans des appels de fonction — une courte trace d'appels :
+
+```
+Error at line 2: Division by zero.
+  --> calc.ton:2
+   2 | return a / b
+Traceback (most recent call last):
+  line 9: called compute()
+  line 5: called divide()
+  line 2: error raised here
+```
+
 ---
 
 ### Le playground dans le navigateur
@@ -1525,6 +1974,8 @@ ton618 uninstall stringutils # le supprime à nouveau
 Pas envie d'installer quoi que ce soit juste pour essayer un extrait ? Ouvre `exemples/playground.html` dans n'importe quel navigateur (aucun serveur requis) pour un éditeur de code en direct avec un bouton "Run" et des extraits d'exemple à charger.
 
 Le playground exécute **`ton618-lite.js`**, une réimplémentation JavaScript du langage, entièrement côté client — rien n'est envoyé nulle part, aucune installation requise. Il reproduit fidèlement l'interpréteur réel : la grammaire complète (y compris `switch`/`case`), et les modules intégrés `ton.random`, `ton.time`, `ton.json`, `ton.mathutils` et `ton.strings`, puisqu'aucun d'eux n'a besoin de quoi que ce soit qu'un navigateur ne puisse déjà faire.
+
+Depuis beta-2.0.0 il prend en charge tout le langage 2.0 (classes, syntaxe méthode, fonctions fléchées, f-strings, intervalles, tranches, déstructuration, `|>`, `?.`...) et les nouvelles fonctions standard — la CI fait tourner la suite `tests/` à la fois dans le vrai interpréteur et dans `ton618-lite.js` et vérifie qu'ils affichent exactement la même chose. Sur le site de documentation, le bouton **Exécuter** d'un exemple de code l'ouvre dans le playground.
 
 Ce qu'il ne peut pas faire, parce qu'un bac à sable de navigateur n'a ni système de fichiers, ni sockets, ni arguments de ligne de commande pour les alimenter :
 - `ton.sys`, `ton.os`, `ton.requests` — accès réel au processus/système de fichiers/réseau ; importer l'un d'eux donne une erreur claire expliquant pourquoi, plutôt que de se comporter silencieusement différemment de l'interpréteur réel
@@ -1571,6 +2022,19 @@ Les paramètres de fonction s'écrivent conventionnellement sans le préfixe (`t
 
 Une assignation nue peut seulement *réassigner* une variable existante — `age = 5` échoue avec "was never declared" à moins que quelque chose ait déjà déclaré `age` plus tôt. Pour introduire une toute nouvelle variable, il faut toujours la forme complète `ton.<type> nom = valeur`.
 
+**`ton.let`, `ton.var` et `ton.const`** — `ton.let` déclare une variable sans type fixe (`ton.var` est un synonyme). `ton.const` fait de même mais interdit de la réassigner ensuite : `PI = 3` après `ton.const PI = 3.14` est une erreur d'exécution. Les déclarations typées (`ton.int`, `ton.string`, ...) vérifient toujours le type de la valeur initiale.
+
+```
+ton.let nimporte = 42
+nimporte = "maintenant une chaîne"   // ok : ton.let n'a pas de type fixe
+ton.const MAX_USERS = 100
+MAX_USERS = 5                        // Erreur : Cannot reassign 'ton.MAX_USERS': it was declared with ton.const.
+```
+
+**Littéraux numériques** — en plus de `42` et `3.14` : `1_000_000` (les underscores sont ignorés), `1e9` / `2.5e-3` (exposant), `0xFF` (hexadécimal), `0b1010` (binaire), `0o755` (octal).
+
+**Les points-virgules** sont optionnels ; ils servent à mettre plusieurs instructions sur une ligne : `self.x = x; self.y = y`.
+
 ---
 
 ### Types
@@ -1589,6 +2053,16 @@ Une assignation nue peut seulement *réassigner* une variable existante — `age
 
 `type(x)` renvoie le nom du type d'une valeur sous forme de chaîne : `"int/float"`, `"string"`, `"html"`, `"bool"`, `"array"`, `"dict"`, `"nil"`, ou `"function"`.
 
+Depuis beta-2.0.0 :
+
+| Déclaration | Sens | Exemple |
+|---|---|---|
+| `ton.let` / `ton.var` | N'importe quel type, peut changer | `ton.let x = 5` |
+| `ton.const` | N'importe quel type, non réassignable | `ton.const PI = 3.14` |
+| `ton.<NomDeClasse>` | Une instance de cette classe (ou d'une sous-classe), ou `nil` | `ton.Point p = Point(1, 2)` |
+
+`type(obj)` renvoie le nom de la classe pour un objet (`"Point"`), et `"class"` pour une classe. Les nombres s'affichent sous leur forme exacte la plus courte : `0.1 + 0.2` affiche `0.30000000000000004`, `3.14` affiche `3.14` (avant la 2.0 : `3.140000`). Utilise `fixed(x, 2)` pour un nombre fixe de décimales.
+
 ---
 
 ### Formatage de chaînes
@@ -1603,6 +2077,28 @@ print(format("Bonjour {}, tu auras {} l'année prochaine !", nom, age + 1))
 ```
 
 Un argument peut être n'importe quelle valeur — un nombre, une chaîne, le résultat d'un appel de fonction, tout ce que `str()` peut convertir. Un `{}` en trop sans argument correspondant reste tel quel (`{}`) ; des arguments en trop au-delà du nombre de `{}` sont simplement ignorés.
+
+**f-strings** (depuis beta-2.0.0) — préfixe une chaîne par `f` pour y insérer n'importe quelle expression entre accolades. C'est la façon la plus courte de construire du texte ; `format()` fonctionne toujours.
+
+```
+ton.string name = "kuro"
+ton.int age = 21
+print(f"Salut {name}, l'an prochain tu auras {age + 1} ans !")
+print(f"{len(name)} lettres, en majuscules : {name.upper()}")
+print(f"Accolades : {{comme ça}}")     // {{ et }} sont des accolades littérales
+```
+
+**Chaînes brutes** — les backticks délimitent une chaîne sans séquences d'échappement, qui peut tenir sur plusieurs lignes. Pratique pour du HTML, des expressions régulières et des chemins Windows :
+
+```
+ton.html page = `<div class="card">
+  <p>C:\temp\new n'est pas un retour à la ligne ici</p>
+</div>`
+```
+
+**Échappements** dans les chaînes entre guillemets : `\n` `\t` `\r` `\"` `\\` `\0`, et `\u{1F680}` / `\u00e9` pour n'importe quel caractère Unicode (écrit en UTF-8).
+
+**Formater des nombres** : `fixed(3.14159, 2)` donne `"3.14"`, `"7".padStart(3, "0")` donne `"007"`.
 
 ---
 
@@ -1629,6 +2125,23 @@ Notes :
 - `??` ("coalescence nulle") évalue son côté gauche et le retourne tel quel sauf s'il vaut `nil`, auquel cas il évalue et retourne le côté droit à la place — le côté droit n'est jamais évalué autrement, donc on peut y mettre un fallback avec effets de bord sans risque. Pratique avec les accès aux dicts : `dict["manquant"] ?? "defaut"`.
 - `in` teste l'appartenance : `valeur in tableau` vérifie les éléments du tableau (avec les mêmes règles d'égalité que `==`), `valeur in dict` vérifie les **clés** du dict, et `valeur in chaine` cherche une sous-chaîne. Le côté droit doit être un tableau, un dict, ou une chaîne/`ton.html` — toute autre valeur est une erreur d'exécution.
 - `&`, `|`, `^`, `~`, `<<`, `>>` traitent les deux côtés comme des entiers (en tronquant la partie décimale), opèrent sur une représentation 64 bits en complément à deux, puis reconvertissent le résultat dans le type nombre habituel de TON618 — il n'y a pas de type entier séparé, donc `6 & 3` est juste un nombre comme un autre (`2`). Les deux opérandes doivent être des nombres, sinon c'est une erreur d'exécution. `&`/`|`/`^` partagent tous le même niveau de priorité (moins prioritaire que `==`, plus prioritaire que `&&`) — utilise des parenthèses en les mélangeant pour plus de clarté.
+
+Ajoutés en beta-2.0.0 :
+
+| Opérateur | Sens | Exemple |
+|---|---|---|
+| `**` / `**=` | Puissance (associatif à droite) | `2 ** 10` vaut `1024` |
+| `..` / `..=` | Intervalle, fin exclue / incluse | `0..5`, `1..=10` |
+| `\|>` | Pipe : la valeur de gauche devient le premier argument | `x \|> f(y)` vaut `f(x, y)` |
+| `?.` | Chaînage optionnel : `nil` au lieu d'une erreur | `user?.address?.city` |
+| `??=` | Assigne seulement si la valeur est `nil` | `config.port ??= 8080` |
+| `.` | Accès à une propriété / méthode | `point.x`, `"hi".upper()` |
+| `=>` | Fonction fléchée | `n => n * 2` |
+
+- `-2 ** 2` vaut `-4` : `**` lie plus fort que le moins unaire, comme en maths et en Python.
+- `+` concatène aussi deux tableaux (`[1, 2] + [3]` vaut `[1, 2, 3]`, un nouveau tableau) ; `*` répète une chaîne (`"ab" * 3` vaut `"ababab"`).
+- `a..b` s'évalue en un tableau des entiers de `a` à `b - 1` (`a..=b` inclut `b`) ; dans une boucle `for` il compte de façon paresseuse, donc `for i in 0..1000000` ne construit jamais de tableau.
+- `?.` marche sur l'accès à une propriété, l'indexation et l'appel : `obj?.name`, `list?.[0]`, `callback?.()`. Mets-le à chaque étape qui peut être `nil`.
 
 ---
 
@@ -1694,6 +2207,26 @@ Un case peut lister plusieurs valeurs séparées par des virgules. La correspond
 
 `break` et `continue` sont pris en charge dans `while`, `for`, et `for ... in`.
 
+**Nouvelles formes de `for ... in`** (depuis beta-2.0.0) — le préfixe `ton.` des variables de boucle est optionnel, une deuxième variable donne l'indice (tableaux, chaînes) ou la valeur (dicts), et on peut itérer directement sur un intervalle ou une chaîne :
+
+```
+for i in 0..3 { print(i) }                    // 0 1 2
+for i in 1..=3 { print(i) }                   // 1 2 3
+for i, name in ["kuro", "rusher"] { print(i, name) }
+for key, value in {a: 1, b: 2} { print(key, "=", value) }
+for c in "abc" { print(c) }
+```
+
+Chaque itération a son propre scope, donc une fonction créée dans la boucle se souvient de la valeur de son itération :
+
+```
+ton.array fns = []
+for i in 0..3 { push(fns, () => i) }
+print(fns.map(f => f()))    // [0, 1, 2]
+```
+
+Un `continue` dans un `switch` lui-même dans une boucle continue maintenant la boucle. `catch` accepte aussi le nom de l'erreur sans parenthèses : `catch err { ... }`.
+
 ---
 
 ### Fonctions
@@ -1746,6 +2279,34 @@ Appeler une fonction avec trop peu d'arguments requis (ou trop, sans paramètre 
 
 Les fermetures (closures) fonctionnent comme attendu : une fonction se souvient des variables du scope où elle a été déclarée, même après que ce scope ait par ailleurs terminé.
 
+**Fonctions fléchées** (depuis beta-2.0.0) — une façon courte d'écrire une fonction anonyme, idéale pour les callbacks. Un seul paramètre n'a pas besoin de parenthèses ; un corps qui est une expression est renvoyé automatiquement ; un corps `{ bloc }` marche comme une fonction normale.
+
+```
+ton.let double = n => n * 2
+ton.let add = (a, b = 1) => a + b
+ton.let greet = (name) => {
+    ton.string msg = "Salut " + name
+    return msg
+}
+print(double(21), add(1), greet("kuro"))   // 42 2 Salut kuro
+```
+
+**Spread dans les appels** — `f(...args)` passe les éléments d'un tableau comme arguments séparés : `max(...[4, 9, 2])`.
+
+**L'opérateur pipe `|>`** — `x |> f` appelle `f(x)`, et `x |> f(a, b)` appelle `f(x, a, b)`. Il transforme des appels imbriqués en une chaîne qui se lit de gauche à droite :
+
+```
+ton.function inc(x, by = 1) { return x + by }
+print(5 |> inc |> inc(10) |> str)              // 16
+[1, 2, 3, 4] |> filter(n => n % 2 == 0) |> sum |> print   // 6
+```
+
+**`print` est aussi une valeur de fonction** : `["a", "b"].forEach(print)`. `print(a, b, c)` affiche ses arguments séparés par des espaces.
+
+Les callbacks passés à `map`, `filter`, `find`, `findIndex`, `forEach`, `any`, `all`, `count` et `flatMap` reçoivent l'indice en second argument s'ils déclarent deux paramètres : `names.map((name, i) => f"{i}. {name}")`.
+
+La récursion profonde fonctionne (l'interpréteur tourne sur une grande pile), et une récursion infinie s'arrête avec une erreur rattrapable `Maximum recursion depth (10000) exceeded` au lieu de planter.
+
 ---
 
 ### Tableaux
@@ -1770,6 +2331,29 @@ ton.array deux = [...a, ...a]  // [1, 2, 3, 1, 2, 3]
 ```
 L'expression étalée doit elle-même être un tableau — étaler autre chose est une erreur d'exécution.
 
+**Indices négatifs et tranches** (depuis beta-2.0.0) — `a[-1]` est le dernier élément. `a[début:fin]` renvoie un nouveau tableau de `début` jusqu'à `fin` (exclu) ; chaque borne peut être omise, et les deux peuvent être négatives. Les tranches marchent aussi sur les chaînes.
+
+```
+ton.array a = [10, 20, 30, 40, 50]
+print(a[-1], a[1:3], a[:2], a[3:], a[-2:])    // 50 [20, 30] [10, 20] [40, 50] [40, 50]
+print("TON618"[0:3], "TON618"[-3:])          // TON 618
+```
+
+**Déstructuration** — dépaquette un tableau dans des variables, `...reste` récupérant ce qui reste :
+
+```
+ton.let [premier, second, ...autres] = a
+print(premier, second, autres)                // 10 20 [30, 40, 50]
+```
+
+**Syntaxe méthode** — toute fonction de tableau peut être appelée sur le tableau lui-même (voir [Syntaxe méthode](#syntaxe-méthode--lopérateur-point)) :
+
+```
+ton.array scores = [12, 7, 30, 18]
+print(scores.filter(s => s > 10).map(s => s * 2).sorted())   // [24, 36, 60]
+print(scores.sum(), scores.max(), scores.len(), scores.length)
+```
+
 ---
 
 ### Dictionnaires
@@ -1791,6 +2375,119 @@ ton.dict base = {a: 1, b: 2}
 ton.dict fusion = {...base, b: 99, c: 3}   // {a: 1, b: 99, c: 3}
 ```
 L'expression étalée doit elle-même être un dict — étaler autre chose est une erreur d'exécution.
+
+**Accès par point** (depuis beta-2.0.0) — `d.cle` lit une clé (ou `nil`) et `d.cle = valeur` l'écrit, exactement comme `d["cle"]`. Garde les crochets pour les clés qui ne sont pas des noms valides ou qui sont calculées.
+
+```
+ton.dict cfg = {port: 8080}
+cfg.host = "localhost"
+cfg.port += 1
+print(cfg.port, cfg.host)            // 8081 localhost
+print(cfg.missing?.value)            // nil (chaînage optionnel)
+```
+
+**Déstructuration** — récupère des clés dans des variables, éventuellement renommées avec `cle: nom`, et le reste avec `...reste` :
+
+```
+ton.let {name, age: annees, ...reste} = {name: "rusher", age: 30, city: "paris"}
+print(name, annees, reste)           // rusher 30 {city: paris}
+```
+
+`for cle, valeur in d { ... }` parcourt les paires ; `items(d)`, `dict(paires)`, `merge(a, b)` et `remove(d, cle)` complètent la boîte à outils (voir [Fonctions natives](#fonctions-natives)).
+
+---
+
+### Classes & objets
+
+Depuis beta-2.0.0 tu peux définir tes propres types. Une classe regroupe des **champs** (les données) et des **méthodes** (des fonctions qui travaillent sur ces données). Dans une méthode, `self` est l'objet sur lequel la méthode a été appelée.
+
+```
+ton.class Point {
+    ton.function init(x, y) {
+        self.x = x
+        self.y = y
+    }
+    ton.function distanceTo(other) {
+        return sqrt((self.x - other.x) ** 2 + (self.y - other.y) ** 2)
+    }
+    ton.function toString() {
+        return f"({self.x}, {self.y})"
+    }
+}
+
+ton.Point a = Point(0, 0)
+ton.let b = Point(3, 4)
+print(a.distanceTo(b))     // 5
+print(b)                   // (3, 4) — print/str/f-strings utilisent toString()
+b.x = 10                   // les champs se lisent et s'écrivent avec le point
+```
+
+- **Créer un objet** : appelle la classe comme une fonction. Sa méthode `init` (le constructeur) reçoit les arguments ; sans `init`, la classe ne prend aucun argument.
+- **Les déclarations de champs** dans le corps de la classe (`ton.int count = 0`, `ton.let items = []`) donnent à chaque nouvel objet sa propre valeur initiale, avant que `init` s'exécute. On peut aussi créer un champ à tout moment en assignant `self.nom = ...`.
+- **Variables typées** : `ton.Point p = ...` vérifie que la valeur est un `Point` (ou une sous-classe), ou `nil`.
+- **`toString()`**, si elle est définie, sert dès que l'objet est converti en texte. Sans elle, un objet s'affiche `Point{x: 3, y: 4}` ; `json(obj)` donne `{"x":3,"y":4}`.
+- **Les méthodes sont des valeurs** : `ton.let f = point.toString` garde `self` lié, donc `f()` marche plus tard.
+- Les objets sont passés **par référence** (comme les tableaux et les dicts) : `==` n'est vrai que pour le même objet. `copy(obj)` / `deepcopy(obj)` en font une copie.
+
+**Héritage** — `extends` fait réutiliser (et redéfinir) tout ce que contient une classe parente ; `super.methode(...)` appelle la version du parent :
+
+```
+ton.class Animal {
+    ton.string sound = "..."
+    ton.function init(name) { self.name = name }
+    ton.function speak() { return f"{self.name} fait {self.sound}" }
+}
+
+ton.class Dog extends Animal {
+    ton.int tricks = 0
+    ton.function init(name) {
+        super.init(name)
+        self.sound = "wouf"
+    }
+    ton.function learn() {
+        self.tricks++
+        return self              // renvoyer self permet d'enchaîner
+    }
+}
+
+ton.Dog rex = Dog("Rex")
+print(rex.speak())                     // Rex fait wouf
+print(rex.learn().learn().tricks)      // 2
+print(isinstance(rex, Animal))         // true
+print(type(rex))                       // Dog
+```
+
+Les objets marchent avec le reste du langage : `"x" in point` teste un champ, `keys(obj)`/`values(obj)`/`items(obj)` listent les champs, `ton.let {x, y} = point` le déstructure, `{...point}` copie ses champs dans un dict, et `throw MonErreur("...")` le lance (le `catch` reçoit l'objet lui-même).
+
+---
+
+### Syntaxe méthode & l'opérateur point
+
+Le point marche sur toutes les valeurs, et fait ce qu'on attend :
+
+| Expression | Ce qu'elle fait |
+|---|---|
+| `obj.methode(args)` | Appelle la méthode d'un objet, avec `self = obj` |
+| `obj.champ` | Lit un champ d'un objet |
+| `dict.cle` | Lit une clé d'un dict (`nil` si absente) |
+| `module.fn(args)` | Appelle une fonction d'un module importé avec `IMPORT://x as module` |
+| `valeur.fn(args)` | Tout le reste : appelle la fonction `fn(valeur, args)` |
+
+La dernière ligne s'appelle la **syntaxe d'appel uniforme** : `x.f(a, b)` est identique à `f(x, a, b)` dès que `x` n'a pas de méthode ou de clé `f`. Toute fonction — native ou la tienne — peut donc s'utiliser comme une méthode, et les appels s'enchaînent de gauche à droite au lieu de s'imbriquer :
+
+```
+// Le même calcul, deux fois :
+print(join(map(filter(split("5,12,8,30", ","), s => num(s) > 6), s => "#" + s), " "))
+print("5,12,8,30".split(",").filter(s => num(s) > 6).map(s => "#" + s).join(" "))
+// #12 #8 #30
+
+ton.function shout(s) { return s.upper() + "!" }
+print("hello".shout())                  // HELLO!
+print([3, 1, 2].sort().reverse())       // [3, 2, 1]
+print("  padded ".trim().padStart(10, "."))
+```
+
+`.length` existe aussi comme propriété sur les chaînes et les tableaux (`"abc".length` vaut `3`).
 
 ---
 
@@ -1819,6 +2516,24 @@ ton.function lireSansRisque() {
 ```
 
 `try` a besoin d'au moins un `catch`/`finally` : `catch` seul (comme ci-dessus), `finally` seul (`try { ... } finally { ... }`, utile pour du nettoyage quand on veut que l'erreur continue de se propager), ou les deux ensemble sont tous valides.
+
+**Lancer n'importe quelle valeur** (depuis beta-2.0.0) — `throw` accepte n'importe quelle valeur, et `catch` reçoit exactement cette valeur, donc une erreur peut transporter des données structurées. Les erreurs levées par l'interpréteur lui-même sont toujours reçues comme une chaîne (`"Error at line 3: Division by zero."`).
+
+```
+try {
+    throw {code: 404, message: "introuvable"}
+} catch (err) {
+    print(err.code, err.message)      // 404 introuvable
+}
+
+ton.class ValidationError {
+    ton.function init(field) { self.field = field }
+    ton.function toString() { return "champ invalide : " + self.field }
+}
+try { throw ValidationError("email") } catch e { print(e) }   // champ invalide : email
+```
+
+Les erreurs des fonctions natives incluent maintenant la ligne de l'appel (`Error at line 7: sum() expects an array of numbers (found a string).`). Un `return`, `break` ou `continue` dans `finally` l'emporte sur celui en attente.
 
 ---
 
@@ -1901,6 +2616,72 @@ Toutes fonctionnent avec ou sans le préfixe `ton.` (voir [Bases du langage](#ba
 | `post(chemin, fn)` | Enregistre une route POST |
 | `serve(port)` / `serve(port, contenu)` | Démarre le serveur HTTP local |
 
+**Ajoutées en beta-2.0.0** — toutes peuvent aussi s'appeler avec la [syntaxe méthode](#syntaxe-méthode--lopérateur-point) (`arr.sum()`, `s.padStart(3, "0")`).
+
+*Conversions & divers*
+
+| Fonction | Description |
+|---|---|
+| `int(x, [base])` | Partie entière d'un nombre, ou analyse d'une chaîne (`int("ff", 16)` vaut `255`) |
+| `float(x)` | Analyse une chaîne en nombre (erreur si invalide, contrairement à `num`) |
+| `bool(x)` | `true`/`false` selon la « vérité » de la valeur |
+| `fixed(x, [chiffres=2])` | Nombre vers chaîne avec un nombre fixe de décimales |
+| `round(x, [chiffres])` | Arrondit, éventuellement à quelques décimales |
+| `repr(x)` | Comme `str`, mais les chaînes sont entre guillemets |
+| `isinstance(obj, Classe)` | Si `obj` est une instance de `Classe` ou d'une sous-classe |
+| `copy(x)` / `deepcopy(x)` | Copie superficielle / récursive d'un tableau, dict ou objet |
+| `clamp(x, min, max)`, `sign(x)` | Aides numériques |
+| `exit([code])` | Arrête le script immédiatement |
+| `print(a, b, ...)` | `print` est aussi une valeur de fonction, qui affiche ses arguments séparés par des espaces |
+
+*Tableaux*
+
+| Fonction | Description |
+|---|---|
+| `range(fin)`, `range(début, fin, [pas])` | Tableau de nombres, `fin` exclue |
+| `sum(arr)`, `avg(arr)` | Somme / moyenne de nombres |
+| `min(arr)`, `max(arr)` | `min`/`max` acceptent aussi un seul tableau |
+| `sorted(arr, [cle])` | Copie triée ; `cle(x)` dit selon quoi trier : `sorted(mots, m => len(m))` |
+| `sort(arr, [compare])` | Sur place ; `compare(a, b)` renvoie un nombre négatif (ou `true`) si `a` vient en premier |
+| `forEach(arr, fn)` | Appelle `fn(item)` (ou `fn(item, indice)`) pour chaque élément |
+| `findIndex(arr, fn)` | Indice du premier élément qui correspond, ou `-1` |
+| `count(arr, valeurOuFn)` | Combien d'éléments égalent une valeur / vérifient un prédicat (compte aussi des sous-chaînes) |
+| `flatMap(arr, fn)` | `map` puis aplatit d'un niveau |
+| `unique(arr)` | Copie sans doublons (première occurrence gardée) |
+| `flatten(arr, [profondeur=1])` | Aplatit des tableaux imbriqués |
+| `zip(a, b, ...)` | `[[a0, b0], [a1, b1], ...]` |
+| `enumerate(arr)` | `[[0, a0], [1, a1], ...]` |
+| `chunk(arr, taille)` | Découpe en tableaux de `taille` éléments |
+| `groupBy(arr, fn)` | Dict de tableaux, groupés selon `fn(item)` |
+| `first(arr)`, `last(arr)` | Premier / dernier élément, ou `nil` |
+| `insert(arr, indice, valeur)`, `removeAt(arr, indice)` | Insère / retire à une position |
+| `remove(arr, valeur)` | Retire le premier élément égal ; `remove(dict, cle)` retire une clé |
+| `clear(x)`, `isEmpty(x)` | Vide un tableau/dict ; teste s'il est vide |
+| `lastIndexOf(x, item)` | Dernière position dans un tableau ou une chaîne, ou `-1` |
+| `reduce(arr, fn)` | Sans valeur initiale, part du premier élément |
+
+*Dictionnaires*
+
+| Fonction | Description |
+|---|---|
+| `items(d)` | `[[cle, valeur], ...]` |
+| `dict(paires)` | Construit un dict depuis `[[cle, valeur], ...]` |
+| `merge(a, b, ...)` | Nouveau dict, les clés suivantes l'emportent |
+
+`keys`, `values`, `items`, `has` et `len` marchent aussi sur les objets (leurs champs).
+
+*Chaînes*
+
+| Fonction | Description |
+|---|---|
+| `startsWith(s, p)`, `endsWith(s, p)` | Test de préfixe / suffixe |
+| `padStart(s, largeur, [remplissage])`, `padEnd(...)` | Complète jusqu'à une largeur |
+| `repeat(s, n)` | Répète une chaîne (ou un tableau) |
+| `chars(s)`, `lines(s)` | Découpe en caractères / lignes |
+| `capitalize(s)` | Première lettre en majuscule |
+| `reverse(s)` | `reverse` inverse aussi une chaîne |
+| `ord(c)`, `chr(n)` | Code d'un caractère et inverse |
+
 ---
 
 ### Type HTML
@@ -1925,6 +2706,18 @@ IMPORT://ton.mathutils  // charge le module *intégré* ton.mathutils — note l
 ```
 
 Le `ton.` en tête est ce qui permet au parseur de distinguer un module **intégré** d'un module **utilisateur** — ce n'est jamais une recherche sur le système de fichiers. Voir [Modules système intégrés](#modules-système-intégrés) pour la liste complète des modules intégrés, et le guide plus bas pour écrire les tiens.
+
+**Espaces de noms** (depuis beta-2.0.0) — `IMPORT://nom as alias` charge un module sans ajouter ses noms au scope global : on les atteint via l'alias. Pour un module intégré, le préfixe `module_` est retiré.
+
+```
+IMPORT://mathutils as m
+print(m.add(2, 3))
+
+IMPORT://ton.strings as s
+print(s.snake_case("helloWorld"))     // strings_snake_case -> s.snake_case
+```
+
+**Sous-dossiers** — `IMPORT://utils/text` charge `utils/text.ton` (à côté du script, ou dans `modules/`).
 
 ---
 
@@ -2415,6 +3208,17 @@ Deux choix de conception qui valent la peine d'être mentionnés car ils façonn
 
 Une troisième chose à savoir si tu touches à la bibliothèque standard : `valuesEqual()` (une fonction libre près du haut de `src/Interpreter.cpp`) est la seule source de vérité pour ce que signifie "égal" — les opérateurs `==`/`!=`, la correspondance `switch`/`case`, et les natives `contains()`/`indexOf()` l'appellent tous, donc un correctif ou un nouveau type de valeur n'a besoin d'être géré qu'à un seul endroit.
 
+**Fonctionnement interne depuis beta-2.0.0**, pour les contributeurs :
+
+- `break`/`continue`/`return` ne sont plus des exceptions C++ : `Interpreter::execute()` renvoie un `Signal` (`NONE`, `BREAK`, `CONTINUE`, `RETURN`) que les boucles et les appels vérifient. Seules les vraies erreurs utilisent des exceptions (`LineError` pour les erreurs de l'interpréteur, `ThrownValue` pour `throw`).
+- Les noms sont internés en entiers (`Symbols` dans `Environment.hpp`) et les scopes sont de petits vecteurs plats, avec un index haché seulement pour les gros scopes comme les globales. Un bloc qui ne déclare rien n'a pas de scope du tout.
+- Les classes sont des `ClassObj` et les objets des `InstanceObj` (`Value.hpp`) ; les appels de méthode passent par `Interpreter::callMethod`, qui implémente aussi la syntaxe d'appel uniforme.
+- La bibliothèque standard ajoutée en 2.0 est dans `src/Stdlib.cpp` (`defineNativesV2()`).
+- `main.cpp` exécute les scripts sur un thread avec une pile de 512 Mo, donc une récursion profonde atteint la limite de l'interpréteur (10 000 appels) au lieu de planter.
+- `tests/*.ton` avec `tests/*.expected` forment la suite de non-régression : `make test` (aussi lancé par la CI).
+
+Ensemble, ces changements rendent les scripts typiques environ 6 fois plus rapides qu'en beta-1.x (un `fib(25)` plus une boucle de 1 000 000 d'itérations : 2,0 s → 0,3 s).
+
 ---
 
 ### Étendre l'interpréteur lui-même
@@ -2437,43 +3241,77 @@ Après tout changement, lance `make` et vérifie avec les scripts de `exemples/`
 
 ### Publier la doc sur GitHub Pages
 
-`exemples/` est entièrement statique et autonome — `documentation.html` embarque ce fichier même (voir `make docs` plus haut), et `playground.html` tourne entièrement côté client via `ton618-lite.js`. `.github/workflows/pages.yml` publie tout ce dossier tel quel sur GitHub Pages (pas le reste du dépôt) : il copie `exemples/` verbatim, plus `documentation.html` en tant qu'`index.html` à la racine du site pour que la doc se charge à l'URL Pages toute seule, avec `playground.html` et `ton618-lite.js` accessibles juste à côté, exactement comme `documentation.html` les référence déjà.
+Le site de documentation (https://c-ton618.duckdns.org/) est construit avec **[Claide](https://github.com/kurodaki-dev/Claide)**, un module Python pour faire des sites web, directement à partir de ce fichier : `website/app.py` lit `DOCUMENTATION.md`, transforme chaque section `###` de la moitié anglaise et de la moitié française en une page (avec une barre latérale, une recherche, des liens « sur cette page », un bouton de langue et des boutons « Exécuter » qui ouvrent un extrait dans le playground), et exporte tout le site en HTML statique. Le playground (`exemples/playground.html` + `ton618-lite.js`), la page des skills IA, le logo et `exemples/CNAME` sont publiés à côté.
 
-Configuration à faire une seule fois :
+Pour le prévisualiser en local :
+```bash
+pip install claide-web
+python website/app.py          # http://127.0.0.1:8000, recharge à chaque sauvegarde
+python website/app.py build    # export statique dans website/_site/ (ou : make site)
+```
+
+`.github/workflows/pages.yml` installe Claide, construit le site et le déploie à chaque push sur `main` qui touche `DOCUMENTATION.md`, `website/`, `exemples/` ou le numéro de version — modifier ce fichier suffit à mettre le site à jour. Avec un domaine personnalisé (`exemples/CNAME`) le site est servi à la racine du domaine ; sans, depuis `https://<utilisateur>.github.io/ton618/`.
+
+Configuration unique :
 1. **GitHub → ce dépôt → Settings → Pages.**
 2. Sous **Build and deployment**, mets **Source** sur **GitHub Actions** (pas "Deploy from a branch").
 
-C'est tout — `.github/workflows/pages.yml` se lance à chaque push sur `main` qui touche `exemples/` (ou manuellement depuis l'onglet **Actions**), et publie à :
-```
-https://<utilisateur>.github.io/ton618/                       — documentation.html (comme index.html)
-https://<utilisateur>.github.io/ton618/playground.html         — le playground
-https://<utilisateur>.github.io/ton618/ton618-lite.js          — le moteur du playground
-```
-(adapte l'org/l'utilisateur de ces URLs à celui qui possède ce dépôt.)
+`exemples/documentation.html` est l'ancienne version de ce document sur une seule page, toujours publiée à `/documentation.html` et régénérée avec `make docs`.
 
-Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/documentation.html` régénéré, et push — le workflow republie automatiquement.
+**Utiliser un domaine personnalisé** (par ex. un sous-domaine [DuckDNS](https://www.duckdns.org) gratuit au lieu de `github.io`) : pas besoin de serveur à toi — c'est GitHub qui héberge le site.
 
-**Utiliser un domaine personnalisé** (ex. un sous-domaine [DuckDNS](https://www.duckdns.org) gratuit plutôt que `github.io`) : ça ne nécessite aucun serveur à toi — GitHub héberge le site, pas toi.
-
-1. Sur DuckDNS, pointe l'IP de ton sous-domaine vers une des adresses fixes de GitHub Pages plutôt que vers un serveur que tu gères : `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, ou `185.199.111.153` (DuckDNS n'accepte qu'une seule IP par sous-domaine, donc choisis-en une seule). Si ce sous-domaine est aussi maintenu à jour par un script de dynamic-DNS ailleurs (cron sur un VPS, un routeur, etc.), ce script écrasera ce réglage à la prochaine exécution — utilise un sous-domaine que rien d'autre ne met à jour automatiquement.
-2. `exemples/CNAME` dans ce dépôt contient déjà le domaine auquel la doc est épinglée ; `.github/workflows/pages.yml` le publie tel quel, ce qui indique à GitHub Pages de servir ce domaine.
-3. **GitHub → ce dépôt → Settings → Pages** devrait alors afficher le domaine personnalisé sous **Custom domain** (la propagation DNS peut prendre quelques minutes) — une fois vérifié, coche **Enforce HTTPS**.
+1. Sur DuckDNS, fais pointer l'IP de ton sous-domaine vers une des adresses fixes de GitHub Pages au lieu d'un serveur à toi : `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, ou `185.199.111.153` (DuckDNS n'accepte qu'une IP par sous-domaine, choisis-en une seule). Si ce sous-domaine est aussi mis à jour par un script de DNS dynamique quelque part (cron sur un VPS, un routeur...), ce script l'écrasera à sa prochaine exécution — utilise un sous-domaine que rien d'autre ne met à jour.
+2. `exemples/CNAME` dans ce dépôt contient déjà le domaine de la doc ; le workflow le publie tel quel, ce qui indique à GitHub Pages de servir ce domaine.
+3. **GitHub → ce dépôt → Settings → Pages** devrait alors afficher le domaine sous **Custom domain** (la propagation DNS peut prendre quelques minutes) — une fois vérifié, coche **Enforce HTTPS**.
 
 ---
 
 ### Limitations connues
 
 - `serve()` est mono-thread et bloquant — une requête à la fois, pas de concurrence
-- `ton.int` et `ton.float` sont actuellement le même type de nombre interne (pas d'imposition entier strict)
-- Les clés de dict sont toujours des chaînes (pas de clés numériques ou structurelles imbriquées)
-- `IMPORT://` ne résout qu'un nom de module plat, pas de sous-dossiers/espaces de noms
-- Pas de types/classes définis par l'utilisateur — seulement les types scalaire/tableau/dict/html/fonction intégrés
-- `ton.requests` ne parle que du `http://` simple — pas de TLS/`https://`, pas de redirections, pas de transfert chunké
-- Le playground du navigateur (`ton618-lite.js`) n'implémente pas encore `ton.encoding`/`ton.regex`/`ton.path`, et peut afficher des flottants avec plus de décimales que l'interpréteur réel (une différence de formatage de nombre JavaScript-contre-C++, pas une différence de valeur)
+- `ton.int` et `ton.float` sont le même type de nombre interne (pas de stockage entier forcé)
+- Les clés de dict sont toujours des chaînes (pas de clés numériques ou structurées)
+- Les classes n'ont ni champs statiques, ni membres privés, ni surcharge d'opérateurs (`==` compare les objets par identité)
+- `ton.requests` ne parle que `http://` en clair — pas de TLS/`https://`, pas de redirections, pas de transfert chunked
+- Le playground du navigateur (`ton618-lite.js`) n'implémente pas `ton.encoding`/`ton.regex`/`ton.path`/`ton.tensor`, et peut afficher des flottants avec plus de décimales que le vrai interpréteur (une différence de formatage JavaScript vs C++, pas de valeur)
 
 ---
 
 ### Changelog
+
+**beta-2.0.0** — une grande modernisation du langage, et un interpréteur 6 fois plus rapide :
+
+*Objets :*
+- **Classes** : `ton.class Nom extends Parent { ... }` avec champs, constructeur `init`, méthodes, `self`, `super`, `toString()`, et variables d'objet typées (`ton.Point p = Point(1, 2)`) — voir [Classes & objets](#classes--objets).
+- **L'opérateur point partout** : `obj.champ`, `obj.methode()`, `dict.cle`, et la syntaxe d'appel uniforme (`"hi".upper()`, `arr.filter(...).map(...)`) — voir [Syntaxe méthode](#syntaxe-méthode--lopérateur-point).
+
+*Nouvelle syntaxe :*
+- **Fonctions fléchées** `x => x * 2`, `(a, b) => { ... }`, et le **pipe** `x |> f(y)`.
+- **f-strings** `f"Salut {name} !"`, **chaînes brutes** entre backticks, échappements `\u{...}`.
+- **Intervalles** `0..10` / `1..=10`, **tranches** `a[1:3]`, **indices négatifs** `a[-1]`.
+- **`ton.let` / `ton.var` / `ton.const`**, et **déstructuration** `ton.let [a, ...reste] = arr`, `ton.let {x, y: alias} = obj`.
+- `for k, v in dict`, `for i, x in tableau`, `for c in "texte"`, variables de boucle sans `ton.`, un nouveau scope à chaque itération.
+- **Chaînage optionnel** `a?.b`, `a?.[i]`, `f?.()` ; **`??=`** ; **`**`** (puissance) ; **spread dans les appels** `f(...args)`.
+- Littéraux numériques `1_000_000`, `1e9`, `0xFF`, `0b1010`, `0o755`.
+- `throw` de n'importe quelle valeur (dicts, objets) ; `catch err` sans parenthèses.
+- Espaces de noms `IMPORT://module as alias` et `IMPORT://dossier/module`.
+- `print(a, b, c)` avec plusieurs arguments ; `print`, `int`, `float`, `bool`, `dict` utilisables comme valeurs de fonction.
+
+*Bibliothèque standard :* ~45 nouvelles fonctions — `sum`, `avg`, `sorted`, `sort` avec comparateur, `range`, `zip`, `enumerate`, `unique`, `flatten`, `chunk`, `groupBy`, `flatMap`, `count`, `findIndex`, `forEach`, `items`, `dict`, `merge`, `remove`, `insert`, `removeAt`, `padStart`, `padEnd`, `startsWith`, `endsWith`, `repeat`, `chars`, `lines`, `capitalize`, `int`, `float`, `fixed`, `isinstance`, `copy`, `deepcopy`, `exit`... — voir [Fonctions natives](#fonctions-natives).
+
+*Outils :*
+- **REPL** : `ton618` sans argument ; **`ton618 -e "code"`** pour une ligne.
+- **Meilleures erreurs** : la ligne de code, une trace à travers les appels de fonction, « did you mean ...? » pour les noms mal orthographiés, et les numéros de ligne sur les erreurs des fonctions natives.
+- **Limite de récursion rattrapable** (10 000 appels) au lieu d'un plantage.
+- Une suite de tests de non-régression (`tests/`, `make test`, lancée par la CI).
+
+*Changements de comportement :*
+- Les nombres s'affichent sous leur forme exacte la plus courte : `3.14` au lieu de `3.140000`, `0.5` au lieu de `0.500000` (aussi dans `str()`, `json()` et la concaténation).
+- Un `continue` dans un `switch` dans une boucle continue maintenant la boucle (il était avalé par le switch).
+- Les erreurs des fonctions natives rattrapées par `catch` commencent maintenant par `Error at line N:` comme toutes les autres erreurs d'exécution.
+- Une closure créée dans une boucle `for ... in` capture la variable de son itération (elle voyait la dernière valeur).
+
+*Performances :* environ 6 fois plus rapide sur du code typique — les noms sont résolus via des symboles internés, les scopes sont des vecteurs plats, le contrôle de flux n'utilise plus d'exceptions C++, et les blocs qui ne déclarent rien n'allouent pas de scope.
 
 **beta-1.0.10** — `tensor_to_bytes`/`tensor_from_bytes`, de vrais fichiers binaires :
 

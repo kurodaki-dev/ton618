@@ -24,6 +24,9 @@ jobs:
       - name: Run the test suite (tests/*.ton vs tests/*.expected)
         run: make test
 
+      - name: Check the browser playground engine against the same tests
+        run: node tests/run-lite.js
+
       - name: Run example scripts (smoke test)
         run: |
           ./ton618 exemples/test.ton

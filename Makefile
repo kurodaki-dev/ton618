@@ -70,8 +70,14 @@ distclean: clean
 docs:
 	cat scripts/doc_templates/head.html DOCUMENTATION.md scripts/doc_templates/tail.html > exemples/documentation.html
 
+# Builds the documentation website (website/app.py, made with Claide —
+# pip install claide-web) into website/_site/. "python website/app.py"
+# serves it locally with live reload instead.
+site:
+	python3 website/app.py build website/_site
+
 # Runs tests/*.ton and compares each output with its tests/*.expected file.
 test: $(OUT)
 	tests/run.sh ./$(OUT)
 
-.PHONY: all linux windows android dist clean distclean docs test
+.PHONY: all linux windows android dist clean distclean docs test site

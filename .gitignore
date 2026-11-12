@@ -2,3 +2,5 @@
 /ton618.exe
 /dist/
 *.o
+/website/_site/
+__pycache__/

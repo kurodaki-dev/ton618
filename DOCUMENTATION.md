@@ -141,6 +141,8 @@ Don't want to install anything just to try a snippet? Open `exemples/playground.
 
 The playground runs **`ton618-lite.js`**, a JavaScript re-implementation of the language, entirely client-side — nothing is sent anywhere, and no installation is required. It mirrors the real interpreter closely: the full grammar (including `switch`/`case`), and the `ton.random`, `ton.time`, `ton.json`, `ton.mathutils`, and `ton.strings` built-in modules, since none of those need anything a browser can't already do.
 
+Since beta-2.0.0 it supports the whole 2.0 language (classes, method syntax, arrow functions, f-strings, ranges, slices, destructuring, `|>`, `?.`...) and the new standard functions — CI runs the `tests/` suite through both the real interpreter and `ton618-lite.js` and checks they print exactly the same thing. On the documentation website, the **Run** button on a code example opens it in the playground.
+
 What it can't do, because a browser sandbox has no filesystem, sockets, or CLI arguments to back them with:
 - `ton.sys`, `ton.os`, `ton.requests` — real process/filesystem/network access; importing any of these gives a clear error explaining why, instead of silently behaving differently from the real interpreter
 - `ton.encoding`, `ton.regex`, `ton.path` — not reimplemented in JavaScript yet (they exist in the real interpreter)
@@ -1405,26 +1407,27 @@ After any change, run `make` and sanity-check with the scripts in `exemples/` (i
 
 ### Publishing the docs to GitHub Pages
 
-`exemples/` is fully static and self-contained — `documentation.html` embeds this very file (see `make docs` above), and `playground.html` runs entirely client-side via `ton618-lite.js`. `.github/workflows/pages.yml` publishes that whole folder to GitHub Pages as-is (not the rest of the repository): it copies `exemples/` verbatim, plus `documentation.html` as `index.html` at the site root so the docs load at the bare Pages URL, with `playground.html` and `ton618-lite.js` reachable right next to it exactly as `documentation.html` already links to them.
+The documentation website (https://c-ton618.duckdns.org/) is built with **[Claide](https://github.com/kurodaki-dev/Claide)**, a Python module for building websites, straight from this file: `website/app.py` reads `DOCUMENTATION.md`, turns every `###` section of the English and the French half into its own page (with a sidebar, a search box, "on this page" links, a language switch and "Run" buttons that open a snippet in the playground), and exports the whole site as static HTML. The playground (`exemples/playground.html` + `ton618-lite.js`), the AI skills page, the logo and `exemples/CNAME` are published next to it.
+
+Preview it locally:
+```bash
+pip install claide-web
+python website/app.py          # http://127.0.0.1:8000, reloads on save
+python website/app.py build    # static export into website/_site/ (or: make site)
+```
+
+`.github/workflows/pages.yml` installs Claide, builds the site and deploys it on every push to `main` that touches `DOCUMENTATION.md`, `website/`, `exemples/` or the version number — editing this file is all it takes to update the website. With a custom domain (`exemples/CNAME`) the site is served from the domain's root; without one, from `https://<user>.github.io/ton618/`.
 
 One-time setup:
 1. **GitHub → this repository → Settings → Pages.**
 2. Under **Build and deployment**, set **Source** to **GitHub Actions** (not "Deploy from a branch").
 
-That's it — `.github/workflows/pages.yml` runs on every push to `main` that touches `exemples/` (or manually from the **Actions** tab), and publishes to:
-```
-https://<user>.github.io/ton618/                       — documentation.html (as index.html)
-https://<user>.github.io/ton618/playground.html         — the playground
-https://<user>.github.io/ton618/ton618-lite.js          — the playground's engine
-```
-(adjust the org/user in those URLs to whichever account owns this repo.)
-
-Whenever `DOCUMENTATION.md` changes, run `make docs`, commit the regenerated `exemples/documentation.html`, and push — the workflow re-publishes automatically.
+`exemples/documentation.html` is the older single-page version of this document, still published at `/documentation.html` and regenerated with `make docs`.
 
 **Using a custom domain** (e.g. a free [DuckDNS](https://www.duckdns.org) subdomain instead of `github.io`): this needs no server of your own — GitHub hosts the site, not you.
 
 1. On DuckDNS, point your subdomain's IP at one of GitHub Pages' fixed addresses instead of any server you run: `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, or `185.199.111.153` (DuckDNS only accepts one IP per subdomain, so pick just one). If that subdomain is also kept updated by a dynamic-DNS script running somewhere (cron on a VPS, a router, etc.), that script will overwrite this the next time it runs — use a subdomain that nothing else auto-updates.
-2. `exemples/CNAME` in this repo already holds the domain the docs are pinned to; `.github/workflows/pages.yml` publishes it as-is, which is what tells GitHub Pages to serve that domain.
+2. `exemples/CNAME` in this repo already holds the domain the docs are pinned to; the workflow publishes it as-is, which is what tells GitHub Pages to serve that domain.
 3. **GitHub → this repository → Settings → Pages** should then show the custom domain under **Custom domain** (DNS propagation can take a few minutes) — once it verifies, tick **Enforce HTTPS**.
 
 ---
@@ -1706,6 +1709,8 @@ Traceback (most recent call last):
 Pas envie d'installer quoi que ce soit juste pour essayer un extrait ? Ouvre `exemples/playground.html` dans n'importe quel navigateur (aucun serveur requis) pour un éditeur de code en direct avec un bouton "Run" et des extraits d'exemple à charger.
 
 Le playground exécute **`ton618-lite.js`**, une réimplémentation JavaScript du langage, entièrement côté client — rien n'est envoyé nulle part, aucune installation requise. Il reproduit fidèlement l'interpréteur réel : la grammaire complète (y compris `switch`/`case`), et les modules intégrés `ton.random`, `ton.time`, `ton.json`, `ton.mathutils` et `ton.strings`, puisqu'aucun d'eux n'a besoin de quoi que ce soit qu'un navigateur ne puisse déjà faire.
+
+Depuis beta-2.0.0 il prend en charge tout le langage 2.0 (classes, syntaxe méthode, fonctions fléchées, f-strings, intervalles, tranches, déstructuration, `|>`, `?.`...) et les nouvelles fonctions standard — la CI fait tourner la suite `tests/` à la fois dans le vrai interpréteur et dans `ton618-lite.js` et vérifie qu'ils affichent exactement la même chose. Sur le site de documentation, le bouton **Exécuter** d'un exemple de code l'ouvre dans le playground.
 
 Ce qu'il ne peut pas faire, parce qu'un bac à sable de navigateur n'a ni système de fichiers, ni sockets, ni arguments de ligne de commande pour les alimenter :
 - `ton.sys`, `ton.os`, `ton.requests` — accès réel au processus/système de fichiers/réseau ; importer l'un d'eux donne une erreur claire expliquant pourquoi, plutôt que de se comporter silencieusement différemment de l'interpréteur réel
@@ -2971,27 +2976,28 @@ Après tout changement, lance `make` et vérifie avec les scripts de `exemples/`
 
 ### Publier la doc sur GitHub Pages
 
-`exemples/` est entièrement statique et autonome — `documentation.html` embarque ce fichier même (voir `make docs` plus haut), et `playground.html` tourne entièrement côté client via `ton618-lite.js`. `.github/workflows/pages.yml` publie tout ce dossier tel quel sur GitHub Pages (pas le reste du dépôt) : il copie `exemples/` verbatim, plus `documentation.html` en tant qu'`index.html` à la racine du site pour que la doc se charge à l'URL Pages toute seule, avec `playground.html` et `ton618-lite.js` accessibles juste à côté, exactement comme `documentation.html` les référence déjà.
+Le site de documentation (https://c-ton618.duckdns.org/) est construit avec **[Claide](https://github.com/kurodaki-dev/Claide)**, un module Python pour faire des sites web, directement à partir de ce fichier : `website/app.py` lit `DOCUMENTATION.md`, transforme chaque section `###` de la moitié anglaise et de la moitié française en une page (avec une barre latérale, une recherche, des liens « sur cette page », un bouton de langue et des boutons « Exécuter » qui ouvrent un extrait dans le playground), et exporte tout le site en HTML statique. Le playground (`exemples/playground.html` + `ton618-lite.js`), la page des skills IA, le logo et `exemples/CNAME` sont publiés à côté.
 
-Configuration à faire une seule fois :
+Pour le prévisualiser en local :
+```bash
+pip install claide-web
+python website/app.py          # http://127.0.0.1:8000, recharge à chaque sauvegarde
+python website/app.py build    # export statique dans website/_site/ (ou : make site)
+```
+
+`.github/workflows/pages.yml` installe Claide, construit le site et le déploie à chaque push sur `main` qui touche `DOCUMENTATION.md`, `website/`, `exemples/` ou le numéro de version — modifier ce fichier suffit à mettre le site à jour. Avec un domaine personnalisé (`exemples/CNAME`) le site est servi à la racine du domaine ; sans, depuis `https://<utilisateur>.github.io/ton618/`.
+
+Configuration unique :
 1. **GitHub → ce dépôt → Settings → Pages.**
 2. Sous **Build and deployment**, mets **Source** sur **GitHub Actions** (pas "Deploy from a branch").
 
-C'est tout — `.github/workflows/pages.yml` se lance à chaque push sur `main` qui touche `exemples/` (ou manuellement depuis l'onglet **Actions**), et publie à :
-```
-https://<utilisateur>.github.io/ton618/                       — documentation.html (comme index.html)
-https://<utilisateur>.github.io/ton618/playground.html         — le playground
-https://<utilisateur>.github.io/ton618/ton618-lite.js          — le moteur du playground
-```
-(adapte l'org/l'utilisateur de ces URLs à celui qui possède ce dépôt.)
+`exemples/documentation.html` est l'ancienne version de ce document sur une seule page, toujours publiée à `/documentation.html` et régénérée avec `make docs`.
 
-Chaque fois que `DOCUMENTATION.md` change, lance `make docs`, commite `exemples/documentation.html` régénéré, et push — le workflow republie automatiquement.
+**Utiliser un domaine personnalisé** (par ex. un sous-domaine [DuckDNS](https://www.duckdns.org) gratuit au lieu de `github.io`) : pas besoin de serveur à toi — c'est GitHub qui héberge le site.
 
-**Utiliser un domaine personnalisé** (ex. un sous-domaine [DuckDNS](https://www.duckdns.org) gratuit plutôt que `github.io`) : ça ne nécessite aucun serveur à toi — GitHub héberge le site, pas toi.
-
-1. Sur DuckDNS, pointe l'IP de ton sous-domaine vers une des adresses fixes de GitHub Pages plutôt que vers un serveur que tu gères : `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, ou `185.199.111.153` (DuckDNS n'accepte qu'une seule IP par sous-domaine, donc choisis-en une seule). Si ce sous-domaine est aussi maintenu à jour par un script de dynamic-DNS ailleurs (cron sur un VPS, un routeur, etc.), ce script écrasera ce réglage à la prochaine exécution — utilise un sous-domaine que rien d'autre ne met à jour automatiquement.
-2. `exemples/CNAME` dans ce dépôt contient déjà le domaine auquel la doc est épinglée ; `.github/workflows/pages.yml` le publie tel quel, ce qui indique à GitHub Pages de servir ce domaine.
-3. **GitHub → ce dépôt → Settings → Pages** devrait alors afficher le domaine personnalisé sous **Custom domain** (la propagation DNS peut prendre quelques minutes) — une fois vérifié, coche **Enforce HTTPS**.
+1. Sur DuckDNS, fais pointer l'IP de ton sous-domaine vers une des adresses fixes de GitHub Pages au lieu d'un serveur à toi : `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, ou `185.199.111.153` (DuckDNS n'accepte qu'une IP par sous-domaine, choisis-en une seule). Si ce sous-domaine est aussi mis à jour par un script de DNS dynamique quelque part (cron sur un VPS, un routeur...), ce script l'écrasera à sa prochaine exécution — utilise un sous-domaine que rien d'autre ne met à jour.
+2. `exemples/CNAME` dans ce dépôt contient déjà le domaine de la doc ; le workflow le publie tel quel, ce qui indique à GitHub Pages de servir ce domaine.
+3. **GitHub → ce dépôt → Settings → Pages** devrait alors afficher le domaine sous **Custom domain** (la propagation DNS peut prendre quelques minutes) — une fois vérifié, coche **Enforce HTTPS**.
 
 ---
 
