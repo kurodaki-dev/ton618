@@ -215,7 +215,7 @@ td code { white-space: nowrap; }
   .header-inner { gap: 8px; }
   .wordmark img { width: 24px; height: 24px; }
   .site-header nav a { padding: 6px 6px; font-size: 0.85rem; }
-  .site-header nav li:nth-child(3) { display: none; } /* "AI skills" — still linked from the docs */
+  .site-header nav li:nth-child(3), .site-header nav li:nth-child(4) { display: none; } /* "AI skills", "Download" — linked from the docs */
   .hero { padding: 44px 0 40px; }
   .features, .new-list, .pager { grid-template-columns: minmax(0, 1fr); }
   .doc h1 { font-size: 1.7rem; }

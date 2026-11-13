@@ -1,0 +1,15 @@
+{
+  "id": "dev.kurodaki.ton618",
+  "name": "TON618",
+  "main": "main.js",
+  "version": "2.0.0",
+  "readme": "readme.md",
+  "changelogs": "changelogs.md",
+  "icon": "icon.png",
+  "files": ["ton618-lite.js"],
+  "minVersionCode": 290,
+  "price": 0,
+  "license": "Apache-2.0",
+  "keywords": ["ton618", "ton", "language", "run"],
+  "author": { "name": "kurodaki-dev", "github": "kurodaki-dev" }
+}

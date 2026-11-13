@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TON618 IDE",
+  "mainBinaryName": "ton618-ide",
+  "version": "2.0.0",
+  "identifier": "dev.kurodaki.ton618.ide",
+  "build": {
+    "frontendDist": "../web",
+    "beforeBuildCommand": "node scripts/prepare.mjs",
+    "beforeDevCommand": "node scripts/prepare.mjs"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      { "label": "main", "title": "TON618 IDE", "width": 1180, "height": 780, "minWidth": 360, "minHeight": 400 }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "Write and run TON618 code",
+    "longDescription": "A tiny editor for the TON618 programming language, with the ton618 interpreter built in.",
+    "copyright": "TON618 logo © 2026 kurodaki-dev. All rights reserved.",
+    "publisher": "kurodaki-dev",
+    "homepage": "https://c-ton618.duckdns.org/",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "externalBin": ["binaries/ton618"]
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "TON618",
+  "scopeName": "source.ton618",
+  "fileTypes": ["ton"],
+  "patterns": [{ "include": "#code" }],
+  "repository": {
+    "code": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#import" },
+        { "include": "#declarations" },
+        { "include": "#keywords" },
+        { "include": "#numbers" },
+        { "include": "#calls" },
+        { "include": "#operators" },
+        { "include": "#identifiers" }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.ton618", "match": "//.*$" },
+        { "name": "comment.block.ton618", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.interpolated.ton618",
+          "begin": "\\bf\"", "end": "\"",
+          "patterns": [
+            { "include": "#escapes" },
+            { "name": "constant.character.escape.ton618", "match": "\\{\\{|\\}\\}" },
+            {
+              "name": "meta.embedded.expression.ton618",
+              "begin": "\\{", "end": "\\}",
+              "beginCaptures": { "0": { "name": "punctuation.section.embedded.begin.ton618" } },
+              "endCaptures": { "0": { "name": "punctuation.section.embedded.end.ton618" } },
+              "contentName": "source.ton618",
+              "patterns": [{ "include": "#code" }]
+            }
+          ]
+        },
+        { "name": "string.quoted.double.ton618", "begin": "\"", "end": "\"", "patterns": [{ "include": "#escapes" }] },
+        { "name": "string.quoted.other.raw.ton618", "begin": "`", "end": "`" }
+      ]
+    },
+    "escapes": {
+      "name": "constant.character.escape.ton618",
+      "match": "\\\\(u\\{[0-9A-Fa-f]+\\}|u[0-9A-Fa-f]{4}|.)"
+    },
+    "import": {
+      "match": "\\b(IMPORT://)((?:ton\\.)?[A-Za-z_][\\w/]*)(?:\\s+(as)\\s+([A-Za-z_]\\w*))?",
+      "captures": {
+        "1": { "name": "keyword.control.import.ton618" },
+        "2": { "name": "entity.name.namespace.ton618" },
+        "3": { "name": "keyword.control.import.ton618" },
+        "4": { "name": "entity.name.namespace.ton618" }
+      }
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(ton)(\\.)(function)\\s+([A-Za-z_]\\w*)",
+          "captures": {
+            "1": { "name": "keyword.other.ton-prefix.ton618" }, "2": { "name": "punctuation.accessor.ton618" },
+            "3": { "name": "storage.type.function.ton618" }, "4": { "name": "entity.name.function.ton618" }
+          }
+        },
+        {
+          "match": "\\b(ton)(\\.)(class)\\s+([A-Za-z_]\\w*)(?:\\s+(extends)\\s+(?:ton\\.)?([A-Za-z_]\\w*))?",
+          "captures": {
+            "1": { "name": "keyword.other.ton-prefix.ton618" }, "2": { "name": "punctuation.accessor.ton618" },
+            "3": { "name": "storage.type.class.ton618" }, "4": { "name": "entity.name.type.class.ton618" },
+            "5": { "name": "storage.modifier.extends.ton618" }, "6": { "name": "entity.other.inherited-class.ton618" }
+          }
+        },
+        {
+          "match": "\\b(ton)(\\.)(int|float|string|bool|array|dict|html|let|var|const|function)\\b",
+          "captures": {
+            "1": { "name": "keyword.other.ton-prefix.ton618" }, "2": { "name": "punctuation.accessor.ton618" },
+            "3": { "name": "storage.type.ton618" }
+          }
+        },
+        {
+          "match": "\\b(ton)(\\.)([A-Z]\\w*)(?=\\s+[A-Za-z_]\\w*\\s*=)",
+          "captures": {
+            "1": { "name": "keyword.other.ton-prefix.ton618" }, "2": { "name": "punctuation.accessor.ton618" },
+            "3": { "name": "entity.name.type.class.ton618" }
+          }
+        },
+        {
+          "match": "\\b(ton)(\\.)",
+          "captures": { "1": { "name": "keyword.other.ton-prefix.ton618" }, "2": { "name": "punctuation.accessor.ton618" } }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        { "name": "keyword.control.ton618", "match": "\\b(if|else|while|for|in|return|break|continue|try|catch|throw|finally|switch|case|default)\\b" },
+        { "name": "keyword.operator.word.ton618", "match": "\\b(and|or)\\b" },
+        { "name": "constant.language.ton618", "match": "\\b(true|false|nil)\\b" },
+        { "name": "variable.language.self.ton618", "match": "\\b(self|super)\\b" },
+        { "name": "support.function.builtin.ton618", "match": "\\bprint\\b" }
+      ]
+    },
+    "numbers": {
+      "name": "constant.numeric.ton618",
+      "match": "\\b(0[xX][0-9A-Fa-f_]+|0[bB][01_]+|0[oO][0-7_]+|\\d[\\d_]*(\\.\\d+)?([eE][+-]?\\d+)?)\\b"
+    },
+    "calls": {
+      "patterns": [
+        { "match": "\\b([A-Z]\\w*)(?=\\s*\\()", "captures": { "1": { "name": "entity.name.type.class.ton618" } } },
+        { "match": "\\b([a-z_]\\w*)(?=\\s*\\()", "captures": { "1": { "name": "entity.name.function.ton618" } } }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.arrow.ton618", "match": "=>" },
+        { "name": "keyword.operator.pipe.ton618", "match": "\\|>" },
+        { "name": "keyword.operator.range.ton618", "match": "\\.\\.=?|\\.\\.\\." },
+        { "name": "keyword.operator.ton618", "match": "\\?\\.|\\?\\?=?|\\*\\*=?|[-+*/%]=?|==|!=|<=|>=|<<=?|>>=?|&&|\\|\\||[<>!=&|^~?:]" }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        { "match": "\\b([A-Z]\\w*)\\b", "captures": { "1": { "name": "entity.name.type.ton618" } } },
+        { "match": "(?<=\\.)\\s*([A-Za-z_]\\w*)", "captures": { "1": { "name": "variable.other.property.ton618" } } }
+      ]
+    }
+  }
+}

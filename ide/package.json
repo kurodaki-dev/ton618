@@ -1,0 +1,16 @@
+{
+  "name": "ton618-ide",
+  "private": true,
+  "version": "2.0.0",
+  "description": "TON618 IDE — a tiny editor to write and run TON618 code (Tauri: Windows, Linux, macOS, Android).",
+  "license": "Apache-2.0",
+  "scripts": {
+    "prepare-web": "node scripts/prepare.mjs",
+    "dev": "node scripts/prepare.mjs && tauri dev",
+    "build": "node scripts/prepare.mjs && tauri build",
+    "android": "node scripts/prepare.mjs && tauri android build --apk"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.2.0"
+  }
+}

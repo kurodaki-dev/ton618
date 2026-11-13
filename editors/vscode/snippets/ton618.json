@@ -1,0 +1,35 @@
+{
+  "Function": { "prefix": "fn", "body": ["ton.function ${1:name}(${2:params}) {", "\t$0", "}"], "description": "Function declaration" },
+  "Arrow function": { "prefix": "arrow", "body": ["(${1:x}) => ${0:x}"], "description": "Arrow function" },
+  "Class": {
+    "prefix": "class",
+    "body": ["ton.class ${1:Name} {", "\tton.function init(${2:params}) {", "\t\t$0", "\t}", "}"],
+    "description": "Class with a constructor"
+  },
+  "Subclass": {
+    "prefix": "classext",
+    "body": ["ton.class ${1:Name} extends ${2:Parent} {", "\tton.function init(${3:params}) {", "\t\tsuper.init(${3:params})", "\t\t$0", "\t}", "}"],
+    "description": "Class that extends another one"
+  },
+  "Method": { "prefix": "method", "body": ["ton.function ${1:name}(${2}) {", "\t$0", "}"], "description": "Method" },
+  "Variable": { "prefix": "let", "body": ["ton.let ${1:name} = ${0:value}"], "description": "Untyped variable" },
+  "Constant": { "prefix": "const", "body": ["ton.const ${1:NAME} = ${0:value}"], "description": "Constant" },
+  "If": { "prefix": "if", "body": ["if ${1:condition} {", "\t$0", "}"], "description": "if" },
+  "If / else": { "prefix": "ife", "body": ["if ${1:condition} {", "\t$2", "} else {", "\t$0", "}"], "description": "if / else" },
+  "For in": { "prefix": "for", "body": ["for ${1:item} in ${2:collection} {", "\t$0", "}"], "description": "for ... in" },
+  "For range": { "prefix": "forr", "body": ["for ${1:i} in ${2:0}..${3:10} {", "\t$0", "}"], "description": "for over a range" },
+  "While": { "prefix": "while", "body": ["while ${1:condition} {", "\t$0", "}"], "description": "while" },
+  "Try / catch": { "prefix": "try", "body": ["try {", "\t$1", "} catch (${2:err}) {", "\t$0", "}"], "description": "try / catch" },
+  "Switch": {
+    "prefix": "switch",
+    "body": ["switch ${1:value} {", "\tcase ${2:1}: {", "\t\t$3", "\t}", "\tdefault: {", "\t\t$0", "\t}", "}"],
+    "description": "switch / case"
+  },
+  "Print f-string": { "prefix": "pf", "body": ["print(f\"${1:{value\\}}\")"], "description": "print an f-string" },
+  "Import": { "prefix": "imp", "body": ["IMPORT://${1:module}"], "description": "Import a module" },
+  "Route": {
+    "prefix": "route",
+    "body": ["ton.get(\"${1:/path}\", ton.function(req) {", "\treturn ${0:\"ok\"}", "})"],
+    "description": "HTTP GET route"
+  }
+}

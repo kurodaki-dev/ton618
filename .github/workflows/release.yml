@@ -1,123 +1,348 @@
 name: Release
 
-# Cross-compiles the three precompiled binaries the project ships (Linux
-# x64, Windows x64, Termux/Android arm64 — see the Makefile's linux/windows/
-# android targets and scripts/rebuild.sh for the same build done locally),
-# then publishes them as assets on a GitHub Release. `--update` (src/main.cpp)
-# and scripts/install.sh / install.ps1 all download from that release.
+# Automatic release of everything TON618 ships, built entirely here:
 #
-# Triggers on any pushed tag matching v* or beta-* (e.g. `git tag beta-1.0.0
-# && git push origin beta-1.0.0`), or manually via workflow_dispatch for a
-# tag that doesn't exist yet — the release step creates it.
+#   interpreter   ton618 for Linux x64, Windows x64, macOS (universal) and
+#                 Termux/Android arm64 — what install.sh / install.ps1 and
+#                 `ton618 --update` download
+#   TON618 IDE    Windows (.exe installer, .msi), Linux (.AppImage, .deb),
+#                 macOS (.dmg) and Android (.apk) — Tauri, see ide/
+#   VS Code       the extension (.vsix) — see editors/vscode/
+#   Acode         the plugin (.zip) — see editors/acode/
+#
+# When: on every push to main, a release is made if the version in
+# include/Version.hpp (TON618_VERSION) has no release yet — so bumping that
+# version is all it takes to publish. "Run workflow" (workflow_dispatch)
+# rebuilds and re-uploads the current version even if it was released.
+#
+# Optional secrets: VSCE_PAT (also publish to the VS Code Marketplace),
+# OVSX_PAT (Open VSX), ANDROID_KEYSTORE_BASE64 + ANDROID_KEYSTORE_PASSWORD
+# (sign the APK with your own key, so that updates install over each other;
+# without them the APK is signed with a throwaway key).
 
 on:
   push:
-    tags:
-      - "v*"
-      - "beta-*"
+    branches: [main]
+  # Pull requests that touch what's built: a dry run that builds everything
+  # but publishes nothing, so a broken build is caught before it's merged.
+  pull_request:
+    paths:
+      - "src/**"
+      - "include/**"
+      - "ide/**"
+      - "editors/**"
+      - "exemples/ton618-lite.js"
+      - "exemples/logo.svg"
+      - "scripts/**"
+      - "Makefile"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag to publish (e.g. beta-1.0.0)"
-        required: true
-        default: "beta-1.0.0"
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  build-linux:
+  version:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      semver: ${{ steps.v.outputs.semver }}
+      release: ${{ steps.v.outputs.release }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install -y g++ make
-      - name: Build Linux x64 binary
-        run: make linux
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ton618-linux-x64
-          path: dist/ton618-linux-x64
-          if-no-files-found: error
+      - id: v
+        run: |
+          TAG=$(sed -n 's/.*TON618_VERSION "\(.*\)".*/\1/p' include/Version.hpp)
+          SEMVER=${TAG#beta-}; SEMVER=${SEMVER#v}
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "pull_request" ]; then
+            RELEASE=true   # (a pull request builds everything; the release job skips publishing)
+          elif git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            RELEASE=false
+            echo "$TAG is already released: nothing to do (bump TON618_VERSION to release)."
+          else
+            RELEASE=true
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "semver=$SEMVER" >> "$GITHUB_OUTPUT"
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
+          echo "TON618 $TAG (semver $SEMVER) — release: $RELEASE"
 
-  build-windows:
-    runs-on: ubuntu-latest
+  # ---------------------------------------------------------------- interpreter
+  interpreter-linux:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-22.04 # older glibc: the binary runs on more distributions
     steps:
       - uses: actions/checkout@v4
-      - name: Install mingw-w64 (cross-compiler for Windows)
-        run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64-x86-64 make
-      - name: Build Windows x64 binary
-        run: make windows
+      - run: make linux && make test
       - uses: actions/upload-artifact@v4
-        with:
-          name: ton618-windows-x64.exe
-          path: dist/ton618-windows-x64.exe
-          if-no-files-found: error
+        with: { name: ton618-linux-x64, path: dist/ton618-linux-x64, if-no-files-found: error }
 
-  build-android:
+  interpreter-windows:
+    needs: version
+    if: needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Zig
-        # Zig bundles its own musl libc and cross-compiles C++ straight to
-        # aarch64-linux-musl with no separate toolchain download — statically
-        # linked, so the result runs unmodified under Termux with zero
-        # packages installed on-device (not the Android NDK/bionic — see the
-        # Makefile's own comment). Downloaded directly from ziglang.org
-        # rather than depending on a third-party musl-cross mirror.
+      - run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64-x86-64
+      - run: make windows
+      - uses: actions/upload-artifact@v4
+        with: { name: ton618-windows-x64.exe, path: dist/ton618-windows-x64.exe, if-no-files-found: error }
+
+  interpreter-macos:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make macos && dist/ton618-macos-universal tests/v2_features.ton > /dev/null
+      - uses: actions/upload-artifact@v4
+        with: { name: ton618-macos-universal, path: dist/ton618-macos-universal, if-no-files-found: error }
+
+  interpreter-android:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig (bundles musl, so the static binary runs in Termux as is)
         run: |
           curl -fsSL -o /tmp/zig.tar.xz https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
-          mkdir -p /tmp/zig
-          tar xJf /tmp/zig.tar.xz -C /tmp/zig --strip-components=1
+          mkdir -p /tmp/zig && tar xJf /tmp/zig.tar.xz -C /tmp/zig --strip-components=1
           echo "/tmp/zig" >> "$GITHUB_PATH"
-      - name: Build Termux/Android arm64 binary
-        run: |
-          make android \
-            MUSL_AARCH64_CXX="zig c++ -target aarch64-linux-musl" \
-            MUSL_AARCH64_STRIP="scripts/zig-strip.sh"
+      - run: make android MUSL_AARCH64_CXX="zig c++ -target aarch64-linux-musl" MUSL_AARCH64_STRIP="scripts/zig-strip.sh"
       - uses: actions/upload-artifact@v4
-        with:
-          name: ton618-android-arm64
-          path: dist/ton618-android-arm64
-          if-no-files-found: error
+        with: { name: ton618-android-arm64, path: dist/ton618-android-arm64, if-no-files-found: error }
 
+  # ---------------------------------------------------------------- IDE (desktop)
+  ide-desktop:
+    needs: [version, interpreter-linux, interpreter-windows, interpreter-macos]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            triple: x86_64-unknown-linux-gnu
+            interpreter: ton618-linux-x64
+            args: ""
+          - os: windows-latest
+            triple: x86_64-pc-windows-msvc
+            interpreter: ton618-windows-x64.exe
+            args: ""
+          - os: macos-latest
+            triple: universal-apple-darwin
+            interpreter: ton618-macos-universal
+            args: "--target universal-apple-darwin"
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ide
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: "ide/src-tauri -> target" }
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev patchelf
+      - name: Bundle the ton618 interpreter with the IDE
+        uses: actions/download-artifact@v4
+        with: { name: "${{ matrix.interpreter }}", path: ide/interpreter }
+      - run: |
+          mkdir -p src-tauri/binaries
+          EXT=""; [ "${{ runner.os }}" = "Windows" ] && EXT=".exe"
+          cp "interpreter/${{ matrix.interpreter }}" "src-tauri/binaries/ton618-${{ matrix.triple }}$EXT"
+          chmod +x src-tauri/binaries/*
+      - name: Logo (with its copyright notice) and icons
+        run: |
+          (python3 ../scripts/logo.py || python ../scripts/logo.py)
+          npm ci
+          npx tauri icon ../exemples/logo.svg
+      - name: Build
+        run: npx tauri build ${{ matrix.args }} --config '{"version":"${{ needs.version.outputs.semver }}"}'
+      - name: Collect the installers
+        run: |
+          V=${{ needs.version.outputs.semver }}
+          mkdir -p out
+          B=src-tauri/target/${{ matrix.os == 'macos-latest' && 'universal-apple-darwin/' || '' }}release/bundle
+          for f in "$B"/appimage/*.AppImage; do [ -e "$f" ] && cp "$f" "out/TON618-IDE-$V-linux-x64.AppImage"; done
+          for f in "$B"/deb/*.deb;           do [ -e "$f" ] && cp "$f" "out/TON618-IDE-$V-linux-amd64.deb"; done
+          for f in "$B"/rpm/*.rpm;           do [ -e "$f" ] && cp "$f" "out/TON618-IDE-$V-linux-x86_64.rpm"; done
+          for f in "$B"/nsis/*.exe;          do [ -e "$f" ] && cp "$f" "out/TON618-IDE-$V-windows-x64-setup.exe"; done
+          for f in "$B"/msi/*.msi;           do [ -e "$f" ] && cp "$f" "out/TON618-IDE-$V-windows-x64.msi"; done
+          for f in "$B"/dmg/*.dmg;           do [ -e "$f" ] && cp "$f" "out/TON618-IDE-$V-macos-universal.dmg"; done
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with: { name: "ide-${{ matrix.triple }}", path: ide/out/*, if-no-files-found: error }
+
+  # ---------------------------------------------------------------- IDE (Android)
+  ide-android:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ide
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: "ide/src-tauri -> target" }
+      - name: Create the Android project
+        env: { NDK_HOME: "${{ env.ANDROID_NDK_LATEST_HOME }}" }
+        run: |
+          python3 ../scripts/logo.py
+          npm ci
+          npx tauri android init --ci
+          npx tauri icon ../exemples/logo.svg
+      - name: Build the APK
+        env: { NDK_HOME: "${{ env.ANDROID_NDK_LATEST_HOME }}" }
+        run: npx tauri android build --apk --ci --target aarch64 armv7 --config '{"version":"${{ needs.version.outputs.semver }}"}'
+      - name: Sign the APK
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          V=${{ needs.version.outputs.semver }}
+          APK=$(find src-tauri/gen/android -name "*-release-unsigned.apk" | head -1)
+          [ -n "$APK" ] || APK=$(find src-tauri/gen/android -name "*-release*.apk" | head -1)
+          echo "APK: $APK"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > release.keystore
+            PASS="$KEYSTORE_PASSWORD"
+          else
+            PASS=ton618-throwaway
+            keytool -genkeypair -keystore release.keystore -storepass "$PASS" -keypass "$PASS" -alias ton618 \
+              -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=TON618 IDE, O=kurodaki-dev"
+          fi
+          mkdir -p out
+          "$BT/zipalign" -f -p 4 "$APK" aligned.apk
+          "$BT/apksigner" sign --ks release.keystore --ks-pass "pass:$PASS" --out "out/TON618-IDE-$V-android.apk" aligned.apk
+          "$BT/apksigner" verify "out/TON618-IDE-$V-android.apk"
+      - uses: actions/upload-artifact@v4
+        with: { name: ide-android, path: ide/out/*.apk, if-no-files-found: error }
+
+  # ---------------------------------------------------------------- editor extensions
+  vscode:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: sudo apt-get update && sudo apt-get install -y librsvg2-bin
+      - name: Package the extension
+        run: |
+          V=${{ needs.version.outputs.semver }}
+          python3 ../../scripts/logo.py
+          rsvg-convert -w 128 -h 128 ../../exemples/logo.svg -o icon.png
+          cp ../../exemples/logo.svg file-icon.svg
+          npm version "$V" --no-git-tag-version --allow-same-version
+          npx --yes @vscode/vsce@3 package --out "ton618-vscode-$V.vsix"
+      - name: Publish to the VS Code Marketplace (if VSCE_PAT is set)
+        env: { VSCE_PAT: "${{ secrets.VSCE_PAT }}" }
+        if: env.VSCE_PAT != '' && github.event_name != 'pull_request'
+        run: npx --yes @vscode/vsce@3 publish --packagePath ton618-vscode-*.vsix
+      - name: Publish to Open VSX (if OVSX_PAT is set)
+        env: { OVSX_PAT: "${{ secrets.OVSX_PAT }}" }
+        if: env.OVSX_PAT != '' && github.event_name != 'pull_request'
+        run: npx --yes ovsx publish ton618-vscode-*.vsix -p "$OVSX_PAT"
+      - uses: actions/upload-artifact@v4
+        with: { name: vscode, path: editors/vscode/*.vsix, if-no-files-found: error }
+
+  acode:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/acode
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y librsvg2-bin
+      - name: Package the plugin
+        run: |
+          V=${{ needs.version.outputs.semver }}
+          python3 ../../scripts/logo.py
+          rsvg-convert -w 96 -h 96 ../../exemples/logo.svg -o icon.png
+          cp ../../exemples/ton618-lite.js .
+          python3 - "$V" <<'PY'
+          import json, sys
+          p = json.load(open("plugin.json")); p["version"] = sys.argv[1]
+          json.dump(p, open("plugin.json", "w"), indent=2)
+          PY
+          zip -9 "ton618-acode-plugin-$V.zip" plugin.json main.js ton618-lite.js icon.png readme.md changelogs.md
+      - uses: actions/upload-artifact@v4
+        with: { name: acode, path: editors/acode/*.zip, if-no-files-found: error }
+
+  # ---------------------------------------------------------------- the release
   release:
-    needs: [build-linux, build-windows, build-android]
+    needs: [version, interpreter-linux, interpreter-windows, interpreter-macos, interpreter-android,
+            ide-desktop, ide-android, vscode, acode]
+    # Publish whatever was built, even if one platform failed (the others
+    # are still useful); never when the version was already released.
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.version.outputs.release == 'true' && needs.interpreter-linux.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
-        with:
-          path: dist-artifacts
-
-      - name: Flatten downloaded artifacts into dist/
+        with: { path: artifacts, merge-multiple: true }
+      - name: Source archive
         run: |
-          mkdir -p dist
-          find dist-artifacts -type f -exec mv {} dist/ \;
-          chmod +x dist/ton618-linux-x64 dist/ton618-android-arm64
-          ls -la dist
-
-      - name: Build the source tarball
-        run: tar -czf dist/ton618-source.tar.gz Makefile include src modules exemples scripts DOCUMENTATION.md
-
-      - name: Resolve the release tag
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create the GitHub Release
-        uses: softprops/action-gh-release@v2
+          python3 scripts/logo.py
+          tar -czf artifacts/ton618-source.tar.gz Makefile include src modules exemples scripts tests DOCUMENTATION.md LICENSE LOGO-LICENSE.md
+          chmod +x artifacts/ton618-linux-x64 artifacts/ton618-android-arm64 artifacts/ton618-macos-universal 2>/dev/null || true
+          ls -la artifacts
+      - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: "TON618 ${{ steps.tag.outputs.tag }}"
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: TON618 ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
           generate_release_notes: true
-          files: |
-            dist/ton618-linux-x64
-            dist/ton618-windows-x64.exe
-            dist/ton618-android-arm64
-            dist/ton618-source.tar.gz
+          files: artifacts/*
+          body: |
+            ## Install the interpreter
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/kurodaki-dev/ton618/main/scripts/install.sh | bash          # Linux, macOS, Termux
+            powershell -c "irm https://raw.githubusercontent.com/kurodaki-dev/ton618/main/scripts/install.ps1 | iex"  # Windows
+            ```
+            Already installed? `ton618 --update`.
+
+            ## Downloads
+
+            | | File |
+            |---|---|
+            | **TON618 IDE** — Windows | `TON618-IDE-*-windows-x64-setup.exe` (or `.msi`) |
+            | **TON618 IDE** — Linux | `TON618-IDE-*-linux-x64.AppImage` (any distribution: `chmod +x`, run) or `.deb` |
+            | **TON618 IDE** — macOS | `TON618-IDE-*-macos-universal.dmg` (Intel and Apple Silicon; first launch: right-click → Open) |
+            | **TON618 IDE** — Android | `TON618-IDE-*-android.apk` |
+            | **VS Code extension** | `ton618-vscode-*.vsix` — Extensions view → ⋯ → *Install from VSIX…* |
+            | **Acode plugin** | `ton618-acode-plugin-*.zip` — Acode → Settings → Plugins → ⋮ → *Install from local* |
+            | Interpreter binaries | `ton618-linux-x64`, `ton618-windows-x64.exe`, `ton618-macos-universal`, `ton618-android-arm64` |
+
+            The IDE includes the `ton618` interpreter (desktop) and TON618's built-in engine (all platforms, Android included).
+            Documentation: https://c-ton618.duckdns.org/ — the TON618 logo is © 2026 kurodaki-dev, all rights reserved (see LOGO-LICENSE.md).

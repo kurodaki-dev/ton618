@@ -58,5 +58,6 @@ inline std::string releaseAssetName() {
     if (platform == "windows") return "ton618-windows-x64.exe";
     if (platform == "linux") return "ton618-linux-x64";
     if (platform == "termux") return "ton618-android-arm64";
+    if (platform == "macos") return "ton618-macos-universal";
     return "";
 }
