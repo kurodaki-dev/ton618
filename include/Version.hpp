@@ -9,7 +9,7 @@
 // compares it against GitHub release tags — see TON618_REPO below.
 // ============================================================================
 
-#define TON618_VERSION "beta-2.0.2"
+#define TON618_VERSION "beta-2.1.0"
 
 // "owner/repo" on GitHub that --update pulls precompiled binaries from and
 // that install.sh / install.ps1 point at. Change this if the project ever
@@ -22,3 +22,10 @@
 // rebuilding by setting the TON618_REGISTRY_URL environment variable (no
 // trailing slash) to point at your own deployment.
 #define TON618_REGISTRY_URL "https://file330.duckdns.org/ton618-registry-api"
+
+// Where `ton618 install/update/search` find packages: a static website (the
+// documentation site's /registry folder, served by GitHub Pages) made of
+// index.json plus one .tonpkg file per published version. Override without
+// rebuilding with the TON618_PACKAGES_URL environment variable (a file:// URL
+// works too, for a local registry).
+#define TON618_PACKAGE_REGISTRY_URL "https://c-ton618.duckdns.org/registry"

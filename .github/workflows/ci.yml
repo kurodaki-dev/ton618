@@ -21,8 +21,11 @@ jobs:
       - name: Build
         run: make
 
-      - name: Run the test suite (tests/*.ton vs tests/*.expected)
+      - name: Run the test suite (language tests, then the package manager end to end)
         run: make test
+
+      - name: Check the package registry
+        run: python3 scripts/registry.py validate --ton618 ./ton618
 
       - name: Check the browser playground engine against the same tests
         run: node tests/run-lite.js

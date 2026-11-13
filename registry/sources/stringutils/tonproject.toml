@@ -1,0 +1,11 @@
+[project]
+name = "stringutils"
+version = "1.0.0"
+description = "Small string helpers: capitalize and title-case. The example package of the TON618 registry."
+authors = ["kurodaki-dev"]
+license = "Apache-2.0"
+readme = "README.md"
+main = "stringutils.ton"
+repository = "https://github.com/kurodaki-dev/ton618"
+keywords = ["string", "text", "example"]
+requires = ">=2.1.0"

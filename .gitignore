@@ -4,3 +4,4 @@
 *.o
 /website/_site/
 __pycache__/
+registry/sources/*/dist/

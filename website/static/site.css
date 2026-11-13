@@ -132,6 +132,20 @@ td code { white-space: nowrap; }
 .tools th a { text-decoration: none; }
 .tools td { color: var(--soft); }
 
+/* ---- packages ---- */
+#pkg-filter { width: 100%; max-width: 420px; font: 15px var(--sans); color: var(--ink); background: var(--black); border: 1px solid var(--rule); border-radius: 4px; padding: 9px 12px; }
+#pkg-filter:focus { outline: none; border-color: var(--white); }
+.pkg-count { color: var(--soft); font-size: 13.5px; margin: 14px 0 6px; }
+.pkg-list { list-style: none; padding: 0; margin: 0 0 8px; border-top: 1px solid var(--rule); }
+.pkg { padding: 16px 2px; border-bottom: 1px solid var(--rule); }
+.pkg[hidden] { display: none; }
+.pkg-name { font: 600 19px var(--mono); text-decoration: none; }
+.pkg-version { font: 13px var(--mono); color: var(--soft); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 7px; margin-left: 8px; vertical-align: middle; }
+.pkg p { margin: 6px 0 10px; color: var(--ink); }
+.facts { margin: 0 0 1.6em; }
+.facts th { width: 34%; color: var(--soft); font-weight: 500; }
+.facts thead th { color: var(--white); font-weight: 600; width: auto; }
+
 /* ---- code colours: white and greys, two muted tints ---- */
 .hljs-keyword, .hljs-selector-tag { color: var(--white); font-weight: 600; }
 .hljs-type, .hljs-built_in { color: #d0d0d0; }

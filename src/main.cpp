@@ -17,6 +17,8 @@
 #include "JsonParser.hpp"
 #include "Platform.hpp"
 #include "Version.hpp"
+#include "Net.hpp"
+#include "Packages.hpp"
 
 #ifdef _WIN32
   #include <windows.h>
@@ -225,8 +227,14 @@ static void printUsage(const char* prog) {
               << "  --version, -v         print the interpreter's version, platform and architecture\n"
               << "  --help, -h            show this message\n"
               << "\nOther commands:\n"
-              << "  " << prog << " install <module>      fetch a module from the TON618 module registry into ./modules/\n"
-              << "  " << prog << " uninstall <module>    remove a module previously fetched with install, from ./modules/\n"
+              << "  " << prog << " init [name]           start a module project (creates tonproject.toml)\n"
+              << "  " << prog << " build                 pack the project into dist/<name>-<version>.tonpkg\n"
+              << "  " << prog << " publish               share the built package through the registry\n"
+              << "  " << prog << " install [pkg[@range]]  install packages into ./modules/ (no name: those in tonproject.toml)\n"
+              << "  " << prog << " update [pkg]           update installed packages\n"
+              << "  " << prog << " uninstall <pkg>       remove an installed package\n"
+              << "  " << prog << " list [--outdated]     show installed packages\n"
+              << "  " << prog << " search [text]          look for packages;  info <pkg>  to see one\n"
               << "\nExample:\n"
               << "  " << prog << " myscript.ton --debug --break=5\n";
 }
@@ -331,92 +339,6 @@ static int runUninstall() {
     std::cout << "TON618 has been uninstalled (" << self << " removed).\n";
 #endif
     return 0;
-}
-
-// True if `cmd` resolves to something runnable on PATH.
-static bool commandExists(const std::string& cmd) {
-#ifdef _WIN32
-    std::string check = "where " + cmd + " >NUL 2>NUL";
-#else
-    std::string check = "command -v " + cmd + " >/dev/null 2>&1";
-#endif
-    return std::system(check.c_str()) == 0;
-}
-
-// Downloads `url` to `outPath` by shelling out to curl (present on Linux,
-// Termux with `pkg install curl`, and Windows 10 1803+ out of the box) or a
-// fallback (wget on Linux, PowerShell's Invoke-WebRequest on Windows). No
-// HTTPS client is implemented in-process — see HttpClient.hpp's own comment
-// on why TON618 has no bundled TLS — so --update reuses whatever the OS
-// already ships, exactly like install.sh/install.ps1 do.
-static bool downloadFile(const std::string& url, const std::string& outPath) {
-    std::string cmd;
-#ifdef _WIN32
-    if (commandExists("curl")) {
-        cmd = "curl -fsSL -o \"" + outPath + "\" \"" + url + "\"";
-    } else {
-        cmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command "
-              "\"$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri '" + url +
-              "' -OutFile '" + outPath + "'\"";
-    }
-#else
-    if (commandExists("curl")) {
-        cmd = "curl -fsSL -o '" + outPath + "' '" + url + "'";
-    } else if (commandExists("wget")) {
-        cmd = "wget -q -O '" + outPath + "' '" + url + "'";
-    } else {
-        std::cerr << "Neither curl nor wget is available to download the update.\n";
-        return false;
-    }
-#endif
-    return std::system(cmd.c_str()) == 0;
-}
-
-// Same tooling as downloadFile() above, but captures the response body as a
-// string instead of writing it to a file — used to fetch the small JSON
-// documents the module registry serves (see runInstall() below). Sets `ok`
-// to false (and returns an empty string) on any failure.
-static std::string fetchText(const std::string& url, bool& ok) {
-    std::string cmd;
-#ifdef _WIN32
-    if (commandExists("curl")) {
-        cmd = "curl -fsSL \"" + url + "\"";
-    } else {
-        cmd = "powershell -NoProfile -ExecutionPolicy Bypass -Command "
-              "\"$ProgressPreference='SilentlyContinue'; (Invoke-WebRequest -Uri '" + url + "').Content\"";
-    }
-#else
-    if (commandExists("curl")) {
-        cmd = "curl -fsSL '" + url + "'";
-    } else if (commandExists("wget")) {
-        cmd = "wget -q -O- '" + url + "'";
-    } else {
-        ok = false;
-        return "";
-    }
-#endif
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) { ok = false; return ""; }
-    std::string result;
-    char buf[4096];
-    size_t n;
-    while ((n = std::fread(buf, 1, sizeof(buf), pipe)) > 0) result.append(buf, n);
-    ok = (pclose(pipe) == 0);
-    return result;
-}
-
-// True if every character of `s` is a letter, digit, '.', '-', or '_' (and
-// `s` is non-empty) — the same restrictive charset runUpdate() validates its
-// version argument against, reused here because these strings all end up
-// interpolated into a shell command line (see downloadFile/fetchText): a
-// module name typed by the user, or an owner/repo pulled out of a registry
-// response, must never be able to smuggle in shell metacharacters.
-static bool isSafeToken(const std::string& s) {
-    if (s.empty()) return false;
-    for (char c : s) {
-        if (!std::isalnum((unsigned char)c) && c != '.' && c != '-' && c != '_') return false;
-    }
-    return true;
 }
 
 // Pulls "owner/repo" out of a github field that may be a full URL
@@ -720,20 +642,10 @@ int main(int argc, char** argv) {
         });
     }
 
-    if (args[0] == "install") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0] << " install <module>\n";
-            return 1;
-        }
-        return runInstall(args[1]);
-    }
-
-    if (args[0] == "uninstall") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0] << " uninstall <module>\n";
-            return 1;
-        }
-        return runUninstallModule(args[1]);
+    // The package manager: init, build, publish, install, update, uninstall, list, search, info.
+    // (A file with exactly that name in the current folder is still run as a script.)
+    if (isPackageCommand(args[0]) && !(args[0] != "install" && args[0] != "uninstall" && std::filesystem::is_regular_file(args[0]))) {
+        return runPackageCommand(args, runInstall, runUninstallModule);
     }
 
     std::string path = args[0];

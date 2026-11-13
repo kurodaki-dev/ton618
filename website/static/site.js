@@ -124,6 +124,20 @@
       });
     }
 
+    var filter = document.getElementById("pkg-filter");
+    if (filter) {
+      var items = [].slice.call(document.querySelectorAll("#pkg-list .pkg"));
+      filter.addEventListener("input", function () {
+        var q = plain(filter.value.trim()), shown = 0;
+        items.forEach(function (li) {
+          var hit = !q || plain(li.dataset.text).indexOf(q) >= 0;
+          li.hidden = !hit;
+          if (hit) shown++;
+        });
+        document.getElementById("pkg-none").hidden = shown > 0;
+      });
+    }
+
     var button = document.getElementById("menu-button");
     if (button) {
       button.addEventListener("click", function (e) {

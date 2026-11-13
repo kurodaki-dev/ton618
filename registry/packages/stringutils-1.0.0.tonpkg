@@ -1,0 +1,23 @@
+{
+  "format": 1,
+  "name": "stringutils",
+  "version": "1.0.0",
+  "description": "Small string helpers: capitalize and title-case. The example package of the TON618 registry.",
+  "authors": [
+    "kurodaki-dev"
+  ],
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/kurodaki-dev/ton618",
+  "keywords": [
+    "string",
+    "text",
+    "example"
+  ],
+  "requires": ">=2.1.0",
+  "main": "stringutils.ton",
+  "dependencies": {},
+  "files": {
+    "README.md": "# stringutils\n\nSmall string helpers. It is also the **example package** of the TON618 registry: read its\nsource (`stringutils.ton`) to see how a module is written.\n\n## Install\n\n```\nton618 install stringutils\n```\n\n## Use\n\n```\nIMPORT://stringutils\n\nprint(stringutils_capitalize(\"hello\"))            // Hello\nprint(stringutils_titleCase(\"the black hole\"))    // The Black Hole\n```\n\n| Function | Does |\n|---|---|\n| `stringutils_capitalize(s)` | Upper-cases the first letter |\n| `stringutils_titleCase(s)` | Upper-cases the first letter of every word |\n",
+    "stringutils.ton": "// stringutils.ton — reusable string helpers.\n// Convention: every name here is prefixed with \"stringutils_\" to avoid\n// clashing with whatever the importing script (or another module) declares.\n// See DOCUMENTATION.md > \"Creating a TON618 module\" for the full guide this\n// file illustrates.\n\n// Capitalizes the first letter of s, leaves the rest untouched.\nton.function stringutils_capitalize(s) {\n    if len(s) == 0 {\n        return s\n    }\n    return upper(substring(s, 0, 1)) + substring(s, 1)\n}\n\n// Capitalizes the first letter of every space-separated word in s.\nton.function stringutils_titleCase(s) {\n    ton.array words = split(s, \" \")\n    ton.array out = map(words, ton.function(w) { return stringutils_capitalize(w) })\n    return join(out, \" \")\n}\n"
+  }
+}

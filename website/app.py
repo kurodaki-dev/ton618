@@ -25,6 +25,9 @@ from pathlib import Path
 from claide import App, Page, abort, raw, send_file, tags as t
 from claide.markdown import render as markdown_to_html
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+import registry as package_registry  # noqa: E402  (the same code that checks and indexes the packages)
+
 ROOT = Path(__file__).resolve().parent.parent
 REPO = "https://github.com/kurodaki-dev/ton618"
 LATEST = REPO + "/releases/latest"
@@ -239,6 +242,40 @@ class Reference:
 
 DOCS = Reference(ROOT / "DOCUMENTATION.md")
 
+# The registry: every published package version (registry/packages/*.tonpkg).
+PACKAGE_FILES, _ = package_registry.load(ROOT / "registry" / "packages")
+PACKAGE_INDEX = package_registry.build_index(PACKAGE_FILES)["packages"]
+VERSIONS = {}
+for _p in PACKAGE_FILES:
+    VERSIONS.setdefault(_p.name, {})[_p.version] = _p
+
+TEXT["en"].update(packages="Packages")
+TEXT["fr"].update(packages="Paquets")
+PKG = {
+    "en": {
+        "title": "Packages", "lead": "Modules published for TON618. Install one with a single command.",
+        "filter": "Filter by name or keyword", "none": "No package matches.", "latest": "Latest",
+        "install": "Install", "details": "Details", "license": "License", "author": "Author", "homepage": "Homepage",
+        "requires": "Needs ton618", "needs": "Needs packages", "versions": "Versions", "download": "Download",
+        "readme": "README", "no_readme": "This package has no README.", "publish_title": "Publish your own",
+        "publish": "A package is a folder with a tonproject.toml. Three commands share it with everyone:",
+        "guide": "Read the guide", "count": "packages", "count1": "package", "back": "All packages",
+        "caution": "A package runs with the full power of ton618. Read what you install.",
+    },
+    "fr": {
+        "title": "Paquets", "lead": "Les modules publiés pour TON618. On en installe un avec une seule commande.",
+        "filter": "Filtrer par nom ou mot-clé", "none": "Aucun paquet ne correspond.", "latest": "Dernière",
+        "install": "Installer", "details": "Détails", "license": "Licence", "author": "Auteur", "homepage": "Site",
+        "requires": "Demande ton618", "needs": "Demande les paquets", "versions": "Versions", "download": "Télécharger",
+        "readme": "README", "no_readme": "Ce paquet n'a pas de README.", "publish_title": "Publier le tien",
+        "publish": "Un paquet est un dossier avec un tonproject.toml. Trois commandes le partagent avec tout le monde :",
+        "guide": "Lire le guide", "count": "paquets", "count1": "paquet", "back": "Tous les paquets",
+        "caution": "Un paquet s'exécute avec toute la puissance de ton618. Lis ce que tu installes.",
+    },
+}
+PACKAGES_CHAPTER = {lang: next(c for c in DOCS.chapters[lang] if c.slug.startswith(("packages", "paquets")))
+                    for lang in ("en", "fr")}
+
 
 # ===========================================================================
 # Building blocks
@@ -284,6 +321,7 @@ def sidebar(lang: str, current: Chapter | None, switch_to: str):
         t.div(brand(lang), t.span(VERSION, class_="version"), class_="side-top"),
         menu(lang, current),
         t.div(
+            t.a(w["packages"], href=link(w["root"] + "/packages/")),
             t.a(w["playground"], href=link("/playground.html")),
             t.a(w["download"], href=LATEST),
             t.a(w["skills"], href=link("/skills.html")),
@@ -361,6 +399,14 @@ def home(lang: str) -> Page:
                  "bash"),
         ),
         t.section(
+            t.h2(PKG[lang]["publish_title"]),
+            t.p(PKG[lang]["publish"]),
+            code("ton618 init mathx      # creates tonproject.toml\nton618 build           # -> dist/mathx-0.1.0.tonpkg\nton618 publish         # opens the pull request",
+                 "bash"),
+            t.p(t.a(PKG[lang]["title"] + " (" + str(len(PACKAGE_INDEX)) + ") →", href=link(w["root"] + "/packages/")), " · ",
+                t.a(PKG[lang]["guide"], href=PACKAGES_CHAPTER[lang].url)),
+        ),
+        t.section(
             t.h2(w["start"]),
             t.ol([t.li(t.a(chapters[n].title, href=chapters[n].url)) for n in START], class_="steps"),
             t.p(t.a(w["all"] + " →", href=link(w["root"] + "/docs/"))),
@@ -418,6 +464,105 @@ def chapter_page(chapter: Chapter) -> Page:
 
 
 # ===========================================================================
+# Packages
+# ===========================================================================
+def safe_link(target: str) -> str:
+    """Links in a package's README: web addresses and anchors only (never javascript: and co)."""
+    if target.startswith("#") or re.match(r"^(https?://|mailto:)", target, re.I):
+        return target
+    return "#"
+
+
+def readme_html(name: str) -> str:
+    latest = VERSIONS[name][PACKAGE_INDEX[name]["latest"]]
+    files = latest.data.get("files", {})
+    text = files.get("README.md") or next((v for k, v in sorted(files.items()) if k.lower().endswith(".md")), "")
+    if not text:
+        return ""
+    lines = text.splitlines()
+    if lines and lines[0].startswith("# "):  # the page already has the package's name as its title
+        lines = lines[1:]
+    _, body, _ = markdown_to_html("\n".join(lines), safe_link)
+    return str(body)
+
+
+def packages_page(lang: str) -> Page:
+    w, k = TEXT[lang], PKG[lang]
+    rows = []
+    for name, info in PACKAGE_INDEX.items():
+        keywords = " ".join(info.get("keywords") or [])
+        rows.append(t.li(
+            t.div(t.a(name, href=link(f"{w['root']}/packages/{name}/"), class_="pkg-name"),
+                  t.span(info["latest"], class_="pkg-version")),
+            t.p(info["description"]),
+            t.code(f"ton618 install {name}"),
+            class_="pkg", data_text=f"{name} {info['description']} {keywords}".lower(),
+        ))
+    count = len(rows)
+    content = t.article(
+        t.h1(k["title"]),
+        t.p(k["lead"], class_="lead"),
+        t.input(type="search", id="pkg-filter", placeholder=k["filter"], aria_label=k["filter"]),
+        t.p(f"{count} {k['count1'] if count == 1 else k['count']}", class_="pkg-count"),
+        t.ul(rows, class_="pkg-list", id="pkg-list"),
+        t.p(k["none"], id="pkg-none", hidden=True),
+        t.h2(k["publish_title"]),
+        t.p(k["publish"]),
+        code("ton618 init mathx\nton618 build\nton618 publish", "bash"),
+        t.p(t.a(k["guide"] + " →", href=PACKAGES_CHAPTER[lang].url)),
+        class_="doc",
+    )
+    return shell(lang, f"{k['title']} · TON618", content,
+                 switch_to=link(f"{TEXT[w['other']]['root']}/packages/"), summary=k["lead"])
+
+
+def package_page(lang: str, name: str) -> Page:
+    w, k = TEXT[lang], PKG[lang]
+    info = PACKAGE_INDEX[name]
+    versions = sorted(VERSIONS[name].values(), key=lambda p: package_registry.version_key(p.version), reverse=True)
+    latest = VERSIONS[name][info["latest"]]
+    deps = latest.data.get("dependencies") or {}
+
+    def row(label, value):
+        return t.tr(t.th(label), t.td(value)) if value else None
+
+    homepage = info.get("homepage") or ""
+    details = t.table(t.tbody([
+        row(k["latest"], info["latest"]),
+        row(k["license"], info.get("license")),
+        row(k["author"], info.get("author")),
+        row(k["homepage"], t.a(homepage, href=homepage) if re.match(r"^https?://", homepage) else None),
+        row(k["requires"], t.code(latest.data["requires"]) if latest.data.get("requires") else None),
+        row(k["needs"], t.span([t.span(t.a(d, href=link(f"{w['root']}/packages/{d}/")), t.code(" " + r), " ") for d, r in deps.items()])
+            if deps else None),
+    ]), class_="facts")
+    history = t.table(
+        t.thead(t.tr(t.th(k["versions"]), t.th("sha256"), t.th(""))),
+        t.tbody([t.tr(
+            t.td(t.code(p.version)),
+            t.td(t.code(p.sha256[:12] + "…")),
+            t.td(t.a(k["download"], href=link("/registry/" + p.file))),
+        ) for p in versions]),
+        class_="facts",
+    )
+    readme = readme_html(name)
+    content = t.article(
+        t.p(t.a(k["back"], href=link(f"{w['root']}/packages/")), class_="trail"),
+        t.h1(name, " ", t.span(info["latest"], class_="pkg-version")),
+        t.p(info["description"], class_="lead"),
+        code(f"ton618 install {name}", "bash"),
+        details,
+        history,
+        t.p(k["caution"], class_="callout"),
+        t.h2(k["readme"]),
+        raw(readme) if readme else t.p(k["no_readme"]),
+        class_="doc",
+    )
+    return shell(lang, f"{name} · {k['title']} · TON618", content,
+                 switch_to=link(f"{TEXT[w['other']]['root']}/packages/{name}/"), summary=info["description"])
+
+
+# ===========================================================================
 # Routes
 # ===========================================================================
 for lang in ("en", "fr"):
@@ -427,9 +572,27 @@ for lang in ("en", "fr"):
     app.add_route(root + "/search.json",
                   (lambda l: lambda: [{"t": c.title, "u": c.url, "x": c.plain[:5000]} for c in DOCS.chapters[l]])(lang),
                   name=f"search_{lang}")
+    app.add_route(root + "/packages/", (lambda l: lambda: packages_page(l))(lang), name=f"packages_{lang}")
+    for package_name in PACKAGE_INDEX:
+        app.add_route(f"{root}/packages/{package_name}/", (lambda l, n: lambda: package_page(l, n))(lang, package_name),
+                      name=f"package_{lang}_{package_name}")
     for chapter in DOCS.chapters[lang]:
         app.add_route(f"{root}/docs/{chapter.slug}/", (lambda c: lambda: chapter_page(c))(chapter),
                       name=f"doc_{lang}_{chapter.number}")
+
+
+@app.get("/registry/index.json")
+def registry_index():
+    """Local preview only: what GitHub Pages serves as /registry/index.json."""
+    return package_registry.build_index(PACKAGE_FILES)
+
+
+@app.get("/registry/packages/<name>")
+def registry_package(name):
+    target = ROOT / "registry" / "packages" / name
+    if not target.is_file() or target.suffix != ".tonpkg":
+        abort(404)
+    return send_file(str(target))
 
 
 @app.get("/<path:name>")
@@ -459,6 +622,7 @@ PUBLISHED = ["playground.html", "ton618-lite.js", "skills.html", "skills", "logo
 
 def export(out: str) -> None:
     pages = app.build(out)
+    package_registry.write_site(PACKAGE_FILES, Path(out))  # /registry/index.json and the packages
     for name in PUBLISHED:  # served as they are, next to the generated pages
         source = ROOT / "exemples" / name
         if source.is_dir():

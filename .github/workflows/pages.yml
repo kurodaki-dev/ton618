@@ -1,5 +1,9 @@
 name: Deploy Pages
 
+# The package registry (registry/packages/*.tonpkg) is turned into the site's
+# /registry/ folder (index.json + the packages) by website/app.py, which
+# `ton618 install` reads.
+#
 # Builds the documentation website with Claide (https://github.com/kurodaki-dev/Claide)
 # from DOCUMENTATION.md — see website/app.py — and publishes it to GitHub
 # Pages, together with the playground (exemples/playground.html +
@@ -20,6 +24,8 @@ on:
       - "exemples/**"
       - "include/Version.hpp"
       - "scripts/logo.py"
+      - "scripts/registry.py"
+      - "registry/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 

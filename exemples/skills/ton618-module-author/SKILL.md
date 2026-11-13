@@ -57,21 +57,32 @@ A module can use every language feature an ordinary script can — default/rest 
 5. **A companion smoke-test script** (`test_<name>.ton`, not shipped as part of the module itself) that imports the module and exercises every exported function — run it with `ton618 test_<name>.ton` before publishing. This is exactly the pattern `exemples/test_mathutils.ton` and `exemples/test_module_guide.ton` use in the TON618 repo itself.
 6. **Runtime errors, not silent wrong answers.** If a function is called with a nonsensical argument (wrong type, out-of-range value), `throw` a clear message rather than returning `nil`/`0`/`""` — callers can `try`/`catch` it, but they can't recover from a wrong answer they didn't know was wrong.
 
-## Publishing to the TON618 module registry
+## Publishing to the TON618 package registry (beta-2.1.0+)
 
-Once a module is ready, put it in its own **public GitHub repository** with the module's file at the repo root, named exactly `<name>.ton` (e.g. a `stringutils` module needs `stringutils.ton` at the root of its repo — not nested in a subfolder). This is required because `ton618 install <name>` downloads `<name>.ton` straight from the repo's default branch — see `DOCUMENTATION.md` > "Installing modules: `ton618 install`".
+A module is shared as a **package**. Turn the module's folder into a project, build it, and propose it:
 
-The registry itself only stores **`{name, github, version}`** metadata (never the module's code) and is gated: only the registry's owner can add new entries, through a companion website with its own sign-in — an AI agent cannot register a module on someone else's behalf via API calls. If asked to "publish" a module, the correct final step is to tell the user their module is ready and point them at the registry's website to submit `{name, github link, version}` themselves — not to attempt any registry write directly.
-
-Once listed, anyone can pull it down with:
 ```
-ton618 install <name>
+ton618 init mathx          # tonproject.toml + mathx.ton + README.md (use the module's real name)
+# edit tonproject.toml: description, authors, license, [dependencies] ...
+ton618 build               # checks the manifest and every .ton file's syntax, writes dist/mathx-1.0.0.tonpkg
+ton618 publish             # checks the version is new, then opens the page where the .tonpkg is dropped to open a pull request
 ```
-which fetches the registry entry, downloads `<name>.ton` from the linked GitHub repo into `./modules/<name>.ton`, and leaves it exactly where `IMPORT://<name>` already expects to find it. `ton618 uninstall <name>` removes that same file again (no registry lookup involved) — not to be confused with `ton618 --uninstall-ton`, which removes the `ton618` interpreter itself.
+
+`tonproject.toml` is like `pyproject.toml`: `[project]` has `name` (2-40 chars, `a-z 0-9 - _`, starts with a letter), `version` (`1.2.3`), `description`, `authors`, `license`, `readme`, `main` (the file `IMPORT://<name>` loads, default `<name>.ton`), optional `repository`, `keywords`, `requires` (a ton618 version range such as `">=2.1.0"`); `[dependencies]` maps package names to version ranges (`"^1.0"`, `"~1.2"`, `">=1.0 <2"`, `"1.2.3"`); optional `[build]` has `include` / `exclude` patterns (default: every `.ton` file, README, LICENSE). Package files are text (`.ton .md .txt .json .csv`), at most 200 files, 256 KB each, 1 MB in all. Extra `.ton` files of a package are installed in `modules/<name>/` and imported as `IMPORT://<name>/<file>`.
+
+**Rules for an AI agent:** `ton618 build` and `ton618 publish --dry-run` are safe to run. The last step of publishing (signing in to GitHub and opening the pull request) belongs to the user — tell them their package is built and point them at `ton618 publish`; never try to push to the registry yourself. A published version never changes: to fix something, raise `version`. Every package is reviewed by a maintainer before it goes online.
+
+Anyone installs it with:
+```
+ton618 install mathx            # newest; also mathx@1.2.0, "mathx@^1.2"
+ton618 update                   # newest versions the dependants allow
+ton618 uninstall mathx
+```
+Packages go into `./modules/`, where `IMPORT://mathx` finds them; downloads are checked against the registry's SHA-256. `ton618 search`, `info`, `list --outdated` explore the registry. The older registry (a GitHub link per module, `<name>.ton` at the repo root) is still used as a fallback for names that aren't in the package registry. `ton618 --uninstall-ton` removes the interpreter itself — not the same as `ton618 uninstall <name>`.
 
 ## Gotchas specific to module authoring
 
 1. **`IMPORT://name` has no `ton.` prefix** — that prefix means "this is a built-in module", not "this is a user module written by someone named ton". Never write `IMPORT://ton.stringutils` for a user module called `stringutils` — that will look for a built-in that doesn't exist.
-2. **The registry install path assumes the file is at the repo root** — `owner/repo/<name>.ton`, not `owner/repo/src/<name>.ton` or `owner/repo/modules/<name>.ton`. A repo can contain other files (README, tests, LICENSE) alongside it; only the root placement and exact filename matter.
+2. **The package's `main` file is what `IMPORT://<name>` loads** (default `<name>.ton`); its other `.ton` files are reached as `IMPORT://<name>/<file>`, so inside a package import siblings that way, not by bare file name. (For the older GitHub-link registry, the file must sit at the repo root as `<name>.ton`.)
 3. **A module can't have multiple independent instances.** Everything it declares lands in one shared global scope, so there's exactly one copy of its state per running script — don't design a module assuming callers can create several independently-configured instances of it.
 4. **Don't shadow a built-in.** Since bare function calls resolve to whatever's in scope, a module accidentally exporting `push`, `len`, `map`, etc. (unprefixed) would shadow the real native function for every script that imports it — the prefix-everything rule above is what prevents this in practice.

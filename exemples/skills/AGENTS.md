@@ -11,6 +11,8 @@ ton618 script.ton                # run it
 ton618 script.ton --debug        # step debugger from line 1
 ton618 script.ton --break=12     # step debugger, breakpoint at line 12
 ton618 --version                 # version, platform, arch
+ton618 install <pkg>             # packages from the registry into ./modules/ (also: update, uninstall, list, search, info)
+ton618 init / build / publish    # make and share your own package (tonproject.toml) — see the module-author skill
 ton618                           # interactive REPL (2.0+)
 ton618 -e 'print(2 ** 10)'       # one-liner (2.0+)
 ```
