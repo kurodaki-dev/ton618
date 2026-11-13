@@ -331,7 +331,7 @@ jobs:
       - name: Source archive
         run: |
           python3 scripts/logo.py
-          tar -czf artifacts/ton618-source.tar.gz Makefile include src modules exemples scripts tests registry DOCUMENTATION.md LICENSE LOGO-LICENSE.md
+          tar -czf artifacts/ton618-source.tar.gz Makefile include src modules exemples scripts tests registry DOCUMENTATION.md LICENSE-MIT LOGO-LICENSE.md
           chmod +x artifacts/ton618-linux-x64 artifacts/ton618-android-arm64 artifacts/ton618-macos-universal 2>/dev/null || true
           ls -la artifacts
       - uses: softprops/action-gh-release@v2
