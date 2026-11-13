@@ -3,7 +3,7 @@
   "private": true,
   "version": "2.0.0",
   "description": "TON618 IDE \u2014 a tiny editor to write and run TON618 code (Tauri: Windows, Linux, macOS, Android).",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "scripts": {
     "tauri": "tauri",
     "prepare-web": "node scripts/prepare.mjs",

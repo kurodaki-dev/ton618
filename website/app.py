@@ -60,7 +60,7 @@ TEXT = {
         "install": "Install", "then": "Then:", "start": "Start here",
         "sample": "A taste of TON618", "tools": "Tools", "tools_note": "Free downloads, built from this repository.",
         "missing": "This page doesn't exist.", "back": "Back to the documentation",
-        "footer": "Documentation generated from DOCUMENTATION.md with Claide. Code: Apache 2.0. Logo © 2026 kurodaki-dev.",
+        "footer": "Documentation generated from DOCUMENTATION.md with Claide. Code: MIT. Logo © 2026 kurodaki-dev.",
     },
     "fr": {
         "root": "/fr", "other": "en", "switch": "English",
@@ -74,7 +74,7 @@ TEXT = {
         "install": "Installation", "then": "Ensuite :", "start": "Pour commencer",
         "sample": "Un avant-goût de TON618", "tools": "Outils", "tools_note": "Téléchargements gratuits, compilés depuis ce dépôt.",
         "missing": "Cette page n'existe pas.", "back": "Retour à la documentation",
-        "footer": "Documentation générée depuis DOCUMENTATION.md avec Claide. Code : Apache 2.0. Logo © 2026 kurodaki-dev.",
+        "footer": "Documentation générée depuis DOCUMENTATION.md avec Claide. Code : MIT. Logo © 2026 kurodaki-dev.",
     },
 }
 

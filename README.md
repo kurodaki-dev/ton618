@@ -94,6 +94,6 @@ The registry is a small server with a SQLite database ([`server/`](server/README
 
 ## License
 
-The source code is under Apache 2.0 — see [LICENSE](LICENSE).
+The source code is under the **MIT** license — see [LICENSE-MIT](LICENSE-MIT).
 
-The TON618 logo is **© 2026 kurodaki-dev, all rights reserved** and is not covered by the Apache 2.0 license — see [LOGO-LICENSE.md](LOGO-LICENSE.md).
+The TON618 logo is **© 2026 kurodaki-dev, all rights reserved** and is not covered by the MIT license — see [LOGO-LICENSE.md](LOGO-LICENSE.md).

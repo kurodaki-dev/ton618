@@ -3,7 +3,7 @@ name = "ton618-ide"
 version = "2.0.0"
 description = "TON618 IDE"
 authors = ["kurodaki-dev"]
-license = "Apache-2.0"
+license = "MIT"
 edition = "2021"
 
 [lib]

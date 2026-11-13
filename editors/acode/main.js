@@ -136,6 +136,28 @@
   }
   const safeName = (p) => p && !p.startsWith("/") && !p.includes("..") && !p.includes("\\") && /^[\w.\-/]+$/.test(p);
 
+  // ---- The editor: Acode has used Ace, and newer versions use CodeMirror ----
+  const safe = (fn, fallback) => { try { const v = fn(); return v === undefined ? fallback : v; } catch (e) { return fallback; } };
+  const editorOf = () => safe(() => editorManager.editor, null);
+  const isAce = () => { const e = editorOf(); return !!(e && typeof e.getSession === "function" && typeof e.on === "function"); };
+  function readText(file) {
+    if (!file) return "";
+    return safe(() => file.session.getValue(), undefined) ??       // Ace
+      safe(() => file.session.doc.toString(), undefined) ??       // CodeMirror state
+      safe(() => editorOf().state.doc.toString(), undefined) ??   // CodeMirror view
+      safe(() => editorOf().getValue(), "");
+  }
+  function gotoLine(line) {
+    const e = editorOf();
+    if (!e) return;
+    if (typeof e.gotoLine === "function") return safe(() => { e.gotoLine(line, 0, true); e.focus(); });
+    safe(() => {   // CodeMirror
+      const l = e.state.doc.line(Math.min(Math.max(line, 1), e.state.doc.lines));
+      e.dispatch({ selection: { anchor: l.from }, scrollIntoView: true });
+      e.focus();
+    });
+  }
+
   // ---- The plugin ----------------------------------------------------------------
   class Ton618Plugin {
     async init(baseUrl) {
@@ -158,23 +180,29 @@
       this.style = document.createElement("style");
       this.style.textContent = `
         .file_type_ton618, .icon.file_type_ton618 { background-image: url(${this.baseUrl}icon.png) !important; background-size: contain !important; background-repeat: no-repeat !important; background-position: center !important; }
-        .icon.ton618-side { background-image: url(${this.baseUrl}icon.png) !important; background-size: 70% !important; background-repeat: no-repeat !important; background-position: center !important; }
-        .ton618-side { height: 100%; display: flex; flex-direction: column; color: inherit; font: 14px/1.4 sans-serif; overflow: hidden; }
-        .ton618-side h3 { margin: 0; padding: 10px 12px 6px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; opacity: .7; }
-        .ton618-side .bar { display: flex; gap: 6px; padding: 4px 12px 8px; }
-        .ton618-side button { font: inherit; padding: 7px 12px; border-radius: 6px; border: 1px solid #595959; background: #1b1b1b; color: #fff; }
-        .ton618-side button.go { background: #fff; color: #0b0b0b; font-weight: 600; flex: 1; }
-        .ton618-side button[disabled] { opacity: .45; }
-        .ton618-side .status { padding: 0 12px 6px; font-size: 12px; opacity: .7; min-height: 1.4em; }
-        .ton618-side pre.out { margin: 0 12px 10px; padding: 8px; max-height: 32%; min-height: 3.5em; overflow: auto; white-space: pre-wrap; word-break: break-word; background: #141414; color: #e8e8e8; border: 1px solid #2b2b2b; border-radius: 6px; font: 12px/1.5 monospace; user-select: text; }
-        .ton618-side pre.out .e { color: #ff6b6b; } .ton618-side pre.out .e a { text-decoration: underline; }
-        .ton618-side input { margin: 0 12px 8px; padding: 8px; border-radius: 6px; border: 1px solid #595959; background: #141414; color: #fff; font: inherit; }
-        .ton618-side .lib { flex: 1; overflow: auto; padding: 0 12px 12px; }
-        .ton618-side .row { display: flex; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid #2b2b2b; }
-        .ton618-side .row .info { flex: 1; min-width: 0; } .ton618-side .row b { font-family: monospace; }
-        .ton618-side .row small { display: block; opacity: .65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .ton618-side .row button { padding: 5px 10px; flex: none; } .ton618-side .row .ok { opacity: .8; font-size: 12px; }
-        .ton618-side .note { padding: 8px 0; font-size: 12px; opacity: .7; }`;
+        .icon.ton618-app { background-image: url(${this.baseUrl}icon.png) !important; background-size: 70% !important; background-repeat: no-repeat !important; background-position: center !important; }
+        .ton618-win { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 99999; display: flex; flex-direction: column; background: #0b0b0b; color: #e8e8e8; font: 14px/1.5 sans-serif; }
+        .ton618-win header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #2b2b2b; padding-top: max(10px, env(safe-area-inset-top)); }
+        .ton618-win header b { color: #fff; } .ton618-win header span { flex: 1; color: #8b8b97; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ton618-win header button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid #595959; background: #1b1b1b; color: #fff; }
+        .ton618-win pre { flex: 1; margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 14px/1.55 monospace; user-select: text; }
+        .ton618-win pre .e { color: #ff6b6b; } .ton618-win pre .e a { text-decoration: underline; }
+        .ton618-app { height: 100%; display: flex; flex-direction: column; color: inherit; font: 14px/1.4 sans-serif; overflow: hidden; }
+        .ton618-app h3 { margin: 0; padding: 10px 12px 6px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; opacity: .7; }
+        .ton618-app .bar { display: flex; gap: 6px; padding: 4px 12px 8px; }
+        .ton618-app button { font: inherit; padding: 7px 12px; border-radius: 6px; border: 1px solid #595959; background: #1b1b1b; color: #fff; }
+        .ton618-app button.go { background: #fff; color: #0b0b0b; font-weight: 600; flex: 1; }
+        .ton618-app button[disabled] { opacity: .45; }
+        .ton618-app .status { padding: 0 12px 6px; font-size: 12px; opacity: .7; min-height: 1.4em; }
+        .ton618-app pre.out { margin: 0 12px 10px; padding: 8px; max-height: 32%; min-height: 3.5em; overflow: auto; white-space: pre-wrap; word-break: break-word; background: #141414; color: #e8e8e8; border: 1px solid #2b2b2b; border-radius: 6px; font: 12px/1.5 monospace; user-select: text; }
+        .ton618-app pre.out .e { color: #ff6b6b; } .ton618-app pre.out .e a { text-decoration: underline; }
+        .ton618-app input { margin: 0 12px 8px; padding: 8px; border-radius: 6px; border: 1px solid #595959; background: #141414; color: #fff; font: inherit; }
+        .ton618-app .lib { flex: 1; overflow: auto; padding: 0 12px 12px; }
+        .ton618-app .row { display: flex; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid #2b2b2b; }
+        .ton618-app .row .info { flex: 1; min-width: 0; } .ton618-app .row b { font-family: monospace; }
+        .ton618-app .row small { display: block; opacity: .65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ton618-app .row button { padding: 5px 10px; flex: none; } .ton618-app .row .ok { opacity: .8; font-size: 12px; }
+        .ton618-app .note { padding: 8px 0; font-size: 12px; opacity: .7; }`;
       document.head.appendChild(this.style);
 
       this.state = { index: null, installed: {}, busy: {}, filter: "", message: "" };
@@ -184,22 +212,32 @@
         this.fallbackButton(); // very old Acode: a floating button instead of the sidebar
       }
 
+      // Everything below talks to the editor: each step is guarded, so a different editor
+      // (CodeMirror instead of Ace) costs a feature, never the whole plugin.
       this.commands = [
-        { name: "ton618:run", description: "TON618: Run", bindKey: { win: "Ctrl-Enter", mac: "Command-Enter" }, exec: () => this.run() },
+        { name: "ton618:run", description: "TON618: Run", exec: () => this.run() },
         { name: "ton618:stop", description: "TON618: Stop", exec: () => this.stop() },
       ];
-      for (const c of this.commands) editorManager.editor.commands.addCommand(c);
+      this.commandsAdded = [];
+      if (isAce()) for (const c of this.commands) safe(() => { editorOf().commands.addCommand(c); this.commandsAdded.push(c.name); });
 
       this.onSwitch = () => this.refresh();
       this.onChange = () => { clearTimeout(this.timer); this.timer = setTimeout(() => this.check(), 400); };
-      editorManager.on("switch-file", this.onSwitch);
-      editorManager.editor.on("change", this.onChange);
-      this.refresh();
+      this.listening = [];
+      const listen = (target, event, fn) => safe(() => {
+        if (target && typeof target.on === "function") { target.on(event, fn); this.listening.push([target, event, fn]); }
+      });
+      listen(editorManager, "switch-file", this.onSwitch);
+      listen(editorManager, "file-loaded", this.onSwitch);
+      listen(editorManager, "file-content-changed", this.onChange);
+      if (isAce()) listen(editorOf(), "change", this.onChange);
+      safe(() => this.refresh());
     }
 
     // ---- highlighting ----
     ensureMode() {
       if (this.mode) return this.mode;
+      if (!isAce()) return null;   // CodeMirror: no Ace mode to build
       try {
         const session = editorManager.editor.getSession();
         const mode = buildMode(session.getMode());
@@ -215,10 +253,10 @@
     isTon() { return !!(this.file && /\.ton$/i.test(this.file.filename || "")); }
 
     refresh() {
-      if (this.isTon()) {
+      if (this.isTon() && isAce()) {
         const mode = this.ensureMode();
         const session = this.file.session;
-        if (mode && session.getMode().$id !== "ace/mode/ton618") session.setMode(mode);
+        if (mode) safe(() => { if (session.getMode().$id !== "ace/mode/ton618") session.setMode(mode); });
       }
       if (this.runButton) this.runButton.disabled = !this.isTon();
       this.check();
@@ -227,14 +265,17 @@
 
     check() {
       if (!this.isTon()) return;
-      const session = this.file.session;
-      const r = window.Ton618Lite.checkTon618(session.getValue());
-      session.setAnnotations(r.ok ? [] : [{ row: Math.max(0, r.line - 1), column: 0, text: r.message, type: "error" }]);
+      const r = window.Ton618Lite.checkTon618(readText(this.file));
+      this.lastCheck = r;
+      if (typeof this.file.session.setAnnotations === "function") {   // Ace: marks in the gutter
+        safe(() => this.file.session.setAnnotations(r.ok ? [] : [{ row: Math.max(0, r.line - 1), column: 0, text: r.message, type: "error" }]));
+      }
+      this.setStatus(r.ok ? "" : `line ${r.line}: ${r.message}`);   // always shown in the sidebar
     }
 
     // ---- sidebar ----
     buildSidebar(el) {
-      el.classList.add("ton618-side");
+      el.classList.add("ton618-app");
       el.innerHTML = `
         <h3>TON618</h3>
         <div class="bar"><button class="go" data-a="run">▶ Run</button><button data-a="stop">■</button></div>
@@ -265,10 +306,36 @@
       document.body.appendChild(this.floating);
     }
 
-    setStatus(text) { if (this.statusEl) this.statusEl.textContent = text; }
+    setStatus(text) {
+      if (this.statusEl) this.statusEl.textContent = text;
+      if (this.winStatus && this.winEl && this.winEl.isConnected) this.winStatus.textContent = text;
+    }
+
+    // Run opens a full window over Acode: the program's output, a Stop and a Close button.
+    openWindow() {
+      this.closeWindow();
+      const el = document.createElement("div");
+      el.className = "ton618-win";
+      el.innerHTML = "<header><b>TON618</b><span></span><button data-a=stop>■ Stop</button><button data-a=again>▶ Again</button><button data-a=close>✕ Close</button></header><pre></pre>";
+      el.querySelector("[data-a=stop]").onclick = () => this.stop();
+      el.querySelector("[data-a=again]").onclick = () => this.run();
+      el.querySelector("[data-a=close]").onclick = () => this.closeWindow();
+      document.body.appendChild(el);
+      this.winEl = el;
+      this.winStatus = el.querySelector("span");
+      this.winOut = el.querySelector("pre");
+      this.winStatus.textContent = (this.file && this.file.filename) || "";
+    }
+
+    closeWindow() {
+      this.stop(true);
+      if (this.winEl) this.winEl.remove();
+      this.winEl = this.winOut = this.winStatus = null;
+    }
 
     print(text, isError) {
-      if (!this.outEl) return;
+      const target = this.winOut && this.winEl && this.winEl.isConnected ? this.winOut : this.outEl;
+      if (!target) return;
       const span = document.createElement("span");
       if (isError) {
         span.className = "e";
@@ -277,13 +344,13 @@
           if (m) {
             const a = document.createElement("a");
             a.textContent = part;
-            a.onclick = () => { editorManager.editor.gotoLine(Number(m[1]), 0, true); editorManager.editor.focus(); };
+            a.onclick = () => gotoLine(Number(m[1]));
             span.appendChild(a);
           } else span.append(part);
         }
       } else span.textContent = text;
-      this.outEl.append(span, "\n");
-      this.outEl.scrollTop = this.outEl.scrollHeight;
+      target.append(span, "\n");
+      target.scrollTop = target.scrollHeight;
     }
 
     toast(text) { try { window.toast ? window.toast(text, 3000) : acode.alert("TON618", text); } catch (e) { /* ignore */ } }
@@ -316,7 +383,8 @@
       if (!this.isTon()) { this.toast("Open a .ton file to run it"); return; }
       if (!this.outEl) { try { acode.require("sidebarApps").get && acode.require("sidebarApps").get("ton618"); } catch (e) { /* ignore */ } }
       this.stop(true);
-      const source = this.file.session.getValue();
+      const source = readText(this.file);
+      this.openWindow();
       if (this.outEl) this.outEl.textContent = "";
       this.setStatus("running…");
 
@@ -516,10 +584,10 @@
     }
 
     destroy() {
-      this.stop(true);
+      this.closeWindow();
       clearTimeout(this.timer);
-      try { editorManager.off("switch-file", this.onSwitch); editorManager.editor.off("change", this.onChange); } catch (e) { /* ignore */ }
-      try { for (const c of this.commands) editorManager.editor.commands.removeCommand(c.name); } catch (e) { /* ignore */ }
+      for (const [target, event, fn] of this.listening || []) safe(() => (target.off || target.removeListener).call(target, event, fn));
+      for (const name of this.commandsAdded || []) safe(() => editorOf().commands.removeCommand(name));
       try { acode.require("aceModes").removeMode("ton618"); } catch (e) { /* ignore */ }
       try { acode.require("sidebarApps").remove && acode.require("sidebarApps").remove("ton618"); } catch (e) { /* ignore */ }
       this.floating && this.floating.remove();

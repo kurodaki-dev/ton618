@@ -2,8 +2,8 @@
 
 Write and run [TON618](https://c-ton618.duckdns.org/) code on your phone.
 
-- **Syntax highlighting** for `.ton` files (TON618 2.0: classes, f-strings, arrow functions, ranges…).
-- **A TON618 sidebar** (the logo in Acode's sidebar): the **▶ Run** button, the program's output (tap an error's line to jump to it), and the **module library**. `Ctrl+Enter` also runs the file, with a keyboard.
+- **Syntax highlighting** (Acode with the Ace editor; newer Acode versions with another editor keep everything else) for `.ton` files (TON618 2.0: classes, f-strings, arrow functions, ranges…).
+- **A TON618 sidebar** (the logo in Acode's sidebar): the **▶ Run** button (it opens the output in a full window, with Stop / Again / Close; tap an error's line to jump to it), and the **module library**. *TON618: Run* is also in the command palette. There is no keyboard shortcut, so Enter always just adds a new line.
 - **Module library**: every package of the TON618 registry with an **Install** button; after installing it shows ✓ installed, with Update / Remove. Modules are written to the `modules/` folder next to the open file and checked with SHA-256, then `IMPORT://name` works.
 - The TON618 logo is the icon of `.ton` files.
 - **Syntax errors** marked in the gutter while you type.
@@ -16,4 +16,4 @@ curl -fsSL https://raw.githubusercontent.com/kurodaki-dev/ton618/main/scripts/in
 ton618 my_script.ton
 ```
 
-The TON618 logo is © 2026 kurodaki-dev, all rights reserved. The plugin's code is under the Apache 2.0 license.
+The TON618 logo is © 2026 kurodaki-dev, all rights reserved. The plugin's code is under the MIT license.

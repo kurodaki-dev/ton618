@@ -38,11 +38,11 @@ def with_notice(svg: str) -> str:
         if f"xmlns:{prefix}=" not in new_tag:
             new_tag = new_tag[:-1] + f' xmlns:{prefix}="{uri}">'
     block = (
-        f"<!-- TON618 logo. {NOTICE} The logo is NOT covered by the Apache 2.0 license "
+        f"<!-- TON618 logo. {NOTICE} The logo is NOT covered by the MIT license "
         "of the TON618 source code: see LOGO-LICENSE.md. -->"
         f"<title>TON618 logo — © {YEAR} {HOLDER}</title>"
         f"<desc>Official logo of the TON618 programming language. {NOTICE} "
-        "Not covered by the Apache 2.0 license; see LOGO-LICENSE.md at https://github.com/kurodaki-dev/ton618.</desc>"
+        "Not covered by the MIT license; see LOGO-LICENSE.md at https://github.com/kurodaki-dev/ton618.</desc>"
         "<metadata><rdf:RDF><cc:Work rdf:about=\"\"><dc:title>TON618 logo</dc:title>"
         f"<dc:creator><cc:Agent><dc:title>{HOLDER}</dc:title></cc:Agent></dc:creator>"
         f"<dc:rights><cc:Agent><dc:title>{NOTICE}</dc:title></cc:Agent></dc:rights>"
