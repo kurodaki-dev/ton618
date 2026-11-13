@@ -1569,6 +1569,10 @@ One-time setup:
 
 ### Changelog
 
+**1.0.2** — fix:
+
+- **Acode plugin 2.1.2**: syntax highlighting for the current Acode (CodeMirror) — TON618 is now a real language there; the `.ton` file icon is drawn like Acode's own icons, so it is no longer huge in the file list and also shows on tabs that were already open. (The icon fix announced in 1.0.1 had not actually been applied.)
+
 **1.0.1** — fix:
 
 - **Acode plugin 2.1.1**: fixed `editorManager.editor.on is not a function` (newer Acode versions use CodeMirror, not Ace). The sidebar with Run, the output and the module library works with any editor; syntax errors also show in the sidebar.
@@ -3300,6 +3304,10 @@ Configuration unique :
 ---
 
 ### Changelog
+
+**1.0.2** — correctif :
+
+- **Plugin Acode 2.1.2** : coloration syntaxique pour l'Acode actuel (CodeMirror) — TON618 y est maintenant un vrai langage ; l'icône des fichiers `.ton` est dessinée comme celles d'Acode, elle n'est donc plus énorme dans la liste des fichiers et apparaît aussi sur les onglets déjà ouverts. (Le correctif d'icône annoncé en 1.0.1 n'avait en fait pas été appliqué.)
 
 **1.0.1** — correctif :
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.2
+
+- **Syntax highlighting for current Acode** (CodeMirror): TON618 is registered as a real language (comments, strings and f-strings, numbers, keywords, types, `IMPORT://`, `ton.`).
+- **The `.ton` icon is drawn like Acode's own icons** (a 1em box), so it no longer comes out huge in the file list; it is also applied to files that were already open when the plugin loaded (tabs).
+- The icon fix of 2.1.1 had silently not been applied; a test now checks it.
+
 ## 2.1.1
 
 - Removed the `Ctrl+Enter` shortcut: on some keyboards the Enter key triggered Run instead of adding a new line.

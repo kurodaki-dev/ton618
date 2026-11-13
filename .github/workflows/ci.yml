@@ -31,7 +31,7 @@ jobs:
         run: node tests/run-lite.js
       - name: Acode plugin (headless Ace)
         run: |
-          npm install --no-save --prefix "$RUNNER_TEMP/acode-deps" ace-builds@1.36.5 jsdom@24
+          npm install --no-save --prefix "$RUNNER_TEMP/acode-deps" ace-builds@1.36.5 jsdom@24 @codemirror/language@6 @codemirror/state@6 @codemirror/view@6
           ACE_MODULES="$RUNNER_TEMP/acode-deps" node tests/acode.js
           ACE_MODULES="$RUNNER_TEMP/acode-deps" node tests/acode-cm.js
 
