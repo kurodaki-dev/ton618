@@ -1,7 +1,0 @@
-[Unit]
-Description=Backup of the TON618 registry database
-
-[Service]
-Type=oneshot
-User=ton618
-ExecStart=/usr/local/bin/ton618-backup
