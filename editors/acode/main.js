@@ -57,6 +57,50 @@
     raw: [{ token: "string", regex: "`", next: "start" }, { defaultToken: "string" }],
   };
 
+  // ---- Highlighting for the CodeMirror editor (current Acode) -----------------------
+  // A StreamLanguage built from the CodeMirror modules Acode shares with plugins.
+  const TYPE_WORDS = new Set(KEYWORDS["storage.type"].split("|"));
+  const CONST_WORDS = new Set(KEYWORDS["constant.language"].split("|"));
+  function tonStreamParser() {
+    const eatString = (stream) => {
+      let escaped = false, c;
+      while ((c = stream.next()) != null) {
+        if (escaped) escaped = false;
+        else if (c === "\\") escaped = true;
+        else if (c === '"') break;
+      }
+    };
+    return {
+      name: "ton618",
+      startState: () => ({ block: false, raw: false }),
+      token(stream, state) {
+        if (state.block) { if (stream.skipTo("*/")) { stream.match("*/"); state.block = false; } else stream.skipToEnd(); return "comment"; }
+        if (state.raw) { if (stream.skipTo("`")) { stream.next(); state.raw = false; } else stream.skipToEnd(); return "string"; }
+        if (stream.eatSpace()) return null;
+        if (stream.match("//")) { stream.skipToEnd(); return "comment"; }
+        if (stream.match("/*")) { state.block = true; return "comment"; }
+        if (stream.match(/^f?"/)) { eatString(stream); return "string"; }
+        if (stream.eat("`")) { state.raw = true; if (stream.skipTo("`")) { stream.next(); state.raw = false; } else stream.skipToEnd(); return "string"; }
+        if (stream.match(/^IMPORT:\/\/[\w./]+/)) return "meta";
+        if (stream.match(/^ton\./)) return "meta";
+        if (stream.match(/^(?:0[xX][\da-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?)/)) return "number";
+        if (stream.match(/^[A-Za-z_]\w*/)) {
+          const word = stream.current();
+          if (CONST_WORDS.has(word)) return "atom";
+          if (TYPE_WORDS.has(word)) return "typeName";
+          if (WORDS[word] === "support.function") return "variableName";
+          if (WORDS[word]) return "keyword";
+          if (/^[A-Z]/.test(word)) return "typeName";
+          return stream.peek() === "(" ? "variableName" : null;
+        }
+        if (stream.match(/^(?:=>|\|>|\?\.|\?\?=?|\.\.=?|\*\*=?|[-+*\/%=!<>&|^~]=?)/)) return "operator";
+        stream.next();
+        return null;
+      },
+      languageData: { commentTokens: { line: "//", block: { open: "/*", close: "*/" } }, closeBrackets: { brackets: ["(", "[", "{", '"', "`"] } },
+    };
+  }
+
   // Builds the mode object from the text mode of a session. Returns null when
   // this Acode's Ace doesn't expose what is needed (then: no colours, but
   // everything else still works).
@@ -168,19 +212,16 @@
 
       // Highlighting. Registered for the extension, and cached under the name
       // Ace asks for, so files opened later get it without any module loading.
-      try { acode.require("aceModes").addMode("ton618", "ton", "TON618"); } catch (e) { /* old Acode */ }
+      this.registerLanguage();
       this.ensureMode();
 
       // File icon for .ton, and the sidebar icon.
-      try {
-        acode.addIcon("file_type_ton618", this.baseUrl + "icon.png");
-        acode.addIcon("ton618-side", this.baseUrl + "icon.png");
-      } catch (e) { /* no addIcon in this version */ }
+      try { acode.addIcon("ton618-side", this.baseUrl + "icon.png"); } catch (e) { /* no addIcon in this version */ }
 
       this.style = document.createElement("style");
       this.style.textContent = `
-        .file_type_ton618, .icon.file_type_ton618 { background-image: url(${this.baseUrl}icon.png) !important; background-size: contain !important; background-repeat: no-repeat !important; background-position: center !important; }
-        .icon.ton618-app { background-image: url(${this.baseUrl}icon.png) !important; background-size: 70% !important; background-repeat: no-repeat !important; background-position: center !important; }
+        /* the file icon: drawn like Acode's own font icons (a 1em box in ::before), so it has their size everywhere */
+        .file.file_type_ton618::before { content: "" !important; display: inline-block; width: 1em; height: 1em; vertical-align: middle; background: url(${this.baseUrl}icon.png) no-repeat center / contain; }
         .ton618-win { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 99999; display: flex; flex-direction: column; background: #0b0b0b; color: #e8e8e8; font: 14px/1.5 sans-serif; }
         .ton618-win header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #2b2b2b; padding-top: max(10px, env(safe-area-inset-top)); }
         .ton618-win header b { color: #fff; } .ton618-win header span { flex: 1; color: #8b8b97; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -235,6 +276,22 @@
     }
 
     // ---- highlighting ----
+    // CodeMirror (current Acode): a StreamLanguage through editorLanguages. Ace (older Acode): see ensureMode.
+    registerLanguage() {
+      const cm = safe(() => acode.require("@codemirror/language"), null);
+      const languages = safe(() => acode.require("editorLanguages"), null);
+      if (cm && cm.StreamLanguage && cm.LanguageSupport && languages && typeof languages.register === "function") {
+        try {
+          languages.register("ton618", "ton", "TON618", () => new cm.LanguageSupport(cm.StreamLanguage.define(tonStreamParser())));
+          this.languages = languages;
+          // files already open (restored before the plugin loaded): apply the language and the icon now
+          safe(() => (editorManager.files || []).forEach((f) => { if (/\.ton$/i.test(f.filename || "") && typeof f.setMode === "function") f.setMode(undefined, { recommend: false }); }));
+          return;
+        } catch (e) { /* fall through to the plain registration */ }
+      }
+      safe(() => acode.require("aceModes").addMode("ton618", "ton", "TON618"));
+    }
+
     ensureMode() {
       if (this.mode) return this.mode;
       if (!isAce()) return null;   // CodeMirror: no Ace mode to build
@@ -588,7 +645,7 @@
       clearTimeout(this.timer);
       for (const [target, event, fn] of this.listening || []) safe(() => (target.off || target.removeListener).call(target, event, fn));
       for (const name of this.commandsAdded || []) safe(() => editorOf().commands.removeCommand(name));
-      try { acode.require("aceModes").removeMode("ton618"); } catch (e) { /* ignore */ }
+      safe(() => (this.languages ? this.languages.unregister("ton618") : acode.require("aceModes").removeMode("ton618")));
       try { acode.require("sidebarApps").remove && acode.require("sidebarApps").remove("ton618"); } catch (e) { /* ignore */ }
       this.floating && this.floating.remove();
       this.style && this.style.remove();

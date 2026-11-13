@@ -69,7 +69,7 @@ const tick = () => new Promise((r) => setTimeout(r, 30));
   await init("http://plugin/");
   await tick();
   ok(modes.length === 1 && modes[0][1] === "ton", "mode registered for the .ton extension");
-  ok(icons.includes("file_type_ton618") && icons.includes("ton618-side"), "file and sidebar icons registered");
+  ok(icons.includes("ton618-side"), "sidebar icon registered");
   ok(session.getMode().$id === "ace/mode/ton618", "the .ton file got the TON618 mode");
   const toks = session.getTokens(1).map((t) => t.type + ":" + t.value.trim()).join("|");
   ok(/storage\.type:let/.test(toks) && /constant\.numeric:1/.test(toks), "tokens for `let x = 1`: " + toks);
