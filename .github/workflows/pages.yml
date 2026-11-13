@@ -19,6 +19,7 @@ on:
       - "website/**"
       - "exemples/**"
       - "include/Version.hpp"
+      - "scripts/logo.py"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -49,6 +50,7 @@ jobs:
         # root; without one, at https://<user>.github.io/<repo>/.
         run: |
           if [ -s exemples/CNAME ]; then export BASE_PATH=""; else export BASE_PATH="/${{ github.event.repository.name }}"; fi
+          python scripts/logo.py   # the logo always ships with its copyright notice
           python website/app.py build _site
 
       - uses: actions/configure-pages@v5

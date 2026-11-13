@@ -296,11 +296,12 @@
 21. [Built-in system modules](#built-in-system-modules)
 22. [Local server & routes (API)](#local-server--routes-api)
 23. [The debugger](#the-debugger)
-24. [Architecture — how the interpreter works](#architecture--how-the-interpreter-works)
-25. [Extending the interpreter itself](#extending-the-interpreter-itself)
-26. [Publishing the docs to GitHub Pages](#publishing-the-docs-to-github-pages)
-27. [Known limitations](#known-limitations)
-28. [Changelog](#changelog)
+24. [The IDE & editor extensions](#the-ide--editor-extensions)
+25. [Architecture — how the interpreter works](#architecture--how-the-interpreter-works)
+26. [Extending the interpreter itself](#extending-the-interpreter-itself)
+27. [Publishing the docs to GitHub Pages](#publishing-the-docs-to-github-pages)
+28. [Known limitations](#known-limitations)
+29. [Changelog](#changelog)
 
 ---
 
@@ -347,6 +348,7 @@ Options:
 
 | Flag | Effect |
 |---|---|
+| `--check` | `ton618 --check file.ton`: check the syntax without running (used by the editors) |
 | `--debug` | Start in step-by-step debug mode |
 | `--break=<line>` | Add a breakpoint at a given line (repeatable) |
 | `-h`, `--help` | Show usage |
@@ -1579,6 +1581,38 @@ Commands at the `(ton618-dbg)` prompt:
 
 ---
 
+### The IDE & editor extensions
+
+**TON618 IDE** — a small editor made for TON618, for **Windows, Linux, macOS and Android**. It's built with [Tauri](https://tauri.app), which uses the system's own web view instead of shipping a browser: the whole app, interpreter included, is a ~2 MB download.
+
+- An editor with TON618 highlighting, auto-indent, bracket pairs, `Ctrl+/` comments and syntax errors marked as you type.
+- **▶ Run** (`Ctrl+Enter`): the output appears below; click an error's line to jump to it. **■ Stop** ends a runaway loop.
+- Two ways to run code: the **built-in engine** (everywhere, Android included — the same engine as the playground) or the **ton618 interpreter** bundled with the desktop app (the full standard library, files, network, the HTTP server, and `input()` through the input box).
+- Several files: `IMPORT://name` loads another file of the project. On desktop, **📂** opens a real folder; otherwise files are kept in the app's workspace.
+
+**VS Code extension** — highlighting (including inside f-strings), snippets (`fn`, `class`, `for`, `try`...), **Run File** (▶ in the title bar, `Ctrl+Alt+R`), **Open the REPL**, and syntax errors underlined on save (using `ton618 --check`). Settings: `ton618.interpreterPath`, `ton618.checkOnSave`, `ton618.saveBeforeRun`.
+
+**Acode plugin** (the code editor for Android) — highlighting, a **▶** button and a *TON618: Run* command with an output panel, syntax errors while typing, and `IMPORT://` from the file's folder. It runs code with the built-in engine, so it works offline with nothing else installed; for the full standard library, use the real interpreter in Termux.
+
+**Where to get them** — every [release](https://github.com/kurodaki-dev/ton618/releases/latest) has:
+
+| | File |
+|---|---|
+| IDE for Windows | `TON618-IDE-*-windows-x64-setup.exe` (or `.msi`) |
+| IDE for Linux | `TON618-IDE-*-linux-x64.AppImage` (any distribution) or `.deb` |
+| IDE for macOS | `TON618-IDE-*-macos-universal.dmg` (Intel and Apple Silicon) |
+| IDE for Android | `TON618-IDE-*-android.apk` |
+| VS Code | `ton618-vscode-*.vsix` — Extensions view → ⋯ → *Install from VSIX…* |
+| Acode | `ton618-acode-plugin-*.zip` — Settings → Plugins → ⋮ → *Install from local* |
+
+The apps aren't code-signed: on Windows click *More info → Run anyway* the first time, on macOS right-click the app → *Open*.
+
+**How releases are made** — `.github/workflows/release.yml` builds everything on GitHub Actions (the interpreter for four platforms, the IDE for four platforms, both extensions) and publishes a release **automatically whenever `TON618_VERSION` in `include/Version.hpp` changes** on `main`. To release, bump the version and push; *Run workflow* rebuilds the current version. The sources are in `ide/`, `editors/vscode/` and `editors/acode/`.
+
+`ton618 --check file.ton` (used by the editors) checks a file's syntax without running it.
+
+---
+
 ### Architecture — how the interpreter works
 
 TON618 is a classic **tree-walking interpreter**, made of three stages that run in a straight pipeline:
@@ -1735,6 +1769,9 @@ One-time setup:
 - **Better errors**: the source line, a traceback through function calls, "did you mean ...?" for misspelled names, and line numbers on errors from native functions.
 - **Catchable recursion limit** (10,000 calls) instead of a crash.
 - A regression test suite (`tests/`, `make test`, run by CI).
+- **TON618 IDE** for Windows, Linux, macOS and Android, a **VS Code extension** and an **Acode plugin** — see [The IDE & editor extensions](#the-ide--editor-extensions). `ton618 --check` checks a file's syntax without running it.
+- **Automatic releases**: everything is built by GitHub Actions and published when `TON618_VERSION` changes; the interpreter now also ships for **macOS** (universal binary), and `install.sh` supports it.
+- The logo carries a copyright notice (see `LOGO-LICENSE.md`): it isn't covered by the Apache 2.0 license.
 
 *Behavior changes:*
 - Numbers print in their shortest exact form: `3.14` instead of `3.140000`, `0.5` instead of `0.500000` (also in `str()`, `json()` and string concatenation).
@@ -1865,11 +1902,12 @@ One-time setup:
 21. [Modules système intégrés](#modules-système-intégrés)
 22. [Serveur local & routes (API)](#serveur-local--routes-api)
 23. [Le débogueur](#le-débogueur)
-24. [Architecture — comment fonctionne l'interpréteur](#architecture--comment-fonctionne-linterpréteur)
-25. [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même)
-26. [Publier la doc sur GitHub Pages](#publier-la-doc-sur-github-pages)
-27. [Limitations connues](#limitations-connues)
-28. [Changelog](#changelog-1)
+24. [L'IDE & les extensions d'éditeur](#lide--les-extensions-déditeur)
+25. [Architecture — comment fonctionne l'interpréteur](#architecture--comment-fonctionne-linterpréteur)
+26. [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même)
+27. [Publier la doc sur GitHub Pages](#publier-la-doc-sur-github-pages)
+28. [Limitations connues](#limitations-connues)
+29. [Changelog](#changelog-1)
 
 ---
 
@@ -1916,6 +1954,7 @@ Options :
 
 | Option | Effet |
 |---|---|
+| `--check` | `ton618 --check fichier.ton` : vérifie la syntaxe sans exécuter (utilisé par les éditeurs) |
 | `--debug` | Démarre en mode débogage pas-à-pas |
 | `--break=<ligne>` | Ajoute un point d'arrêt à une ligne donnée (répétable) |
 | `-h`, `--help` | Affiche l'aide |
@@ -3148,6 +3187,38 @@ Commandes au prompt `(ton618-dbg)` :
 
 ---
 
+### L'IDE & les extensions d'éditeur
+
+**TON618 IDE** — un petit éditeur fait pour TON618, pour **Windows, Linux, macOS et Android**. Il est construit avec [Tauri](https://tauri.app), qui utilise le moteur web du système au lieu d'embarquer un navigateur : toute l'application, interpréteur compris, pèse environ 2 Mo.
+
+- Un éditeur avec la coloration TON618, l'indentation automatique, les paires de crochets, les commentaires avec `Ctrl+/` et les erreurs de syntaxe signalées pendant la frappe.
+- **▶ Run** (`Ctrl+Entrée`) : la sortie s'affiche dessous ; clique sur la ligne d'une erreur pour y aller. **■ Stop** arrête une boucle infinie.
+- Deux façons d'exécuter : le **moteur intégré** (partout, Android compris — le même moteur que le playground) ou l'**interpréteur ton618** livré avec l'application desktop (toute la bibliothèque standard, les fichiers, le réseau, le serveur HTTP, et `input()` via la zone de saisie).
+- Plusieurs fichiers : `IMPORT://nom` charge un autre fichier du projet. Sur desktop, **📂** ouvre un vrai dossier ; sinon les fichiers sont gardés dans l'espace de travail de l'application.
+
+**Extension VS Code** — coloration (y compris dans les f-strings), snippets (`fn`, `class`, `for`, `try`...), **Run File** (▶ dans la barre de titre, `Ctrl+Alt+R`), **Open the REPL**, et erreurs de syntaxe soulignées à la sauvegarde (via `ton618 --check`). Réglages : `ton618.interpreterPath`, `ton618.checkOnSave`, `ton618.saveBeforeRun`.
+
+**Plugin Acode** (l'éditeur de code pour Android) — coloration, un bouton **▶** et une commande *TON618: Run* avec un panneau de sortie, erreurs de syntaxe pendant la frappe, et `IMPORT://` depuis le dossier du fichier. Il exécute le code avec le moteur intégré, donc il marche hors ligne sans rien installer d'autre ; pour toute la bibliothèque standard, utilise le vrai interpréteur dans Termux.
+
+**Où les trouver** — chaque [release](https://github.com/kurodaki-dev/ton618/releases/latest) contient :
+
+| | Fichier |
+|---|---|
+| IDE pour Windows | `TON618-IDE-*-windows-x64-setup.exe` (ou `.msi`) |
+| IDE pour Linux | `TON618-IDE-*-linux-x64.AppImage` (toutes distributions) ou `.deb` |
+| IDE pour macOS | `TON618-IDE-*-macos-universal.dmg` (Intel et Apple Silicon) |
+| IDE pour Android | `TON618-IDE-*-android.apk` |
+| VS Code | `ton618-vscode-*.vsix` — vue Extensions → ⋯ → *Install from VSIX…* |
+| Acode | `ton618-acode-plugin-*.zip` — Réglages → Plugins → ⋮ → *Install from local* |
+
+Les applications ne sont pas signées : sur Windows clique *Informations complémentaires → Exécuter quand même* la première fois, sur macOS clic droit sur l'application → *Ouvrir*.
+
+**Comment les releases sont faites** — `.github/workflows/release.yml` compile tout sur GitHub Actions (l'interpréteur pour quatre plateformes, l'IDE pour quatre plateformes, les deux extensions) et publie une release **automatiquement dès que `TON618_VERSION` dans `include/Version.hpp` change** sur `main`. Pour publier, augmente la version et pousse ; *Run workflow* recompile la version actuelle. Les sources sont dans `ide/`, `editors/vscode/` et `editors/acode/`.
+
+`ton618 --check fichier.ton` (utilisé par les éditeurs) vérifie la syntaxe d'un fichier sans l'exécuter.
+
+---
+
 ### Architecture — comment fonctionne l'interpréteur
 
 TON618 est un **interpréteur à parcours d'arbre** classique, composé de trois étapes formant un pipeline direct :
@@ -3304,6 +3375,9 @@ Configuration unique :
 - **Meilleures erreurs** : la ligne de code, une trace à travers les appels de fonction, « did you mean ...? » pour les noms mal orthographiés, et les numéros de ligne sur les erreurs des fonctions natives.
 - **Limite de récursion rattrapable** (10 000 appels) au lieu d'un plantage.
 - Une suite de tests de non-régression (`tests/`, `make test`, lancée par la CI).
+- **TON618 IDE** pour Windows, Linux, macOS et Android, une **extension VS Code** et un **plugin Acode** — voir [L'IDE & les extensions d'éditeur](#lide--les-extensions-déditeur). `ton618 --check` vérifie la syntaxe d'un fichier sans l'exécuter.
+- **Releases automatiques** : tout est compilé par GitHub Actions et publié quand `TON618_VERSION` change ; l'interpréteur existe maintenant aussi pour **macOS** (binaire universel), pris en charge par `install.sh`.
+- Le logo porte une mention de copyright (voir `LOGO-LICENSE.md`) : il n'est pas couvert par la licence Apache 2.0.
 
 *Changements de comportement :*
 - Les nombres s'affichent sous leur forme exacte la plus courte : `3.14` au lieu de `3.140000`, `0.5` au lieu de `0.500000` (aussi dans `str()`, `json()` et la concaténation).

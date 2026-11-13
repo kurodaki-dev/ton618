@@ -55,6 +55,8 @@ if $IS_TERMUX; then
     esac
 elif [ "$OS" = "Linux" ] && [ "$ARCH" = "x86_64" ]; then
     ASSET="ton618-linux-x64"
+elif [ "$OS" = "Darwin" ]; then
+    ASSET="ton618-macos-universal"   # one binary for Intel and Apple Silicon
 else
     err "No precompiled binary for $OS/$ARCH yet. Build from source: https://github.com/$REPO"
     exit 1

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the IDE window may do: the core APIs (events) and the folder picker.",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open"]
+}

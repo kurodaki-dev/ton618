@@ -43,12 +43,12 @@ url = app.url
 UI = {
     "en": {
         "prefix": "",
-        "docs": "Documentation", "playground": "Playground", "skills": "AI skills", "github": "GitHub",
+        "docs": "Documentation", "playground": "Playground", "skills": "AI skills", "github": "GitHub", "download": "Download",
         "tagline": "A small, fast, friendly programming language — written in C++, shipped as one binary.",
         "lead": ("Write a <code>.ton</code> file and run it. Classes, arrow functions, f-strings, ranges, "
                  "a standard library, an HTTP server, a debugger and a REPL — with no dependencies, "
                  "on Linux, Windows and Android (Termux)."),
-        "read": "Read the documentation", "try": "Try it in your browser",
+        "read": "Read the documentation", "try": "Try it in your browser", "ide": "IDE, VS Code & Acode",
         "install": "Install", "linux": "Linux / Termux", "windows": "Windows",
         "then": "Then run a script, or type <code>ton618</code> alone for the interactive REPL.",
         "features": "What you get",
@@ -63,12 +63,12 @@ UI = {
     },
     "fr": {
         "prefix": "/fr",
-        "docs": "Documentation", "playground": "Playground", "skills": "Skills IA", "github": "GitHub",
+        "docs": "Documentation", "playground": "Playground", "skills": "Skills IA", "github": "GitHub", "download": "Télécharger",
         "tagline": "Un petit langage de programmation rapide et accessible — écrit en C++, livré en un seul binaire.",
         "lead": ("Écris un fichier <code>.ton</code> et lance-le. Classes, fonctions fléchées, f-strings, intervalles, "
                  "une bibliothèque standard, un serveur HTTP, un débogueur et un REPL — sans dépendances, "
                  "sur Linux, Windows et Android (Termux)."),
-        "read": "Lire la documentation", "try": "L'essayer dans le navigateur",
+        "read": "Lire la documentation", "try": "L'essayer dans le navigateur", "ide": "IDE, VS Code & Acode",
         "install": "Installation", "linux": "Linux / Termux", "windows": "Windows",
         "then": "Ensuite lance un script, ou tape <code>ton618</code> tout seul pour le REPL interactif.",
         "features": "Ce que tu obtiens",
@@ -90,7 +90,7 @@ GROUPS = [
     (4, "The language", "Le langage"),
     (17, "Modules", "Modules"),
     (21, "Tools", "Outils"),
-    (23, "Internals & history", "Fonctionnement & historique"),
+    (24, "Internals & history", "Fonctionnement & historique"),
 ]
 
 FEATURES = {
@@ -309,6 +309,7 @@ def header(lang: str, active: str, switch_href: str) -> Element:
         (ui["docs"], url(f"{p}/docs/"), "docs"),
         (ui["playground"], url("/playground.html"), "playground"),
         (ui["skills"], url("/skills.html"), "skills"),
+        (ui["download"], RELEASES + "/latest", ""),
         (ui["github"], REPO, ""),
     ]
     return t.header(t.div(
@@ -377,6 +378,7 @@ def home(lang: str):
                 t.div(
                     t.a(ui["read"], href=url(f"{p}/docs/"), class_="button"),
                     t.a("▶ " + ui["try"], href=url("/playground.html"), class_="button ghost"),
+                    t.a(ui["ide"], href=url(f"{p}/docs/{SECTIONS[lang][23].slug}/"), class_="button ghost"),
                     class_="actions",
                 ),
                 class_="intro",

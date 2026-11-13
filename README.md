@@ -65,6 +65,16 @@ The website is generated from that file by [`website/app.py`](website/app.py), a
 
 Open the [playground](https://c-ton618.duckdns.org/playground.html) (or [`exemples/playground.html`](exemples/playground.html) locally) for a live code editor — no install, no server, nothing sent anywhere. It supports the whole 2.0 language; every example in the documentation has a **Run** button that opens it there.
 
+## IDE & editor extensions
+
+Download from the [latest release](https://github.com/kurodaki-dev/ton618/releases/latest):
+
+- **TON618 IDE** — Windows (`.exe`/`.msi`), Linux (`.AppImage`/`.deb`), macOS (`.dmg`), Android (`.apk`). A ~2 MB app ([Tauri](https://tauri.app)) with the interpreter built in: editor, ▶ Run, output, several files. Source: [`ide/`](ide/).
+- **VS Code** — `ton618-vscode-*.vsix`: highlighting, snippets, run, REPL, syntax errors. Source: [`editors/vscode/`](editors/vscode/).
+- **Acode** (Android) — `ton618-acode-plugin-*.zip`: highlighting, run with an output panel. Source: [`editors/acode/`](editors/acode/).
+
+Everything — interpreter binaries for Linux, Windows, macOS and Termux included — is built by [GitHub Actions](.github/workflows/release.yml) and released automatically when `TON618_VERSION` in [`include/Version.hpp`](include/Version.hpp) changes.
+
 ## Coding TON618 with an AI agent
 
 [`exemples/skills/`](exemples/skills/) packages a condensed language reference for AI coding agents, as both a Claude Code `SKILL.md` and a generic `AGENTS.md`, plus a separate module-authoring skill (also in both formats: [`SKILL.md`](exemples/skills/ton618-module-author/SKILL.md), [`AGENTS.md`](exemples/skills/ton618-module-author/AGENTS.md)) for writing reusable, publishable modules — see [`exemples/skills.html`](exemples/skills.html) for what each is and how to install it.
@@ -75,4 +85,6 @@ Open the [playground](https://c-ton618.duckdns.org/playground.html) (or [`exempl
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+The source code is under Apache 2.0 — see [LICENSE](LICENSE).
+
+The TON618 logo is **© 2026 kurodaki-dev, all rights reserved** and is not covered by the Apache 2.0 license — see [LOGO-LICENSE.md](LOGO-LICENSE.md).

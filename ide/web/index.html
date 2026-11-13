@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TON618 IDE</title>
+<link rel="icon" href="logo.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar">
+  <button id="toggleFiles" class="icon" title="Files" aria-label="Files">☰</button>
+  <img src="logo.svg" alt="" class="logo">
+  <span class="name">TON<b>618</b></span>
+  <span id="project" class="project"></span>
+  <span class="grow"></span>
+  <select id="engine" title="How to run the code">
+    <option value="builtin">Built-in engine</option>
+    <option value="native">ton618 interpreter</option>
+  </select>
+  <button id="run" class="run" title="Run (Ctrl+Enter)">▶ Run</button>
+  <button id="stop" class="stop" title="Stop" hidden>■ Stop</button>
+</header>
+
+<div class="main">
+  <aside id="files" class="files">
+    <div class="files-head">
+      <span id="filesTitle">Files</span>
+      <button id="newFile" class="icon" title="New file">＋</button>
+      <button id="openFolder" class="icon" title="Open a folder" hidden>📂</button>
+    </div>
+    <ul id="fileList"></ul>
+    <div class="files-foot">
+      <select id="examples"><option value="">Examples…</option></select>
+      <a href="https://c-ton618.duckdns.org/docs/" target="_blank" rel="noopener">Documentation</a>
+    </div>
+  </aside>
+
+  <section class="work">
+    <div id="tabs" class="tabs"></div>
+    <div id="editor" class="editor"></div>
+    <div id="outputPane" class="output">
+      <div class="output-head">
+        <span>Output</span>
+        <span id="status" class="status"></span>
+        <span class="grow"></span>
+        <button id="clear" class="icon" title="Clear">⌫</button>
+        <button id="toggleOutput" class="icon" title="Hide / show">▾</button>
+      </div>
+      <pre id="output" aria-live="polite"></pre>
+      <form id="inputForm" class="input" hidden>
+        <input id="input" placeholder="Input for the running program, then Enter" autocomplete="off">
+      </form>
+    </div>
+  </section>
+</div>
+
+<script src="ton618-lite.js"></script>
+<script src="editor.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

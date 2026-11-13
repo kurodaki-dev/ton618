@@ -1,0 +1,67 @@
+{
+  "name": "ton618",
+  "displayName": "TON618",
+  "description": "TON618 language support: syntax highlighting, snippets, run a file or open the REPL, syntax errors as you save.",
+  "version": "2.0.0",
+  "publisher": "kurodaki-dev",
+  "license": "Apache-2.0",
+  "icon": "icon.png",
+  "homepage": "https://c-ton618.duckdns.org/",
+  "repository": { "type": "git", "url": "https://github.com/kurodaki-dev/ton618" },
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Programming Languages", "Snippets"],
+  "keywords": ["ton618", "ton", "language", "interpreter"],
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:ton618"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "ton618",
+        "aliases": ["TON618", "ton618", "ton"],
+        "extensions": [".ton"],
+        "configuration": "./language-configuration.json",
+        "icon": { "light": "./file-icon.svg", "dark": "./file-icon.svg" }
+      }
+    ],
+    "grammars": [
+      { "language": "ton618", "scopeName": "source.ton618", "path": "./syntaxes/ton618.tmLanguage.json" }
+    ],
+    "snippets": [{ "language": "ton618", "path": "./snippets/ton618.json" }],
+    "commands": [
+      { "command": "ton618.run", "title": "Run File", "category": "TON618", "icon": "$(play)" },
+      { "command": "ton618.repl", "title": "Open the REPL", "category": "TON618", "icon": "$(terminal)" },
+      { "command": "ton618.check", "title": "Check Syntax", "category": "TON618" }
+    ],
+    "menus": {
+      "editor/title/run": [{ "command": "ton618.run", "when": "resourceLangId == ton618", "group": "navigation" }],
+      "editor/context": [{ "command": "ton618.run", "when": "resourceLangId == ton618", "group": "navigation" }],
+      "commandPalette": [
+        { "command": "ton618.run", "when": "editorLangId == ton618" },
+        { "command": "ton618.check", "when": "editorLangId == ton618" }
+      ]
+    },
+    "keybindings": [
+      { "command": "ton618.run", "key": "ctrl+alt+r", "mac": "cmd+alt+r", "when": "editorLangId == ton618" }
+    ],
+    "configuration": {
+      "title": "TON618",
+      "properties": {
+        "ton618.interpreterPath": {
+          "type": "string",
+          "default": "ton618",
+          "description": "Path to the ton618 interpreter (just \"ton618\" if it's on your PATH)."
+        },
+        "ton618.checkOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Underline syntax errors when a .ton file is opened or saved (runs ton618 --check)."
+        },
+        "ton618.saveBeforeRun": {
+          "type": "boolean",
+          "default": true,
+          "description": "Save the file before running it."
+        }
+      }
+    }
+  }
+}

@@ -54,6 +54,16 @@ $(DIST)/ton618-android-arm64: $(SRC)
 	$(MUSL_AARCH64_STRIP) $@
 	chmod +x $@
 
+# macOS universal binary (Intel + Apple Silicon), built on a macOS machine
+# with Apple's clang — see the build-macos job in .github/workflows/release.yml.
+macos: $(DIST)/ton618-macos-universal
+
+$(DIST)/ton618-macos-universal: $(SRC)
+	mkdir -p $(DIST)
+	clang++ -std=c++17 -Wall -O2 -Iinclude -arch arm64 -arch x86_64 -mmacosx-version-min=10.15 $(SRC) -o $@ $(LDFLAGS)
+	strip -x $@
+	chmod +x $@
+
 dist: linux windows android
 
 clean:
@@ -80,4 +90,4 @@ site:
 test: $(OUT)
 	tests/run.sh ./$(OUT)
 
-.PHONY: all linux windows android dist clean distclean docs test site
+.PHONY: all linux windows android macos dist clean distclean docs test site

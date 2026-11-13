@@ -1046,8 +1046,11 @@ class ReturnSignal { constructor(value) { this.value = value; } }
 // ---------------------------------------------------------------------------
 
 class Interpreter {
-  constructor(onPrint) {
+  constructor(onPrint, files) {
     this.onPrint = onPrint || (() => {});
+    // Optional project files ({"utils.ton": "...", "modules/x.ton": "..."})
+    // so IMPORT://name works without a filesystem (the IDE, Acode plugin).
+    this.files = files || null;
     this.globals = new Environment();
     this.importedModules = new Set();
     this.callDepth = 0;
@@ -1605,8 +1608,20 @@ class Interpreter {
     }
   }
 
+  findModule(name) {
+    if (!this.files) return null;
+    for (const key of [name + ".ton", "modules/" + name + ".ton"]) if (key in this.files) return this.files[key];
+    return null;
+  }
+
   importNamespace(moduleName, line) {
-    if (!moduleName.startsWith("ton.")) this.runImport(moduleName, line); // errors: no filesystem
+    if (!moduleName.startsWith("ton.")) {
+      const src = this.findModule(moduleName);
+      if (src === null) this.runImport(moduleName, line); // reports "not found"
+      const env = new Environment(this.globals);
+      for (const stmt of parse(lex(src))) this.execute(stmt, env);
+      return new Map(env.values);
+    }
     const prefix = moduleName.slice(4) + "_";
     this.runImport(moduleName, line);
     const ns = new Map();
@@ -1683,6 +1698,16 @@ class Interpreter {
       this.error(line, `Unknown built-in module 'ton.${builtin}'.`);
     }
 
+    const src = this.findModule(moduleName);
+    if (src !== null) {
+      try {
+        for (const stmt of parse(lex(src))) this.execute(stmt, this.globals);
+      } catch (e) {
+        if (e instanceof ThrownValue) throw e;
+        this.error(line, `Error in module '${moduleName}': ${e.message}`);
+      }
+      return;
+    }
     this.error(line, `IMPORT://${moduleName}: the playground has no filesystem, so it can't load user module files. This works in the real interpreter — see DOCUMENTATION.md > "Creating a TON618 module".`);
   }
 
@@ -2136,10 +2161,11 @@ function valuesEqual(a, b) {
 // Runs `source` and returns { ok, output } — output is every print() call's
 // text joined with newlines; on failure ok is false and output ends with the
 // error message, formatted like the real interpreter's stderr line.
-function runTon618(source) {
+// options: { files: {path: source} for IMPORT://, onPrint(text) to stream output }
+function runTon618(source, options = {}) {
   const lines = [];
   try {
-    const interp = new Interpreter((text) => lines.push(text));
+    const interp = new Interpreter((text) => { lines.push(text); if (options.onPrint) options.onPrint(text); }, options.files);
     interp.run(source);
     return { ok: true, output: lines.join("\n") };
   } catch (e) {
@@ -2148,6 +2174,17 @@ function runTon618(source) {
   }
 }
 
-global.Ton618Lite = { runTon618 };
+// Syntax check only: { ok: true } or { ok: false, line, message }.
+function checkTon618(source) {
+  try {
+    parse(lex(source));
+    return { ok: true };
+  } catch (e) {
+    const m = /[Ll]ine (\d+)/.exec(e.message || "");
+    return { ok: false, line: m ? Number(m[1]) : 1, message: e.message || String(e) };
+  }
+}
+
+global.Ton618Lite = { runTon618, checkTon618 };
 
 })(typeof window !== "undefined" ? window : globalThis);

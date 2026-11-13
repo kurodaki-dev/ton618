@@ -1,0 +1,7 @@
+node_modules/
+web/ton618-lite.js
+web/logo.svg
+src-tauri/target/
+src-tauri/gen/
+src-tauri/binaries/
+src-tauri/icons/

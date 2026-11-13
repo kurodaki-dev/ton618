@@ -217,6 +217,7 @@ static void printUsage(const char* prog) {
               << "       " << prog << "                          start the interactive REPL\n"
               << "       " << prog << " -e \"code\"                run a one-liner\n"
               << "Options:\n"
+              << "  --check <file.ton>    check the syntax without running the script\n"
               << "  --debug              run in debug mode (pause at start)\n"
               << "  --break=<line>        add a breakpoint at a given line (repeatable)\n"
               << "  --uninstall-ton       remove this ton618 install (binary + PATH entry + ./modules/)\n"
@@ -654,6 +655,13 @@ static int runUpdate(const std::string& version) {
 int main(int argc, char** argv) {
     std::vector<std::string> args(argv + 1, argv + argc);
 
+    // TON618_UNBUFFERED=1: flush after every write, so a program's output
+    // shows up live when ton618 runs behind a pipe (the IDE, editor
+    // extensions) instead of all at once when it exits.
+    if (const char* ub = std::getenv("TON618_UNBUFFERED")) {
+        if (*ub && std::string(ub) != "0") { std::cout << std::unitbuf; std::cerr << std::unitbuf; }
+    }
+
     // Flags that work standalone, without a script file, wherever they appear.
     for (size_t i = 0; i < args.size(); i++) {
         const std::string& arg = args[i];
@@ -669,6 +677,26 @@ int main(int argc, char** argv) {
 
     // No arguments at all: the interactive REPL.
     if (args.empty() || args[0] == "repl") return runOnBigStack([]() { return runRepl(); });
+
+    // ton618 --check file.ton — parse only: report syntax errors (as
+    // "file:line: message") without running anything. Used by the editor
+    // extensions (VS Code, Acode) and the IDE to underline mistakes.
+    if (args[0] == "--check") {
+        if (args.size() < 2) { std::cerr << "Usage: " << argv[0] << " --check <file.ton>\n"; return 1; }
+        std::string src;
+        try { src = readFile(args[1]); } catch (std::exception& e) { std::cerr << "Error: " << e.what() << "\n"; return 1; }
+        try {
+            Lexer lexer(src);
+            Parser parser(lexer.scanTokens());
+            parser.parse();
+        } catch (std::exception& e) {
+            std::string msg = e.what();
+            std::cerr << args[1] << ":" << lineFromMessage(msg) << ": " << msg << "\n";
+            return 1;
+        }
+        std::cout << args[1] << ": OK\n";
+        return 0;
+    }
 
     // ton618 -e "print(1 + 2)" — run a one-liner.
     if (args[0] == "-e" || args[0] == "--eval") {
