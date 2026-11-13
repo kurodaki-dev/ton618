@@ -33,6 +33,7 @@ jobs:
         run: |
           npm install --no-save --prefix "$RUNNER_TEMP/acode-deps" ace-builds@1.36.5 jsdom@24
           ACE_MODULES="$RUNNER_TEMP/acode-deps" node tests/acode.js
+          ACE_MODULES="$RUNNER_TEMP/acode-deps" node tests/acode-cm.js
 
       - name: Run example scripts (smoke test)
         run: |

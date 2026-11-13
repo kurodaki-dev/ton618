@@ -136,6 +136,28 @@
   }
   const safeName = (p) => p && !p.startsWith("/") && !p.includes("..") && !p.includes("\\") && /^[\w.\-/]+$/.test(p);
 
+  // ---- The editor: Acode has used Ace, and newer versions use CodeMirror ----
+  const safe = (fn, fallback) => { try { const v = fn(); return v === undefined ? fallback : v; } catch (e) { return fallback; } };
+  const editorOf = () => safe(() => editorManager.editor, null);
+  const isAce = () => { const e = editorOf(); return !!(e && typeof e.getSession === "function" && typeof e.on === "function"); };
+  function readText(file) {
+    if (!file) return "";
+    return safe(() => file.session.getValue(), undefined) ??       // Ace
+      safe(() => file.session.doc.toString(), undefined) ??       // CodeMirror state
+      safe(() => editorOf().state.doc.toString(), undefined) ??   // CodeMirror view
+      safe(() => editorOf().getValue(), "");
+  }
+  function gotoLine(line) {
+    const e = editorOf();
+    if (!e) return;
+    if (typeof e.gotoLine === "function") return safe(() => { e.gotoLine(line, 0, true); e.focus(); });
+    safe(() => {   // CodeMirror
+      const l = e.state.doc.line(Math.min(Math.max(line, 1), e.state.doc.lines));
+      e.dispatch({ selection: { anchor: l.from }, scrollIntoView: true });
+      e.focus();
+    });
+  }
+
   // ---- The plugin ----------------------------------------------------------------
   class Ton618Plugin {
     async init(baseUrl) {
@@ -184,22 +206,32 @@
         this.fallbackButton(); // very old Acode: a floating button instead of the sidebar
       }
 
+      // Everything below talks to the editor: each step is guarded, so a different editor
+      // (CodeMirror instead of Ace) costs a feature, never the whole plugin.
       this.commands = [
         { name: "ton618:run", description: "TON618: Run", bindKey: { win: "Ctrl-Enter", mac: "Command-Enter" }, exec: () => this.run() },
         { name: "ton618:stop", description: "TON618: Stop", exec: () => this.stop() },
       ];
-      for (const c of this.commands) editorManager.editor.commands.addCommand(c);
+      this.commandsAdded = [];
+      if (isAce()) for (const c of this.commands) safe(() => { editorOf().commands.addCommand(c); this.commandsAdded.push(c.name); });
 
       this.onSwitch = () => this.refresh();
       this.onChange = () => { clearTimeout(this.timer); this.timer = setTimeout(() => this.check(), 400); };
-      editorManager.on("switch-file", this.onSwitch);
-      editorManager.editor.on("change", this.onChange);
-      this.refresh();
+      this.listening = [];
+      const listen = (target, event, fn) => safe(() => {
+        if (target && typeof target.on === "function") { target.on(event, fn); this.listening.push([target, event, fn]); }
+      });
+      listen(editorManager, "switch-file", this.onSwitch);
+      listen(editorManager, "file-loaded", this.onSwitch);
+      listen(editorManager, "file-content-changed", this.onChange);
+      if (isAce()) listen(editorOf(), "change", this.onChange);
+      safe(() => this.refresh());
     }
 
     // ---- highlighting ----
     ensureMode() {
       if (this.mode) return this.mode;
+      if (!isAce()) return null;   // CodeMirror: no Ace mode to build
       try {
         const session = editorManager.editor.getSession();
         const mode = buildMode(session.getMode());
@@ -215,10 +247,10 @@
     isTon() { return !!(this.file && /\.ton$/i.test(this.file.filename || "")); }
 
     refresh() {
-      if (this.isTon()) {
+      if (this.isTon() && isAce()) {
         const mode = this.ensureMode();
         const session = this.file.session;
-        if (mode && session.getMode().$id !== "ace/mode/ton618") session.setMode(mode);
+        if (mode) safe(() => { if (session.getMode().$id !== "ace/mode/ton618") session.setMode(mode); });
       }
       if (this.runButton) this.runButton.disabled = !this.isTon();
       this.check();
@@ -227,9 +259,12 @@
 
     check() {
       if (!this.isTon()) return;
-      const session = this.file.session;
-      const r = window.Ton618Lite.checkTon618(session.getValue());
-      session.setAnnotations(r.ok ? [] : [{ row: Math.max(0, r.line - 1), column: 0, text: r.message, type: "error" }]);
+      const r = window.Ton618Lite.checkTon618(readText(this.file));
+      this.lastCheck = r;
+      if (typeof this.file.session.setAnnotations === "function") {   // Ace: marks in the gutter
+        safe(() => this.file.session.setAnnotations(r.ok ? [] : [{ row: Math.max(0, r.line - 1), column: 0, text: r.message, type: "error" }]));
+      }
+      this.setStatus(r.ok ? "" : `line ${r.line}: ${r.message}`);   // always shown in the sidebar
     }
 
     // ---- sidebar ----
@@ -277,7 +312,7 @@
           if (m) {
             const a = document.createElement("a");
             a.textContent = part;
-            a.onclick = () => { editorManager.editor.gotoLine(Number(m[1]), 0, true); editorManager.editor.focus(); };
+            a.onclick = () => gotoLine(Number(m[1]));
             span.appendChild(a);
           } else span.append(part);
         }
@@ -316,7 +351,7 @@
       if (!this.isTon()) { this.toast("Open a .ton file to run it"); return; }
       if (!this.outEl) { try { acode.require("sidebarApps").get && acode.require("sidebarApps").get("ton618"); } catch (e) { /* ignore */ } }
       this.stop(true);
-      const source = this.file.session.getValue();
+      const source = readText(this.file);
       if (this.outEl) this.outEl.textContent = "";
       this.setStatus("running…");
 
@@ -518,8 +553,8 @@
     destroy() {
       this.stop(true);
       clearTimeout(this.timer);
-      try { editorManager.off("switch-file", this.onSwitch); editorManager.editor.off("change", this.onChange); } catch (e) { /* ignore */ }
-      try { for (const c of this.commands) editorManager.editor.commands.removeCommand(c.name); } catch (e) { /* ignore */ }
+      for (const [target, event, fn] of this.listening || []) safe(() => (target.off || target.removeListener).call(target, event, fn));
+      for (const name of this.commandsAdded || []) safe(() => editorOf().commands.removeCommand(name));
       try { acode.require("aceModes").removeMode("ton618"); } catch (e) { /* ignore */ }
       try { acode.require("sidebarApps").remove && acode.require("sidebarApps").remove("ton618"); } catch (e) { /* ignore */ }
       this.floating && this.floating.remove();

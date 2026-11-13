@@ -2,7 +2,7 @@
 
 Write and run [TON618](https://c-ton618.duckdns.org/) code on your phone.
 
-- **Syntax highlighting** for `.ton` files (TON618 2.0: classes, f-strings, arrow functions, ranges…).
+- **Syntax highlighting** (Acode with the Ace editor; newer Acode versions with another editor keep everything else) for `.ton` files (TON618 2.0: classes, f-strings, arrow functions, ranges…).
 - **A TON618 sidebar** (the logo in Acode's sidebar): the **▶ Run** button, the program's output (tap an error's line to jump to it), and the **module library**. `Ctrl+Enter` also runs the file, with a keyboard.
 - **Module library**: every package of the TON618 registry with an **Install** button; after installing it shows ✓ installed, with Update / Remove. Modules are written to the `modules/` folder next to the open file and checked with SHA-256, then `IMPORT://name` works.
 - The TON618 logo is the icon of `.ton` files.

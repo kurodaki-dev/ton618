@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.1
+
+- Fixed `editorManager.editor.on is not a function`: newer Acode versions use CodeMirror instead of Ace. The plugin now detects the editor, and every step that touches it is guarded. The sidebar (Run, output, module library) works with any editor; colours and gutter marks need the Ace editor, and syntax errors are also shown in the sidebar.
+
 ## 2.1.0
 
 - Fixed the install error `ace.define is not a function`: the highlighting no longer uses `ace.define`.
