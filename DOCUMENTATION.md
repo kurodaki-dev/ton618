@@ -1018,21 +1018,23 @@ ton618 build
 
 #### Publishing
 
+You need a free account on the registry server (accounts, API keys and packages live in a SQLite database there — nothing goes through GitHub):
+
 ```
-ton618 publish
+ton618 register     # once: username + password, saves an API key on this machine
+ton618 publish      # builds, checks, uploads
 ```
 
-It builds the package, checks that this version isn't already published, and walks you through the last step: a page of the registry's GitHub repository opens, you drop `dist/mathx-1.0.0.tonpkg` on it and choose **Propose changes** — that creates a pull request. (`--dry-run` only checks; `--no-open` doesn't open the browser.)
+`ton618 login` signs in with an existing account (new key on this machine) and accepts `--token <API key>` if you made one elsewhere; `ton618 whoami` shows who you are, `ton618 logout` forgets the key. The key is stored in `~/.config/ton618/credentials.json` (`%APPDATA%\ton618` on Windows), readable only by you. `register --server https://your-registry.example` / `login --server ...` point every package command at another registry server (the address is saved). `publish --dry-run` only checks.
 
-- **Every package is reviewed** by a maintainer before it goes online, and an automatic check refuses malformed or unsafe packages, missing dependencies and files that don't parse. Once the pull request is merged, the website rebuilds in about a minute and `ton618 install mathx` works for everyone.
-- **A published version never changes.** To fix something, raise `version` in `tonproject.toml` and publish again; the check refuses any change to an existing version.
-- Names are first come, first served: a new version of an existing package is accepted from its author (the maintainers check this when reviewing).
+- **The server checks every upload**: well-formed package, allowed file types and sizes, existing dependencies, valid syntax, and a name that isn't someone else's. A package belongs to whoever publishes its first version; only that account (or an admin) adds versions or yanks one.
+- **A published version never changes.** To fix something, raise `version` in `tonproject.toml` and publish again.
 
-**Be careful with what you install.** A module runs with the full power of `ton618`: it can read and write files, use the network and start programs. Only install packages you trust, and read the code of unknown ones (the package page shows its README, and the `.tonpkg` file is plain text).
+**Be careful with what you install.** A module runs with the full power of `ton618`: it can read and write files, use the network and start programs. Only install packages you trust, and read the code of unknown ones (the `.tonpkg` file is plain text).
 
 #### How the registry works
 
-The registry is a static website — no server. The repository's `registry/packages/` folder holds one `<name>-<version>.tonpkg` file per published version; the site's build (`scripts/registry.py`) turns it into `/registry/index.json` (names, versions, SHA-256, dependencies) and copies the packages next to it. `ton618 install` reads `index.json`, downloads one file and verifies it. Because it's just files, you can host a registry anywhere, or on disk, and point the package manager at it:
+The registry is a small server (`server/registry_server.py` in the repository: Python standard library only, one SQLite file — made to run on a free VPS, deployment guide in `server/README.md`). It serves `/registry/index.json` (names, versions, SHA-256, dependencies) and one `.tonpkg` file per version; `ton618 install` reads the index, downloads one file and verifies it. A static folder with the same layout works too, so you can also host a registry on any web server, or on disk, and point the package manager at it:
 
 ```
 TON618_PACKAGES_URL=https://example.com/registry ton618 install mathx
@@ -1100,13 +1102,14 @@ Calling any of the functions below without first importing its module fails with
 
 #### ton.requests — a minimal HTTP client
 
-A small, dependency-free HTTP client (raw sockets, same spirit as the built-in server). **Limitation: `http://` only, no TLS/`https://`** — there is no bundled SSL library, so it can talk to local services, other TON618 servers, or any plain-HTTP endpoint, but not to an HTTPS-only API.
+A small, dependency-free HTTP client (raw sockets, same spirit as the built-in server). **Limitation of `requests_get/post/request`: `http://` only** (use `requests_send`, or the `requests` package, for https) — there is no bundled SSL library, so it can talk to local services, other TON618 servers, or any plain-HTTP endpoint, but not to an HTTPS-only API.
 
 | Function | Description |
 |---|---|
 | `requests_get(url)` | Performs a GET request |
 | `requests_post(url, [body])` | Performs a POST request with an optional string body |
 | `requests_request(method, url, [body])` | Performs a request with any HTTP method |
+| `requests_send(method, url, [headers], [body], [timeout], [verify])` | The full client (through `curl`): **https**, request headers, redirects, any method. Returns `{ok, status, body, error, headers, url}`. The `requests` package wraps it |
 
 All three return a `ton.dict` with the same shape:
 ```
@@ -1565,6 +1568,15 @@ One-time setup:
 ---
 
 ### Changelog
+
+**1.0.0** — the first stable version:
+
+- **TON618 is stable.** The language, the command line and the `.tonpkg` format are now covered by compatibility: what works in 1.x keeps working in 1.x. (Versions are plain `1.0.0` from here on; the old `beta-*` series is older than any stable one.)
+- **Accounts and API keys, stored in SQLite.** `ton618 register`, `login`, `logout` and `whoami`; `ton618 publish` uploads straight to the registry server — `server/registry_server.py`, standard library only, one SQLite file, deployment guide for a free VPS in `server/README.md`. Packages belong to the account that published them.
+- **New `requests` package** — `ton618 install requests`: `requests.get/post/put/patch/delete` over http **and https**, headers, query parameters, JSON, forms, auth, timeouts, redirects. It is built on the new native `requests_send` of `ton.requests` (through curl).
+- **Fixed: `ton618 update` said "no update" when there was one.** The package index is now fetched past the CDN cache, modules installed by the original installer are tracked and refreshed, and modules that were never recorded are looked up again. `ton618 --update` now compares with the latest release first and says so.
+- **Acode plugin 2.1**: fixed `ace.define is not a function`; the TON618 logo as the `.ton` file icon; a sidebar with a Run button, the output, and the module library (Install / Update / Remove).
+- `make test` also runs the `requests` package and the registry server end to end, offline.
 
 **beta-2.1.0** — the package manager:
 
@@ -2731,21 +2743,23 @@ ton618 build
 
 #### Publier
 
+Il faut un compte gratuit sur le serveur du registre (comptes, clés API et paquets sont dans une base SQLite là-bas — rien ne passe par GitHub) :
+
 ```
-ton618 publish
+ton618 register     # une fois : nom + mot de passe, enregistre une clé API sur cette machine
+ton618 publish      # construit, vérifie, envoie
 ```
 
-Il construit le paquet, vérifie que cette version n'est pas déjà publiée, et te guide pour la dernière étape : une page du dépôt GitHub du registre s'ouvre, tu y déposes `dist/mathx-1.0.0.tonpkg` et tu choisis **Propose changes** — ce qui crée une pull request. (`--dry-run` vérifie seulement ; `--no-open` n'ouvre pas le navigateur.)
+`ton618 login` connecte un compte existant (nouvelle clé sur cette machine) et accepte `--token <clé API>` si tu en as créé une ailleurs ; `ton618 whoami` montre qui tu es, `ton618 logout` oublie la clé. La clé est dans `~/.config/ton618/credentials.json` (`%APPDATA%\ton618` sous Windows), lisible par toi seul. `register --server https://ton-registre.example` / `login --server ...` pointent toutes les commandes de paquets vers un autre serveur (l'adresse est mémorisée). `publish --dry-run` vérifie seulement.
 
-- **Chaque paquet est relu** par un mainteneur avant d'être mis en ligne, et une vérification automatique refuse les paquets mal formés ou dangereux, les dépendances manquantes et les fichiers qui ne se lisent pas. Une fois la pull request fusionnée, le site se reconstruit en une minute environ et `ton618 install mathx` marche pour tout le monde.
-- **Une version publiée ne change jamais.** Pour corriger quelque chose, augmente `version` dans `tonproject.toml` et publie à nouveau ; la vérification refuse toute modification d'une version existante.
-- Les noms sont attribués au premier arrivé : une nouvelle version d'un paquet existant est acceptée de la part de son auteur (les mainteneurs le vérifient à la relecture).
+- **Le serveur vérifie chaque envoi** : paquet bien formé, types et tailles de fichiers autorisés, dépendances existantes, syntaxe valide, et un nom qui n'est pas à quelqu'un d'autre. Un paquet appartient à celui qui publie sa première version ; seul ce compte (ou un admin) ajoute des versions ou en retire une.
+- **Une version publiée ne change jamais.** Pour corriger quelque chose, augmente `version` dans `tonproject.toml` et publie à nouveau.
 
-**Fais attention à ce que tu installes.** Un module s'exécute avec toute la puissance de `ton618` : il peut lire et écrire des fichiers, utiliser le réseau et lancer des programmes. N'installe que des paquets de confiance, et lis le code des inconnus (la page du paquet montre son README, et le fichier `.tonpkg` est du texte brut).
+**Fais attention à ce que tu installes.** Un module s'exécute avec toute la puissance de `ton618` : il peut lire et écrire des fichiers, utiliser le réseau et lancer des programmes. N'installe que des paquets de confiance, et lis le code des inconnus (le fichier `.tonpkg` est du texte brut).
 
 #### Comment marche le registre
 
-Le registre est un site statique — pas de serveur. Le dossier `registry/packages/` du dépôt contient un fichier `<nom>-<version>.tonpkg` par version publiée ; la construction du site (`scripts/registry.py`) le transforme en `/registry/index.json` (noms, versions, SHA-256, dépendances) et copie les paquets à côté. `ton618 install` lit `index.json`, télécharge un fichier et le vérifie. Comme ce ne sont que des fichiers, tu peux héberger un registre n'importe où, ou sur ton disque, et y pointer le gestionnaire de paquets :
+Le registre est un petit serveur (`server/registry_server.py` dans le dépôt : bibliothèque standard Python uniquement, un seul fichier SQLite — fait pour tourner sur un VPS gratuit, guide de déploiement dans `server/README.md`). Il sert `/registry/index.json` (noms, versions, SHA-256, dépendances) et un fichier `.tonpkg` par version ; `ton618 install` lit l'index, télécharge un fichier et le vérifie. Un dossier statique de même forme marche aussi : tu peux donc héberger un registre sur n'importe quel serveur web, ou sur ton disque, et y pointer le gestionnaire de paquets :
 
 ```
 TON618_PACKAGES_URL=https://exemple.com/registry ton618 install mathx
@@ -2813,13 +2827,14 @@ Appeler une des fonctions ci-dessous sans d'abord importer son module échoue av
 
 #### ton.requests — un client HTTP minimal
 
-Un petit client HTTP sans dépendance (sockets bruts, même esprit que le serveur intégré). **Limitation : `http://` seulement, pas de TLS/`https://`** — il n'y a pas de bibliothèque SSL embarquée, donc il peut parler à des services locaux, d'autres serveurs TON618, ou n'importe quel point d'accès HTTP simple, mais pas à une API exclusivement HTTPS.
+Un petit client HTTP sans dépendance (sockets bruts, même esprit que le serveur intégré). **Limitation de `requests_get/post/request` : `http://` seulement** (utilise `requests_send`, ou le paquet `requests`, pour https) — il n'y a pas de bibliothèque SSL embarquée, donc il peut parler à des services locaux, d'autres serveurs TON618, ou n'importe quel point d'accès HTTP simple, mais pas à une API exclusivement HTTPS.
 
 | Fonction | Description |
 |---|---|
 | `requests_get(url)` | Effectue une requête GET |
 | `requests_post(url, [corps])` | Effectue une requête POST avec un corps chaîne optionnel |
 | `requests_request(methode, url, [corps])` | Effectue une requête avec n'importe quelle méthode HTTP |
+| `requests_send(methode, url, [en-têtes], [corps], [delai], [verifier])` | Le client complet (via `curl`) : **https**, en-têtes, redirections, toute méthode. Renvoie `{ok, status, body, error, headers, url}`. Le paquet `requests` l'enrobe |
 
 Les trois renvoient un `ton.dict` de même forme :
 ```
@@ -3278,6 +3293,15 @@ Configuration unique :
 ---
 
 ### Changelog
+
+**1.0.0** — la première version stable :
+
+- **TON618 est stable.** Le langage, la ligne de commande et le format `.tonpkg` sont désormais couverts par la compatibilité : ce qui marche en 1.x continue de marcher en 1.x. (Les versions sont simplement `1.0.0` à partir de maintenant ; l'ancienne série `beta-*` est plus ancienne que toute version stable.)
+- **Comptes et clés API, stockés dans SQLite.** `ton618 register`, `login`, `logout` et `whoami` ; `ton618 publish` envoie directement au serveur du registre — `server/registry_server.py`, bibliothèque standard seulement, un seul fichier SQLite, guide de déploiement pour un VPS gratuit dans `server/README.md`. Un paquet appartient au compte qui l'a publié.
+- **Nouveau paquet `requests`** — `ton618 install requests` : `requests.get/post/put/patch/delete` en http **et https**, en-têtes, paramètres d'URL, JSON, formulaires, authentification, délais, redirections. Il repose sur le nouveau natif `requests_send` de `ton.requests` (via curl).
+- **Corrigé : `ton618 update` disait « pas de mise à jour » alors qu'il y en avait une.** L'index des paquets est maintenant lu en contournant le cache du CDN, les modules installés par l'ancien installeur sont suivis et rafraîchis, et ceux qui n'avaient jamais été enregistrés sont recherchés à nouveau. `ton618 --update` compare d'abord avec la dernière release et le dit.
+- **Plugin Acode 2.1** : correction de `ace.define is not a function` ; le logo TON618 comme icône des fichiers `.ton` ; une barre latérale avec un bouton Run, la sortie et la bibliothèque de modules (Install / Update / Remove).
+- `make test` lance aussi le paquet `requests` et le serveur de registre de bout en bout, hors ligne.
 
 **beta-2.1.0** — le gestionnaire de paquets :
 

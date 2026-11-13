@@ -5,6 +5,7 @@
 #include <vector>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <cstring>
 #include <cerrno>
 #include <cctype>
@@ -458,6 +459,7 @@ static int runInstall(const std::string& moduleName) {
         }
     }
 
+    recordLegacyInstall(fileName, versionField ? versionField->toString() : "", ownerRepo);
     std::cout << "[ton618] Installed to " << outPath << " — use IMPORT://" << fileName
               << " in your script to load it.\n";
     return 0;
@@ -499,6 +501,45 @@ static int runUninstallModule(const std::string& moduleName) {
 // from GitHub Releases and replaces the currently running executable.
 // `version` is a release tag (e.g. "beta-1.0.0"); omit it to grab whatever
 // release is currently "latest" on GitHub.
+// The tag of the newest GitHub release ("" when it can't be found): GitHub
+// answers /releases/latest with a redirect to /releases/tag/<tag>.
+static std::string latestReleaseTag() {
+    HttpOptions o;
+    o.url = std::string("https://github.com/") + TON618_REPO + "/releases/latest?t=" + std::to_string((long long)std::time(nullptr));
+    o.followRedirects = false;
+    o.timeoutSeconds = 15;
+    HttpResult r = curlRequest(o);
+    if (!r.ok) return "";
+    for (auto& h : r.headers) {
+        if (h.first != "location") continue;
+        size_t at = h.second.rfind("/tag/");
+        if (at == std::string::npos) return "";
+        std::string tag = h.second.substr(at + 5);
+        while (!tag.empty() && (tag.back() == '\r' || tag.back() == '\n' || tag.back() == ' ')) tag.pop_back();
+        for (char c : tag) if (!std::isalnum((unsigned char)c) && c != '.' && c != '-' && c != '_') return "";
+        return tag;
+    }
+    return "";
+}
+
+// Is release tag `a` newer than `b`? Stable versions (1.0.0) are newer than the
+// beta-* series that came before; inside a series the numbers decide.
+static bool releaseIsNewer(const std::string& a, const std::string& b) {
+    auto parse = [](std::string v, int& stable, int n[3]) {
+        stable = 1;
+        if (v.rfind("beta-", 0) == 0) { stable = 0; v = v.substr(5); }
+        else if (!v.empty() && v[0] == 'v') v = v.substr(1);
+        n[0] = n[1] = n[2] = 0;
+        std::sscanf(v.c_str(), "%d.%d.%d", &n[0], &n[1], &n[2]);
+    };
+    int sa, sb, na[3], nb[3];
+    parse(a, sa, na);
+    parse(b, sb, nb);
+    if (sa != sb) return sa > sb;
+    for (int i = 0; i < 3; i++) if (na[i] != nb[i]) return na[i] > nb[i];
+    return false;
+}
+
 static int runUpdate(const std::string& version) {
     std::string platform = detectPlatform();
     std::string asset = releaseAssetName();
@@ -525,6 +566,19 @@ static int runUpdate(const std::string& version) {
         return 1;
     }
     std::string tmpPath = self + ".update";
+
+    // Without an explicit version: look up the newest release first, and stop
+    // if this binary already is it (set TON618_FORCE_UPDATE=1 to reinstall).
+    if (version.empty() && !std::getenv("TON618_FORCE_UPDATE")) {
+        std::string latest = latestReleaseTag();
+        if (!latest.empty()) {
+            std::cout << "[ton618] Current version: " << TON618_VERSION << "  -  latest release: " << latest << "\n";
+            if (!releaseIsNewer(latest, TON618_VERSION)) {
+                std::cout << "[ton618] You already have the newest version.\n";
+                return 0;
+            }
+        }
+    }
 
     std::cout << "[ton618] Current version: " << TON618_VERSION << " (" << platform << "/" << detectArch() << ")\n";
     std::cout << "[ton618] Downloading " << (version.empty() ? "latest" : version) << " from " << url << " ...\n";

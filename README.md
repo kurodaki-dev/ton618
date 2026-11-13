@@ -87,10 +87,10 @@ Everything — interpreter binaries for Linux, Windows, macOS and Termux include
 ton618 install mathx          # from the registry, into ./modules/  (also: update, uninstall, list, search, info)
 ton618 init mymodule          # start a module: creates tonproject.toml
 ton618 build                  # -> dist/mymodule-0.1.0.tonpkg
-ton618 publish                # share it: one pull request, reviewed, then it's on the website
+ton618 publish                # share it (free account: ton618 register)
 ```
 
-The registry is a static website ([browse it](https://c-ton618.duckdns.org/packages/)): `registry/packages/` in this repository holds one `.tonpkg` file per published version, and the site build turns it into `/registry/index.json`. Downloads are verified with SHA-256, versions support ranges (`^1.2`, `~1.2`, `>=1 <2`), and dependencies are installed with the package. See [Packages](DOCUMENTATION.md#packages-install-build--publish).
+The registry is a small server with a SQLite database ([`server/`](server/README.md), made for a free VPS): accounts, API keys and packages (`ton618 register`, `ton618 publish`). Downloads are verified with SHA-256, versions support ranges (`^1.2`, `~1.2`, `>=1 <2`), and dependencies are installed with the package. Try `ton618 install requests`. See [Packages](DOCUMENTATION.md#packages-install-build--publish).
 
 ## License
 

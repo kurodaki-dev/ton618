@@ -401,7 +401,7 @@ def home(lang: str) -> Page:
         t.section(
             t.h2(PKG[lang]["publish_title"]),
             t.p(PKG[lang]["publish"]),
-            code("ton618 init mathx      # creates tonproject.toml\nton618 build           # -> dist/mathx-0.1.0.tonpkg\nton618 publish         # opens the pull request",
+            code("ton618 init mathx      # creates tonproject.toml\nton618 build           # -> dist/mathx-0.1.0.tonpkg\nton618 publish         # uploads it (needs `ton618 register` once)",
                  "bash"),
             t.p(t.a(PKG[lang]["title"] + " (" + str(len(PACKAGE_INDEX)) + ") →", href=link(w["root"] + "/packages/")), " · ",
                 t.a(PKG[lang]["guide"], href=PACKAGES_CHAPTER[lang].url)),
