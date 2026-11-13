@@ -27,7 +27,7 @@
 17. [HTML type](#html-type)
 18. [Modules (IMPORT://)](#modules-import)
 19. [Creating a TON618 module — full guide](#creating-a-ton618-module--full-guide)
-20. [Installing modules: `ton618 install`](#installing-modules-ton618-install)
+20. [Packages: install, build & publish](#packages-install-build--publish)
 21. [Built-in system modules](#built-in-system-modules)
 22. [Local server & routes (API)](#local-server--routes-api)
 23. [The debugger](#the-debugger)
@@ -95,7 +95,7 @@ Two more commands, used as `ton618 <command> <module>` rather than as a flag on 
 
 | Command | Effect |
 |---|---|
-| `install <module>` | Fetch `<module>` from the [TON618 module registry](#installing-modules-ton618-install) and download its code into `./modules/` |
+| `install <module>` | Fetch `<module>` from the [TON618 module registry](#packages-install-build--publish) and download its code into `./modules/` |
 | `uninstall <module>` | Remove `./modules/<module>.ton` (undoes `install`) |
 
 Anything after the script path that isn't one of these flags is passed through to the script itself, readable via `sys_args()` (see [ton.sys](#built-in-system-modules)).
@@ -930,33 +930,120 @@ print(greetings_bye("kuro"))
 - Keep a module focused on one concern; compose several small modules rather than one large one.
 - A module is only executed the first time it's imported — importing the same name twice (from anywhere) is a no-op the second time, so it's safe for two different modules to both import a third one they both depend on.
 
+**Sharing it.** Turn the module into a package with `ton618 init`, build it with `ton618 build` and share it with `ton618 publish` — see [Packages](#packages-install-build--publish).
+
 ---
 
-### Installing modules: `ton618 install`
+### Packages: install, build & publish
+
+`ton618` is also a **package manager**, like `pip` or `npm`. A **package** is a module — one or several `.ton` files — with a name, a version and, if it needs them, other packages. People publish packages to the **registry**, and everyone installs them with one command. Browse the registry on the website: [Packages](/packages/).
+
+#### Using packages
 
 ```
-ton618 install greetings
+ton618 search text            # look for a package
+ton618 info mathx             # description, versions, what it needs
+ton618 install mathx          # the newest version
+ton618 install mathx@1.2.0    # an exact version
+ton618 install "mathx@^1.2"   # a range (see below)
+ton618 install                # everything listed in tonproject.toml
+ton618 list                   # what is installed here
+ton618 list --outdated        # ... and what has a newer version
+ton618 update                 # update everything (or: ton618 update mathx)
+ton618 uninstall mathx
 ```
 
-This looks `greetings` up in the **TON618 module registry** — a small, separately-hosted index of community modules that stores only a module's **name, GitHub link, and version** (never its actual code) — then downloads `greetings.ton` straight from that GitHub repo's default branch into `./modules/greetings.ton`, right where `IMPORT://greetings` already looks for it (see [Creating a TON618 module](#creating-a-ton618-module--full-guide)).
-
-The registry's URL defaults to a value baked into `include/Version.hpp` (`TON618_REGISTRY_URL`) and can be pointed at a different deployment without rebuilding, via the `TON618_REGISTRY_URL` environment variable:
+Packages go into `./modules/`, where `IMPORT://` already looks:
 
 ```
-TON618_REGISTRY_URL=https://your-registry.example ton618 install greetings
+IMPORT://mathx
+print(mathx_add(2, 3))
 ```
 
-Like `--update`, `install` has no bundled TLS client of its own — it shells out to `curl` (or `wget`/PowerShell) for both the registry lookup and the GitHub download, the same as every other network operation in the CLI itself (as opposed to `ton.requests`, which is a separate, sandboxed HTTP client exposed to scripts — see [Built-in system modules](#built-in-system-modules)).
+- The main file is `modules/mathx.ton`. A package's other files are in `modules/mathx/` and are imported as `IMPORT://mathx/helpers`.
+- **Dependencies** are installed with the package, and shared between packages.
+- `modules/.installed.json` remembers what was installed (and which files), so `update` and `uninstall` know exactly what to do. `uninstall` refuses to remove a package that another one needs (`--force` overrides it), and `update` never installs a version that a dependant doesn't accept.
+- Every download is checked against the **SHA-256** listed in the registry: a file that isn't exactly what was published is refused and nothing is installed.
+- `--save` (with `install`) adds the package to `[dependencies]` in `tonproject.toml`. `--force` replaces a file that `ton618` didn't install.
 
-A module author doesn't need anything special to be installable this way: just a public GitHub repo with `<name>.ton` at its root, registered once in the registry with that repo's link and a version string.
+**Version ranges** — used by `install name@range`, by `[dependencies]`, and by `update`:
 
-To remove a module fetched this way, use `ton618 uninstall <module>` — it just deletes `./modules/<module>.ton` (the exact file `install` created), no registry lookup involved:
+| Range | Means |
+|---|---|
+| `1.2.3` | exactly 1.2.3 |
+| `^1.2.3` | 1.2.3 or newer, but below 2.0.0 (for `0.x`: `^0.2.3` stays below 0.3.0) |
+| `~1.2.3` | 1.2.3 or newer, but below 1.3.0 |
+| `>=1.0 <2.0` | every condition must hold |
+| `1.x`, `1.2.x`, `*` | any version in that line |
+
+Pre-releases (`1.0.0-beta.1`) are only chosen when asked for by name.
+
+#### Creating a package
 
 ```
-ton618 uninstall greetings
+mkdir mathx && cd mathx
+ton618 init                   # creates tonproject.toml, mathx.ton and README.md
 ```
 
-(Not to be confused with `ton618 --uninstall-ton`, which removes the `ton618` interpreter itself — see [Installing & building the interpreter](#installing--building-the-interpreter). That command also wipes out the current directory's whole `./modules/` folder, so a single `ton618 uninstall <module>` and a full `--uninstall-ton` remove different amounts: one module vs. every module fetched into this project.)
+`tonproject.toml` describes the package, like `pyproject.toml` does for Python:
+
+```toml
+[project]
+name = "mathx"                       # 2-40 characters: a-z, 0-9, '-' and '_'; starts with a letter
+version = "1.0.0"                    # 1.2.3 (or 1.2.3-beta.1)
+description = "Handy maths helpers."
+authors = ["Your Name"]
+license = "MIT"
+readme = "README.md"                 # shown on the package's page
+main = "mathx.ton"                   # the file IMPORT://mathx loads
+repository = "https://github.com/you/mathx"
+keywords = ["math", "numbers"]
+requires = ">=2.1.0"                 # the ton618 versions it works with
+
+[dependencies]
+stringutils = "^1.0"                 # installed together with mathx
+
+[build]                              # optional
+include = ["*.ton", "lib/"]          # default: every .ton file, README and LICENSE
+exclude = ["scratch.ton"]
+```
+
+Conventions: start every public name with the package name (`mathx_add`), so it can't clash with the scripts that import it, and inside a package import its other files as `IMPORT://mathx/helpers`.
+
+```
+ton618 build
+```
+
+`build` checks `tonproject.toml`, **checks the syntax of every `.ton` file**, and writes `dist/mathx-1.0.0.tonpkg` — one self-contained file (JSON text) that you can also send to someone directly. Limits: 200 files, 256 KB per file, 1 MB in all; files are text (`.ton .md .txt .json .csv`) with plain names.
+
+#### Publishing
+
+```
+ton618 publish
+```
+
+It builds the package, checks that this version isn't already published, and walks you through the last step: a page of the registry's GitHub repository opens, you drop `dist/mathx-1.0.0.tonpkg` on it and choose **Propose changes** — that creates a pull request. (`--dry-run` only checks; `--no-open` doesn't open the browser.)
+
+- **Every package is reviewed** by a maintainer before it goes online, and an automatic check refuses malformed or unsafe packages, missing dependencies and files that don't parse. Once the pull request is merged, the website rebuilds in about a minute and `ton618 install mathx` works for everyone.
+- **A published version never changes.** To fix something, raise `version` in `tonproject.toml` and publish again; the check refuses any change to an existing version.
+- Names are first come, first served: a new version of an existing package is accepted from its author (the maintainers check this when reviewing).
+
+**Be careful with what you install.** A module runs with the full power of `ton618`: it can read and write files, use the network and start programs. Only install packages you trust, and read the code of unknown ones (the package page shows its README, and the `.tonpkg` file is plain text).
+
+#### How the registry works
+
+The registry is a static website — no server. The repository's `registry/packages/` folder holds one `<name>-<version>.tonpkg` file per published version; the site's build (`scripts/registry.py`) turns it into `/registry/index.json` (names, versions, SHA-256, dependencies) and copies the packages next to it. `ton618 install` reads `index.json`, downloads one file and verifies it. Because it's just files, you can host a registry anywhere, or on disk, and point the package manager at it:
+
+```
+TON618_PACKAGES_URL=https://example.com/registry ton618 install mathx
+TON618_PACKAGES_URL=file:///home/me/my-registry ton618 install mathx
+```
+
+Like `--update`, the package manager has no TLS client of its own: it uses `curl` (or `wget` / PowerShell) for downloads.
+
+**The original registry still works.** If a name isn't in the package registry, `install` falls back to the original module registry (`TON618_REGISTRY_URL`), which maps a module name to a GitHub repository and downloads `<name>.ton` from it into `./modules/<name>.ton`. Modules installed that way can be removed with `ton618 uninstall <module>`, but they have no version management: `update` and `list --outdated` only cover packages from the new registry.
+
+(Not to be confused with `ton618 --uninstall-ton`, which removes the interpreter itself and the current folder's `./modules/`.)
 
 ---
 
@@ -1195,7 +1282,7 @@ print(path_extension("/foo/bar.txt"))    // .txt
 
 #### ton.tensor — small 1D/2D numeric arrays for basic ML work
 
-A **tensor** is a `ton.dict` with two fields — `{shape: [...], data: [...]}` (`data` is flat, row-major) — so it prints, `str()`s, and `json()`s like any other dict. The functions below implement element-wise/matmul/reduction ops as real C++ loops (bypassing the AST), a genuine speed-up over the same loop hand-written in TON618 — but see **honest limits** below before reaching for this to do anything ambitious. This same `{shape, data}` convention is what the community `atome` module (a plain `.ton` file, not part of the interpreter — see [`ton618 install atome`](#installing-modules-ton618-install)) builds its autograd/training layer on top of.
+A **tensor** is a `ton.dict` with two fields — `{shape: [...], data: [...]}` (`data` is flat, row-major) — so it prints, `str()`s, and `json()`s like any other dict. The functions below implement element-wise/matmul/reduction ops as real C++ loops (bypassing the AST), a genuine speed-up over the same loop hand-written in TON618 — but see **honest limits** below before reaching for this to do anything ambitious. This same `{shape, data}` convention is what the community `atome` module (a plain `.ton` file, not part of the interpreter — see [`ton618 install atome`](#packages-install-build--publish)) builds its autograd/training layer on top of.
 
 | Function | Description |
 |---|---|
@@ -1234,7 +1321,7 @@ print(tensor_to_array(tensor_relu(tensor_from_array([-1, 0, 2]))))  // [0, 0, 2]
 - **CPU only.** There is no GPU compute backend (no CUDA/OpenCL bindings) anywhere in this interpreter, and none is planned — "GPU support" isn't something a `.ton` module can add on its own.
 - **1D and 2D shapes only** — no 3D+ tensors (so no image batches, no attention-head-shaped tensors, etc. without flattening/reshaping tricks yourself).
 - **Only scalar broadcasting** (plus the one explicit `tensor_add_bias` exception above) — `tensor + differently-shaped-tensor` (general NumPy-style broadcasting) does not work.
-- **No autograd built in.** `ton.tensor` gives you the forward ops and the matching `_grad` helpers to build backpropagation *by hand* — there's no automatic computation-graph tracking. See the community `atome` module ([`ton618 install atome`](#installing-modules-ton618-install)) for a from-scratch autograd/training layer built on top of this.
+- **No autograd built in.** `ton.tensor` gives you the forward ops and the matching `_grad` helpers to build backpropagation *by hand* — there's no automatic computation-graph tracking. See the community `atome` module ([`ton618 install atome`](#packages-install-build--publish)) for a from-scratch autograd/training layer built on top of this.
 - **Not remotely competitive with a real numeric library.** These are still C++ loops over a dynamically-typed `Value` array — real work for a small language, but nowhere near BLAS/cuDNN performance. Fine for learning, toy models, and small experiments; not for training anything at real scale.
 
 ---
@@ -1479,6 +1566,21 @@ One-time setup:
 
 ### Changelog
 
+**beta-2.1.0** — the package manager:
+
+- **`ton618` is now a package manager**, like pip or npm: `init`, `build`, `publish`, `install`, `update`, `uninstall`, `list`, `search`, `info` — see [Packages](#packages-install-build--publish). Modules have a name, a **version** and **dependencies**; ranges (`^1.2`, `~1.2`, `>=1 <2`) are understood; every download is verified with **SHA-256**; `update` never breaks a package that depends on the old version.
+- **`tonproject.toml`** describes a module (like `pyproject.toml`). `ton618 build` checks it and the syntax of every `.ton` file, and writes one self-contained `dist/<name>-<version>.tonpkg`.
+- **The registry is a static website** (GitHub Pages): `registry/packages/` in the repository becomes `/registry/index.json` plus the packages. `ton618 publish` proposes a package through a pull request; every package is reviewed, checked automatically, and a published version never changes. A [Packages](/packages/) section on the website lists them.
+- The original registry keeps working as a fallback for names that aren't in the new one.
+- `ton618 --check` and the new commands are used by the editors; `TON618_PACKAGES_URL` points the package manager at another registry (a `file://` folder works too).
+- **Behavior change**: `json_parse` (and the package files) now decode `\uXXXX` escapes into real UTF-8 characters (they used to become `?`).
+- `make` now rebuilds when a header changes; `make test` also runs the package manager end to end, offline (`tests/packages.sh`).
+
+**beta-2.0.2** — the Android icon, and a new documentation website:
+
+- **Fixed the Android app icon**: Android crops the edges of app icons, so the new logo was shown cut to its centre on a white background. The icon now has the whole logo on black, inside the area Android always shows.
+- **The documentation website is rewritten** with Claide: a full-height side menu with search and collapsible parts, a flat monochrome design in the logo's colours, and no light effect.
+
 **beta-2.0.1** — the new logo:
 
 - **New TON618 logo** everywhere: the website, the playground, the IDE's application icons, the VS Code and Acode icons. It carries its copyright notice (© 2026 kurodaki-dev, see `LOGO-LICENSE.md`).
@@ -1527,7 +1629,7 @@ One-time setup:
 
 **beta-1.0.9** — `--uninstall-ton` also removes `./modules/`:
 
-- **Behavior change**: `ton618 --uninstall-ton` now also deletes the current directory's whole `./modules/` folder (every module previously fetched there with `ton618 install <module>`), in addition to removing the binary and its PATH entry. The standalone `scripts/uninstall.sh`/`uninstall.ps1` do the same. If you only want to remove one module, use `ton618 uninstall <module>` instead — see [Installing modules](#installing-modules-ton618-install).
+- **Behavior change**: `ton618 --uninstall-ton` now also deletes the current directory's whole `./modules/` folder (every module previously fetched there with `ton618 install <module>`), in addition to removing the binary and its PATH entry. The standalone `scripts/uninstall.sh`/`uninstall.ps1` do the same. If you only want to remove one module, use `ton618 uninstall <module>` instead — see [Packages](#packages-install-build--publish).
 
 **beta-1.0.8** — `ton618 install`/`uninstall` normalize module names to lowercase:
 
@@ -1551,7 +1653,7 @@ One-time setup:
 **beta-1.0.4** — `ton618 uninstall <module>`, and a clearer name for the old `--uninstall`:
 
 - **`ton618 --uninstall`** (which removed the `ton618` interpreter itself) is renamed to **`ton618 --uninstall-ton`**, to make room for the new command below and avoid the two being confused.
-- **`ton618 uninstall <module>`**: removes `./modules/<module>.ton` — the counterpart to `ton618 install <module>` (see [Installing modules](#installing-modules-ton618-install)).
+- **`ton618 uninstall <module>`**: removes `./modules/<module>.ton` — the counterpart to `ton618 install <module>` (see [Packages](#packages-install-build--publish)).
 
 **beta-1.0.3** — new operators, flexible function parameters, and `finally`:
 
@@ -1560,7 +1662,7 @@ One-time setup:
 - **`??` (nil-coalescing operator)**: `value ?? fallback` returns `value` unless it's `nil`, in which case it returns `fallback` — the fallback is never evaluated otherwise (short-circuiting). See [Operators](#operators).
 - **`in` (membership operator)**: `value in array`, `value in dict` (tests keys), `value in string` (substring test). See [Operators](#operators).
 - **`finally`**: `try`/`catch` gained a `finally` block that always runs — on success, on a caught error, or through a `return` — and `catch` is now optional as long as `finally` is present (`try { ... } finally { ... }`). See [Error handling](#error-handling-try--catch--throw--finally).
-- **`ton618 install <module>`**: fetches a module's metadata from the TON618 module registry and downloads its code straight from GitHub into `./modules/`. See [Installing modules](#installing-modules-ton618-install).
+- **`ton618 install <module>`**: fetches a module's metadata from the TON618 module registry and downloads its code straight from GitHub into `./modules/`. See [Packages](#packages-install-build--publish).
 - **A new AI skill for authoring TON618 modules** (as opposed to writing scripts), alongside the existing general-purpose skill — see `exemples/skills/ton618-module-author/`.
 
 **beta-1.0.2** — simpler string formatting, and an AI-coding skill:
@@ -1638,7 +1740,7 @@ One-time setup:
 17. [Type HTML](#type-html)
 18. [Modules (IMPORT://)](#modules-import-1)
 19. [Créer un module TON618 — guide complet](#créer-un-module-ton618--guide-complet)
-20. [Installer des modules : `ton618 install`](#installer-des-modules--ton618-install)
+20. [Paquets : installer, construire & publier](#paquets--installer-construire--publier)
 21. [Modules système intégrés](#modules-système-intégrés)
 22. [Serveur local & routes (API)](#serveur-local--routes-api)
 23. [Le débogueur](#le-débogueur)
@@ -1706,7 +1808,7 @@ Deux autres commandes, utilisées comme `ton618 <commande> <module>` plutôt que
 
 | Commande | Effet |
 |---|---|
-| `install <module>` | Récupère `<module>` depuis le [registre de modules TON618](#installer-des-modules--ton618-install) et télécharge son code dans `./modules/` |
+| `install <module>` | Récupère `<module>` depuis le [registre de modules TON618](#paquets--installer-construire--publier) et télécharge son code dans `./modules/` |
 | `uninstall <module>` | Supprime `./modules/<module>.ton` (annule `install`) |
 
 Tout ce qui suit le chemin du script et n'est pas une de ces options est transmis tel quel au script, lisible via `sys_args()` (voir [ton.sys](#modules-système-intégrés)).
@@ -2541,33 +2643,120 @@ print(greetings_bye("kuro"))
 - Garde un module centré sur une seule responsabilité ; compose plusieurs petits modules plutôt qu'un seul gros.
 - Un module n'est exécuté que la première fois qu'il est importé — importer le même nom deux fois (depuis n'importe où) ne fait rien la seconde fois, donc il est sûr que deux modules différents importent tous les deux un troisième dont ils dépendent tous les deux.
 
+**Le partager.** Transforme le module en paquet avec `ton618 init`, construis-le avec `ton618 build` et partage-le avec `ton618 publish` — voir [Paquets](#paquets--installer-construire--publier).
+
 ---
 
-### Installer des modules : `ton618 install`
+### Paquets : installer, construire & publier
+
+`ton618` est aussi un **gestionnaire de paquets**, comme `pip` ou `npm`. Un **paquet** est un module — un ou plusieurs fichiers `.ton` — avec un nom, une version et, s'il en a besoin, d'autres paquets. On publie des paquets dans le **registre**, et tout le monde les installe avec une commande. Parcours le registre sur le site : [Paquets](/fr/packages/).
+
+#### Utiliser des paquets
 
 ```
-ton618 install greetings
+ton618 search texte           # chercher un paquet
+ton618 info mathx             # description, versions, ce qu'il demande
+ton618 install mathx          # la version la plus récente
+ton618 install mathx@1.2.0    # une version précise
+ton618 install "mathx@^1.2"   # une plage (voir plus bas)
+ton618 install                # tout ce qui est listé dans tonproject.toml
+ton618 list                   # ce qui est installé ici
+ton618 list --outdated        # ... et ce qui a une version plus récente
+ton618 update                 # tout mettre à jour (ou : ton618 update mathx)
+ton618 uninstall mathx
 ```
 
-Cela cherche `greetings` dans le **registre de modules TON618** — un petit index hébergé séparément qui recense les modules communautaires en stockant seulement le **nom, le lien GitHub, et la version** d'un module (jamais son code) — puis télécharge `greetings.ton` directement depuis la branche par défaut de ce dépôt GitHub vers `./modules/greetings.ton`, exactement là où `IMPORT://greetings` va déjà le chercher (voir [Créer un module TON618](#créer-un-module-ton618--guide-complet)).
-
-L'URL du registre a une valeur par défaut intégrée dans `include/Version.hpp` (`TON618_REGISTRY_URL`) et peut être redirigée vers un autre déploiement sans recompiler, via la variable d'environnement `TON618_REGISTRY_URL` :
+Les paquets vont dans `./modules/`, là où `IMPORT://` cherche déjà :
 
 ```
-TON618_REGISTRY_URL=https://ton-registre.exemple ton618 install greetings
+IMPORT://mathx
+print(mathx_add(2, 3))
 ```
 
-Comme `--update`, `install` n'a pas de client TLS intégré à lui — il délègue à `curl` (ou `wget`/PowerShell) à la fois pour l'interrogation du registre et le téléchargement GitHub, comme toute autre opération réseau du CLI lui-même (contrairement à `ton.requests`, qui est un client HTTP séparé et bac-à-sable exposé aux scripts — voir [Modules système intégrés](#modules-système-intégrés)).
+- Le fichier principal est `modules/mathx.ton`. Les autres fichiers d'un paquet sont dans `modules/mathx/` et s'importent avec `IMPORT://mathx/helpers`.
+- Les **dépendances** sont installées avec le paquet, et partagées entre les paquets.
+- `modules/.installed.json` retient ce qui a été installé (et quels fichiers), donc `update` et `uninstall` savent exactement quoi faire. `uninstall` refuse de retirer un paquet dont un autre a besoin (`--force` l'impose), et `update` n'installe jamais une version qu'un paquet dépendant n'accepte pas.
+- Chaque téléchargement est vérifié avec le **SHA-256** du registre : un fichier qui n'est pas exactement ce qui a été publié est refusé et rien n'est installé.
+- `--save` (avec `install`) ajoute le paquet à `[dependencies]` dans `tonproject.toml`. `--force` remplace un fichier que `ton618` n'a pas installé.
 
-Un auteur de module n'a besoin de rien de spécial pour être installable ainsi : juste un dépôt GitHub public avec `<nom>.ton` à sa racine, enregistré une fois dans le registre avec le lien de ce dépôt et une chaîne de version.
+**Plages de versions** — utilisées par `install nom@plage`, par `[dependencies]` et par `update` :
 
-Pour retirer un module récupéré ainsi, utilise `ton618 uninstall <module>` — ça supprime juste `./modules/<module>.ton` (exactement le fichier créé par `install`), sans interroger le registre :
+| Plage | Signifie |
+|---|---|
+| `1.2.3` | exactement 1.2.3 |
+| `^1.2.3` | 1.2.3 ou plus récent, mais inférieur à 2.0.0 (pour `0.x` : `^0.2.3` reste sous 0.3.0) |
+| `~1.2.3` | 1.2.3 ou plus récent, mais inférieur à 1.3.0 |
+| `>=1.0 <2.0` | toutes les conditions doivent être vraies |
+| `1.x`, `1.2.x`, `*` | n'importe quelle version de cette ligne |
+
+Les pré-versions (`1.0.0-beta.1`) ne sont choisies que si on les demande par leur nom.
+
+#### Créer un paquet
 
 ```
-ton618 uninstall greetings
+mkdir mathx && cd mathx
+ton618 init                   # crée tonproject.toml, mathx.ton et README.md
 ```
 
-(À ne pas confondre avec `ton618 --uninstall-ton`, qui désinstalle l'interpréteur `ton618` lui-même — voir [Installer & compiler l'interpréteur](#installer--compiler-linterpréteur). Cette commande vide aussi tout le dossier `./modules/` du répertoire courant, donc `ton618 uninstall <module>` et `--uninstall-ton` ne suppriment pas la même quantité : un seul module contre tous les modules récupérés dans ce projet.)
+`tonproject.toml` décrit le paquet, comme `pyproject.toml` pour Python :
+
+```toml
+[project]
+name = "mathx"                       # 2 à 40 caractères : a-z, 0-9, '-' et '_' ; commence par une lettre
+version = "1.0.0"                    # 1.2.3 (ou 1.2.3-beta.1)
+description = "Des outils de maths pratiques."
+authors = ["Ton Nom"]
+license = "MIT"
+readme = "README.md"                 # affiché sur la page du paquet
+main = "mathx.ton"                   # le fichier que charge IMPORT://mathx
+repository = "https://github.com/toi/mathx"
+keywords = ["math", "nombres"]
+requires = ">=2.1.0"                 # les versions de ton618 avec lesquelles il marche
+
+[dependencies]
+stringutils = "^1.0"                 # installé en même temps que mathx
+
+[build]                              # facultatif
+include = ["*.ton", "lib/"]          # par défaut : tous les .ton, le README et la LICENSE
+exclude = ["brouillon.ton"]
+```
+
+Conventions : commence chaque nom public par le nom du paquet (`mathx_add`), pour qu'il n'entre pas en conflit avec les scripts qui l'importent, et dans un paquet importe ses autres fichiers avec `IMPORT://mathx/helpers`.
+
+```
+ton618 build
+```
+
+`build` vérifie `tonproject.toml`, **vérifie la syntaxe de chaque fichier `.ton`**, et écrit `dist/mathx-1.0.0.tonpkg` — un seul fichier autonome (du texte JSON) que tu peux aussi envoyer directement à quelqu'un. Limites : 200 fichiers, 256 Ko par fichier, 1 Mo au total ; les fichiers sont du texte (`.ton .md .txt .json .csv`) avec des noms simples.
+
+#### Publier
+
+```
+ton618 publish
+```
+
+Il construit le paquet, vérifie que cette version n'est pas déjà publiée, et te guide pour la dernière étape : une page du dépôt GitHub du registre s'ouvre, tu y déposes `dist/mathx-1.0.0.tonpkg` et tu choisis **Propose changes** — ce qui crée une pull request. (`--dry-run` vérifie seulement ; `--no-open` n'ouvre pas le navigateur.)
+
+- **Chaque paquet est relu** par un mainteneur avant d'être mis en ligne, et une vérification automatique refuse les paquets mal formés ou dangereux, les dépendances manquantes et les fichiers qui ne se lisent pas. Une fois la pull request fusionnée, le site se reconstruit en une minute environ et `ton618 install mathx` marche pour tout le monde.
+- **Une version publiée ne change jamais.** Pour corriger quelque chose, augmente `version` dans `tonproject.toml` et publie à nouveau ; la vérification refuse toute modification d'une version existante.
+- Les noms sont attribués au premier arrivé : une nouvelle version d'un paquet existant est acceptée de la part de son auteur (les mainteneurs le vérifient à la relecture).
+
+**Fais attention à ce que tu installes.** Un module s'exécute avec toute la puissance de `ton618` : il peut lire et écrire des fichiers, utiliser le réseau et lancer des programmes. N'installe que des paquets de confiance, et lis le code des inconnus (la page du paquet montre son README, et le fichier `.tonpkg` est du texte brut).
+
+#### Comment marche le registre
+
+Le registre est un site statique — pas de serveur. Le dossier `registry/packages/` du dépôt contient un fichier `<nom>-<version>.tonpkg` par version publiée ; la construction du site (`scripts/registry.py`) le transforme en `/registry/index.json` (noms, versions, SHA-256, dépendances) et copie les paquets à côté. `ton618 install` lit `index.json`, télécharge un fichier et le vérifie. Comme ce ne sont que des fichiers, tu peux héberger un registre n'importe où, ou sur ton disque, et y pointer le gestionnaire de paquets :
+
+```
+TON618_PACKAGES_URL=https://exemple.com/registry ton618 install mathx
+TON618_PACKAGES_URL=file:///home/moi/mon-registre ton618 install mathx
+```
+
+Comme `--update`, le gestionnaire de paquets n'a pas de client TLS à lui : il utilise `curl` (ou `wget` / PowerShell) pour télécharger.
+
+**L'ancien registre marche toujours.** Si un nom n'est pas dans le registre de paquets, `install` se rabat sur le registre de modules d'origine (`TON618_REGISTRY_URL`), qui associe un nom de module à un dépôt GitHub et télécharge `<nom>.ton` dedans vers `./modules/<nom>.ton`. Les modules installés ainsi se retirent avec `ton618 uninstall <module>`, mais sans gestion de versions : `update` et `list --outdated` ne couvrent que les paquets du nouveau registre.
+
+(À ne pas confondre avec `ton618 --uninstall-ton`, qui supprime l'interpréteur lui-même et le dossier `./modules/` courant.)
 
 ---
 
@@ -2806,7 +2995,7 @@ print(path_extension("/foo/bar.txt"))    // .txt
 
 #### ton.tensor — petits tableaux numériques 1D/2D pour du ML basique
 
-Un **tenseur** est un `ton.dict` avec deux champs — `{shape: [...], data: [...]}` (`data` est plat, ordre ligne par ligne) — donc il s'affiche, se `str()`-ise et se `json()`-ise comme n'importe quel dict. Les fonctions ci-dessous implémentent les opérations élément-par-élément/matmul/réduction en vraies boucles C++ (sans repasser par l'AST), un vrai gain de vitesse par rapport à la même boucle écrite à la main en TON618 — mais lis **les limites honnêtes** ci-dessous avant de construire quoi que ce soit d'ambitieux dessus. Cette même convention `{shape, data}` est celle sur laquelle le module communautaire `atome` (un simple fichier `.ton`, pas une partie de l'interpréteur — voir [`ton618 install atome`](#installer-des-modules--ton618-install)) construit sa couche d'autodiff/entraînement.
+Un **tenseur** est un `ton.dict` avec deux champs — `{shape: [...], data: [...]}` (`data` est plat, ordre ligne par ligne) — donc il s'affiche, se `str()`-ise et se `json()`-ise comme n'importe quel dict. Les fonctions ci-dessous implémentent les opérations élément-par-élément/matmul/réduction en vraies boucles C++ (sans repasser par l'AST), un vrai gain de vitesse par rapport à la même boucle écrite à la main en TON618 — mais lis **les limites honnêtes** ci-dessous avant de construire quoi que ce soit d'ambitieux dessus. Cette même convention `{shape, data}` est celle sur laquelle le module communautaire `atome` (un simple fichier `.ton`, pas une partie de l'interpréteur — voir [`ton618 install atome`](#paquets--installer-construire--publier)) construit sa couche d'autodiff/entraînement.
 
 | Fonction | Description |
 |---|---|
@@ -2845,7 +3034,7 @@ print(tensor_to_array(tensor_relu(tensor_from_array([-1, 0, 2]))))  // [0, 0, 2]
 - **CPU uniquement.** Il n'y a aucun backend de calcul GPU (pas de bindings CUDA/OpenCL) nulle part dans cet interpréteur, et ça ne changera pas — le "support GPU" n'est pas quelque chose qu'un module `.ton` peut ajouter tout seul.
 - **Formes 1D et 2D seulement** — pas de tenseurs 3D+ (donc pas de batchs d'images, pas de tenseurs façon têtes d'attention, etc. sans les astuces d'aplatissement/reshape faites toi-même).
 - **Seulement une diffusion scalaire** (plus l'exception explicite `tensor_add_bias` ci-dessus) — `tenseur + tenseur-de-forme-différente` (diffusion façon NumPy) ne marche pas.
-- **Pas d'autodiff intégré.** `ton.tensor` te donne les opérations forward et les helpers `_grad` correspondants pour construire la rétropropagation *à la main* — il n'y a pas de suivi automatique du graphe de calcul. Voir le module communautaire `atome` ([`ton618 install atome`](#installer-des-modules--ton618-install)) pour une couche d'autodiff/entraînement construite à partir de zéro sur cette base.
+- **Pas d'autodiff intégré.** `ton.tensor` te donne les opérations forward et les helpers `_grad` correspondants pour construire la rétropropagation *à la main* — il n'y a pas de suivi automatique du graphe de calcul. Voir le module communautaire `atome` ([`ton618 install atome`](#paquets--installer-construire--publier)) pour une couche d'autodiff/entraînement construite à partir de zéro sur cette base.
 - **Pas du tout compétitif avec une vraie bibliothèque numérique.** Ce sont toujours des boucles C++ sur un tableau de `Value` typé dynamiquement — un vrai travail pour un petit langage, mais loin des performances BLAS/cuDNN. Bien pour apprendre, des modèles jouets, et de petites expériences ; pas pour entraîner quoi que ce soit à échelle réelle.
 
 ---
@@ -3090,6 +3279,21 @@ Configuration unique :
 
 ### Changelog
 
+**beta-2.1.0** — le gestionnaire de paquets :
+
+- **`ton618` est maintenant un gestionnaire de paquets**, comme pip ou npm : `init`, `build`, `publish`, `install`, `update`, `uninstall`, `list`, `search`, `info` — voir [Paquets](#paquets--installer-construire--publier). Les modules ont un nom, une **version** et des **dépendances** ; les plages (`^1.2`, `~1.2`, `>=1 <2`) sont comprises ; chaque téléchargement est vérifié avec **SHA-256** ; `update` ne casse jamais un paquet qui dépend de l'ancienne version.
+- **`tonproject.toml`** décrit un module (comme `pyproject.toml`). `ton618 build` le vérifie ainsi que la syntaxe de chaque fichier `.ton`, et écrit un seul fichier autonome `dist/<nom>-<version>.tonpkg`.
+- **Le registre est un site statique** (GitHub Pages) : `registry/packages/` dans le dépôt devient `/registry/index.json` plus les paquets. `ton618 publish` propose un paquet par pull request ; chaque paquet est relu, vérifié automatiquement, et une version publiée ne change jamais. Une section [Paquets](/fr/packages/) du site les liste.
+- L'ancien registre continue de marcher en secours pour les noms absents du nouveau.
+- `ton618 --check` et les nouvelles commandes servent aux éditeurs ; `TON618_PACKAGES_URL` pointe le gestionnaire vers un autre registre (un dossier `file://` marche aussi).
+- **Changement de comportement** : `json_parse` (et les fichiers de paquets) décode maintenant les échappements `\uXXXX` en vrais caractères UTF-8 (ils devenaient `?`).
+- `make` recompile maintenant quand un en-tête change ; `make test` lance aussi le gestionnaire de paquets de bout en bout, hors ligne (`tests/packages.sh`).
+
+**beta-2.0.2** — l'icône Android, et un nouveau site de documentation :
+
+- **Icône de l'application Android corrigée** : Android rogne les bords des icônes, donc le nouveau logo apparaissait coupé à son centre sur fond blanc. L'icône montre maintenant tout le logo sur fond noir, dans la zone qu'Android affiche toujours.
+- **Le site de documentation est réécrit** avec Claide : un menu latéral pleine hauteur avec recherche et parties repliables, un design plat et monochrome aux couleurs du logo, sans effet de lumière.
+
 **beta-2.0.1** — le nouveau logo :
 
 - **Nouveau logo TON618** partout : le site, le playground, les icônes de l'IDE, les icônes VS Code et Acode. Il porte sa mention de copyright (© 2026 kurodaki-dev, voir `LOGO-LICENSE.md`).
@@ -3138,7 +3342,7 @@ Configuration unique :
 
 **beta-1.0.9** — `--uninstall-ton` supprime aussi `./modules/` :
 
-- **Changement de comportement** : `ton618 --uninstall-ton` supprime désormais aussi tout le dossier `./modules/` du répertoire courant (tous les modules récupérés là avec `ton618 install <module>`), en plus de supprimer le binaire et son entrée PATH. Les scripts autonomes `scripts/uninstall.sh`/`uninstall.ps1` font pareil. Pour ne supprimer qu'un seul module, utilise plutôt `ton618 uninstall <module>` — voir [Installer des modules](#installer-des-modules--ton618-install).
+- **Changement de comportement** : `ton618 --uninstall-ton` supprime désormais aussi tout le dossier `./modules/` du répertoire courant (tous les modules récupérés là avec `ton618 install <module>`), en plus de supprimer le binaire et son entrée PATH. Les scripts autonomes `scripts/uninstall.sh`/`uninstall.ps1` font pareil. Pour ne supprimer qu'un seul module, utilise plutôt `ton618 uninstall <module>` — voir [Paquets](#paquets--installer-construire--publier).
 
 **beta-1.0.8** — `ton618 install`/`uninstall` normalisent le nom du module en minuscules :
 
@@ -3162,7 +3366,7 @@ Configuration unique :
 **beta-1.0.4** — `ton618 uninstall <module>`, et un nom plus clair pour l'ancien `--uninstall` :
 
 - **`ton618 --uninstall`** (qui désinstallait l'interpréteur `ton618` lui-même) est renommé en **`ton618 --uninstall-ton`**, pour laisser la place à la commande ci-dessous et éviter de confondre les deux.
-- **`ton618 uninstall <module>`** : supprime `./modules/<module>.ton` — le pendant de `ton618 install <module>` (voir [Installer des modules](#installer-des-modules--ton618-install)).
+- **`ton618 uninstall <module>`** : supprime `./modules/<module>.ton` — le pendant de `ton618 install <module>` (voir [Paquets](#paquets--installer-construire--publier)).
 
 **beta-1.0.3** — nouveaux opérateurs, paramètres de fonction flexibles, et `finally` :
 
@@ -3171,7 +3375,7 @@ Configuration unique :
 - **`??` (opérateur de coalescence nulle)** : `valeur ?? defaut` retourne `valeur` sauf si elle vaut `nil`, auquel cas il retourne `defaut` — le défaut n'est jamais évalué autrement (court-circuit). Voir [Opérateurs](#opérateurs).
 - **`in` (opérateur d'appartenance)** : `valeur in tableau`, `valeur in dict` (teste les clés), `valeur in chaine` (test de sous-chaîne). Voir [Opérateurs](#opérateurs).
 - **`finally`** : `try`/`catch` gagne un bloc `finally` qui s'exécute toujours — en cas de succès, d'erreur attrapée, ou à travers un `return` — et `catch` est maintenant optionnel tant que `finally` est présent (`try { ... } finally { ... }`). Voir [Gestion des erreurs](#gestion-des-erreurs--try--catch--throw--finally).
-- **`ton618 install <module>`** : récupère les métadonnées d'un module depuis le registre de modules TON618 et télécharge son code directement depuis GitHub dans `./modules/`. Voir [Installer des modules](#installer-des-modules--ton618-install).
+- **`ton618 install <module>`** : récupère les métadonnées d'un module depuis le registre de modules TON618 et télécharge son code directement depuis GitHub dans `./modules/`. Voir [Paquets](#paquets--installer-construire--publier).
 - **Un nouveau skill IA pour créer des modules TON618** (par opposition à écrire des scripts), en plus du skill généraliste existant — voir `exemples/skills/ton618-module-author/`.
 
 **beta-1.0.2** — formatage de chaînes simplifié, et un skill IA :

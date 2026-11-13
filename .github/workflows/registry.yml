@@ -1,0 +1,26 @@
+name: Registry check
+
+# Runs on every pull request that touches the package registry (what
+# `ton618 publish` proposes): the new package must be well formed and safe,
+# its dependencies must exist, every .ton file must parse, and a version that
+# was already published must not change.
+
+on:
+  pull_request:
+    paths:
+      - "registry/**"
+      - "scripts/registry.py"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the check compares with the base branch
+
+      - name: Build the interpreter (to syntax-check the packages with it)
+        run: make
+
+      - name: Validate registry/packages
+        run: python3 scripts/registry.py validate --ton618 ./ton618 --base "origin/${{ github.base_ref }}"

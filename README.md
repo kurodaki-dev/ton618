@@ -79,9 +79,18 @@ Everything — interpreter binaries for Linux, Windows, macOS and Termux include
 
 [`exemples/skills/`](exemples/skills/) packages a condensed language reference for AI coding agents, as both a Claude Code `SKILL.md` and a generic `AGENTS.md`, plus a separate module-authoring skill (also in both formats: [`SKILL.md`](exemples/skills/ton618-module-author/SKILL.md), [`AGENTS.md`](exemples/skills/ton618-module-author/AGENTS.md)) for writing reusable, publishable modules — see [`exemples/skills.html`](exemples/skills.html) for what each is and how to install it.
 
-## Module registry
+## Packages
 
-`ton618 install <module>` fetches a module's `{name, github, version}` from the TON618 module registry and downloads its code straight from GitHub into `./modules/` — see [Installing modules](DOCUMENTATION.md#installing-modules-ton618-install) for how it works and how to point it at your own registry deployment.
+`ton618` is also a package manager, like pip or npm:
+
+```bash
+ton618 install mathx          # from the registry, into ./modules/  (also: update, uninstall, list, search, info)
+ton618 init mymodule          # start a module: creates tonproject.toml
+ton618 build                  # -> dist/mymodule-0.1.0.tonpkg
+ton618 publish                # share it: one pull request, reviewed, then it's on the website
+```
+
+The registry is a static website ([browse it](https://c-ton618.duckdns.org/packages/)): `registry/packages/` in this repository holds one `.tonpkg` file per published version, and the site build turns it into `/registry/index.json`. Downloads are verified with SHA-256, versions support ranges (`^1.2`, `~1.2`, `>=1 <2`), and dependencies are installed with the package. See [Packages](DOCUMENTATION.md#packages-install-build--publish).
 
 ## License
 

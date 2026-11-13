@@ -4,7 +4,7 @@ CXXFLAGS = -std=c++17 -Wall -O2 -Iinclude
 # harmless to pass on other platforms where it's simply unused.
 LDFLAGS = -pthread
 SRC = src/Lexer.cpp src/Parser.cpp src/Interpreter.cpp src/Debugger.cpp \
-      src/LocalServer.cpp src/HttpClient.cpp src/JsonParser.cpp src/Stdlib.cpp src/main.cpp
+      src/LocalServer.cpp src/HttpClient.cpp src/JsonParser.cpp src/Stdlib.cpp src/Net.cpp src/Toml.cpp src/Packages.cpp src/main.cpp
 OUT = ton618
 DIST = dist
 
@@ -23,7 +23,7 @@ MUSL_AARCH64_STRIP ?= scripts/zig-strip.sh
 
 all: $(OUT)
 
-$(OUT): $(SRC)
+$(OUT): $(SRC) $(wildcard include/*.hpp)
 	$(CXX) $(CXXFLAGS) $(SRC) -o $(OUT) $(LDFLAGS)
 
 # --- Precompiled release binaries (dist/) -----------------------------------
@@ -89,5 +89,6 @@ site:
 # Runs tests/*.ton and compares each output with its tests/*.expected file.
 test: $(OUT)
 	tests/run.sh ./$(OUT)
+	tests/packages.sh ./$(OUT)
 
 .PHONY: all linux windows android macos dist clean distclean docs test site

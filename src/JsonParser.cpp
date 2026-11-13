@@ -104,14 +104,36 @@ struct JsonReader {
                     case 'b': out += '\b'; break;
                     case 'f': out += '\f'; break;
                     case 'u': {
-                        // Minimal \uXXXX support: only the common ASCII-range case, no
-                        // surrogate-pair handling — sufficient for typical script/API JSON.
-                        if (pos + 4 > s.size()) fail("invalid \\u escape");
-                        std::string hex = s.substr(pos, 4);
-                        pos += 4;
-                        int code = std::stoi(hex, nullptr, 16);
+                        // \uXXXX, including UTF-16 surrogate pairs, written out as UTF-8.
+                        auto hex4 = [&]() -> unsigned {
+                            if (pos + 4 > s.size()) fail("invalid \\u escape");
+                            unsigned v = 0;
+                            for (int k = 0; k < 4; k++) {
+                                char h = s[pos++];
+                                v <<= 4;
+                                if (h >= '0' && h <= '9') v |= (unsigned)(h - '0');
+                                else if (h >= 'a' && h <= 'f') v |= (unsigned)(h - 'a' + 10);
+                                else if (h >= 'A' && h <= 'F') v |= (unsigned)(h - 'A' + 10);
+                                else fail("invalid \\u escape");
+                            }
+                            return v;
+                        };
+                        unsigned code = hex4();
+                        if (code >= 0xD800 && code < 0xDC00 && pos + 6 <= s.size() && s[pos] == '\\' && s[pos + 1] == 'u') {
+                            size_t save = pos;
+                            pos += 2;
+                            unsigned low = hex4();
+                            if (low >= 0xDC00 && low < 0xE000) code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+                            else pos = save; // not a pair: keep the lone high surrogate as is
+                        }
                         if (code < 0x80) out += (char)code;
-                        else out += '?'; // non-ASCII code point, not worth a full UTF-8 encoder here
+                        else if (code < 0x800) { out += (char)(0xC0 | (code >> 6)); out += (char)(0x80 | (code & 0x3F)); }
+                        else if (code < 0x10000) {
+                            out += (char)(0xE0 | (code >> 12)); out += (char)(0x80 | ((code >> 6) & 0x3F)); out += (char)(0x80 | (code & 0x3F));
+                        } else {
+                            out += (char)(0xF0 | (code >> 18)); out += (char)(0x80 | ((code >> 12) & 0x3F));
+                            out += (char)(0x80 | ((code >> 6) & 0x3F)); out += (char)(0x80 | (code & 0x3F));
+                        }
                         break;
                     }
                     default: fail("invalid escape sequence");
