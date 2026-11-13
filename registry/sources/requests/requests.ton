@@ -1,0 +1,120 @@
+// requests.ton — a friendly HTTP client for TON618 (inspired by Python's requests).
+//
+//   IMPORT://requests
+//   ton.dict r = requests.get("https://api.github.com/zen")
+//   print(r.status, r.text)
+//   ton.dict data = requests.post("https://httpbin.org/post", {"json": {"name": "ton"}}).json()
+//
+// It runs on `requests_send` of ton.requests, which uses curl (so https:// works).
+// Only the names `requests` and `Response` are added to your script; the helpers
+// are prefixed with reqlib_.
+IMPORT://ton.requests
+IMPORT://ton.json
+IMPORT://ton.encoding
+
+// Percent-encodes a string for use in a URL (RFC 3986 "unreserved" characters stay).
+ton.function reqlib_quote(s) {
+    ton.string keep = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+    ton.string out = ""
+    for ch in str(s) {
+        if keep.contains(ch) {
+            out = out + ch
+        } else {
+            out = out + "%" + upper(hex_encode(ch))
+        }
+    }
+    return out
+}
+
+// {"a": 1, "b": "x y"} -> "a=1&b=x%20y"
+ton.function reqlib_encode(d) {
+    ton.array parts = []
+    for k in keys(d) {
+        push(parts, reqlib_quote(k) + "=" + reqlib_quote(d[k]))
+    }
+    return join(parts, "&")
+}
+
+ton.class Response {
+    ton.function init(raw) {
+        self.ok = raw["ok"]
+        self.status = raw["status"]
+        self.text = raw["body"]
+        self.headers = raw["headers"]
+        self.url = raw["url"]
+        self.error = raw["error"]
+    }
+    // true for 2xx answers
+    ton.function succeeded() {
+        return self.ok and self.status >= 200 and self.status < 300
+    }
+    // The body parsed as JSON.
+    ton.function json() {
+        return json_parse(self.text)
+    }
+    // Throws when no answer arrived or the status is 4xx/5xx; returns the response otherwise.
+    ton.function raise_for_status() {
+        if !self.ok {
+            throw f"request failed: {self.error}"
+        }
+        if self.status >= 400 {
+            throw f"HTTP {self.status} for {self.url}"
+        }
+        return self
+    }
+    ton.function toString() {
+        return f"<Response {self.status}>"
+    }
+}
+
+// options: headers (dict), params (dict -> query string), json (any value),
+// data (string, or dict -> form), auth ([user, password]), bearer (token),
+// timeout (seconds, default 30), verify (false skips the TLS check)
+ton.function reqlib_send(method, url, options) {
+    if options == nil {
+        options = {}
+    }
+    ton.dict headers = {"Accept": "*/*"}
+    if options.headers != nil {
+        for k in keys(options.headers) {
+            headers[k] = options.headers[k]
+        }
+    }
+    ton.string target = url
+    if options.params != nil and len(keys(options.params)) > 0 {
+        target = target + (target.contains("?") ? "&" : "?") + reqlib_encode(options.params)
+    }
+    ton.let body = nil
+    if options.json != nil {
+        body = json_stringify(options.json)
+        headers["Content-Type"] = "application/json"
+    } else if options.data != nil {
+        if type(options.data) == "dict" {
+            body = reqlib_encode(options.data)
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        } else {
+            body = str(options.data)
+        }
+    }
+    if options.auth != nil {
+        headers["Authorization"] = "Basic " + base64_encode(str(options.auth[0]) + ":" + str(options.auth[1]))
+    }
+    if options.bearer != nil {
+        headers["Authorization"] = "Bearer " + options.bearer
+    }
+    ton.let timeout = options.timeout == nil ? 30 : options.timeout
+    ton.bool verify = options.verify == nil ? true : options.verify
+    return Response(requests_send(upper(method), target, headers, body, timeout, verify))
+}
+
+ton.dict requests = {
+    "request": (method, url, options = nil) => reqlib_send(method, url, options),
+    "get": (url, options = nil) => reqlib_send("GET", url, options),
+    "head": (url, options = nil) => reqlib_send("HEAD", url, options),
+    "post": (url, options = nil) => reqlib_send("POST", url, options),
+    "put": (url, options = nil) => reqlib_send("PUT", url, options),
+    "patch": (url, options = nil) => reqlib_send("PATCH", url, options),
+    "delete": (url, options = nil) => reqlib_send("DELETE", url, options),
+    "quote": (s) => reqlib_quote(s),
+    "urlencode": (d) => reqlib_encode(d)
+}

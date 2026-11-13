@@ -1,12 +1,12 @@
-# The TON618 package registry
+# The TON618 package registry (seed files)
 
-Every published package version is one file here: `packages/<name>-<version>.tonpkg`,
-made by `ton618 build`. The website's build turns this folder into
-`https://c-ton618.duckdns.org/registry/` (an `index.json` and the packages), which is what
-`ton618 install` reads.
+`packages/<name>-<version>.tonpkg` are the packages maintained in this repository
+(`requests`, `stringutils`), made by `ton618 build` from `sources/`.
 
-- **Publish a package:** `ton618 publish` (see the documentation chapter "Packages").
-  It opens a pull request that adds one file to `packages/`.
-- **`sources/`** holds the source projects of the packages maintained here, so they can be rebuilt.
-- A pull request is checked by `scripts/registry.py validate`: valid format, no unsafe file
-  names, dependencies that exist, every `.ton` file parses, and **published versions never change**.
+The live registry is the SQLite-backed server in [`../server/`](../server/README.md): accounts,
+API keys, `ton618 publish`. Load these files into a new server with
+`python3 server/registry_server.py import registry/packages --owner <you>`.
+
+`scripts/registry.py validate` checks this folder (valid format, no unsafe file names,
+dependencies that exist, every `.ton` file parses); the server applies the same rules to every
+upload, and published versions never change.

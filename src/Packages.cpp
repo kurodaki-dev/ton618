@@ -6,6 +6,7 @@
 #include "Toml.hpp"
 #include "Version.hpp"
 #include <algorithm>
+#include <ctime>
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
@@ -14,6 +15,15 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <thread>
+#include <chrono>
+
+#ifdef _WIN32
+  #include <windows.h>
+#else
+  #include <termios.h>
+  #include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -31,16 +41,19 @@ const size_t MAX_FILES = 200;
 void say(const std::string& m) { std::cout << "[ton618] " << m << "\n"; }
 int fail(const std::string& m) { std::cerr << "[ton618] " << m << "\n"; return 1; }
 
+Value loadCredentials();
 std::string registryBase() {
     const char* env = std::getenv("TON618_PACKAGES_URL");
-    std::string url = env && *env ? env : TON618_PACKAGE_REGISTRY_URL;
+    std::string url;
+    if (env && *env) url = env;
+    else {
+        Value credentials = loadCredentials();
+        Value* server = credentials.findDictEntry("server");
+        std::string saved = server ? server->toString() : "";
+        url = saved.empty() ? std::string(TON618_PACKAGE_REGISTRY_URL) : saved + "/registry";
+    }
     while (!url.empty() && url.back() == '/') url.pop_back();
     return url;
-}
-
-std::string registryRepo() {
-    const char* env = std::getenv("TON618_REGISTRY_REPO");
-    return env && *env ? env : "kurodaki-dev/ton618";
 }
 
 bool readFileBytes(const fs::path& path, std::string& out) {
@@ -60,6 +73,18 @@ bool writeFileBytes(const fs::path& path, const std::string& content) {
     f << content;
     return (bool)f;
 }
+
+// ~/.config/ton618/credentials.json: {server, username, api_key}, written by login/register.
+const char* const CREDENTIALS_FILE = "credentials.json";
+
+Value loadCredentials() {
+    std::string text;
+    if (readFileBytes(fs::path(configDir()) / CREDENTIALS_FILE, text)) {
+        try { Value v = parseJson(text); if (v.type == ValueType::DICT) return v; } catch (std::exception&) {}
+    }
+    return Value::Dict({});
+}
+
 
 bool validUtf8(const std::string& s) {
     size_t i = 0;
@@ -452,10 +477,26 @@ bool buildPackage(const fs::path& dir, Built& out, std::string& error, bool quie
 // The registry index and the installed-modules record
 // ---------------------------------------------------------------------------
 
+std::string g_usedBase; // the registry the index really came from (the fallback, maybe)
+
+// The registry that serves the files: the one the index was read from.
+std::string activeBase() { return g_usedBase.empty() ? registryBase() : g_usedBase; }
+
 bool loadIndex(Value& index, std::string& error) {
     std::string base = registryBase();
     bool ok = false;
-    std::string body = fetchText(base + "/index.json", ok);
+    bool isDefault = !std::getenv("TON618_PACKAGES_URL") && base == std::string(TON618_PACKAGE_REGISTRY_URL);
+    // A unique query string gets past the CDN's cache: a stale index.json is what
+    // made `update` claim "up to date" right after a release.
+    std::string url = base + "/index.json";
+    if (base.rfind("http", 0) == 0) url += "?t=" + std::to_string((long long)std::time(nullptr));
+    std::string body = fetchText(url, ok);
+    if ((!ok || body.empty()) && isDefault) { // the registry server is down: the read-only copy still serves installs
+        std::string fallback = TON618_PACKAGE_REGISTRY_FALLBACK_URL;
+        body = fetchText(fallback + "/index.json?t=" + std::to_string((long long)std::time(nullptr)), ok);
+        if (ok && !body.empty()) { base = fallback; say("(The registry server isn't reachable; using the read-only copy.)"); }
+    }
+    g_usedBase = base;
     if (!ok || body.empty()) { error = "Could not reach the package registry (" + base + ")."; return false; }
     try { index = parseJson(body); }
     catch (std::exception& e) { error = std::string("The registry's index isn't valid JSON: ") + e.what(); return false; }
@@ -577,7 +618,7 @@ struct Installer {
         if (!entry) {
             if (explicitRequest && legacy && (rangeText.empty() || rangeText == "*")) {
                 say("'" + name + "' isn't in the package registry; trying the original module registry ...");
-                if (legacy(name) == 0) return true;
+                if (legacy(name) == 0) { db = loadDb(); return true; }
                 error = "Not found. Try: ton618 search " + name;
                 return false;
             }
@@ -616,7 +657,7 @@ struct Installer {
             return false;
         }
 
-        std::string url = registryBase() + "/" + file;
+        std::string url = activeBase() + "/" + file;
         fs::path tmp = fs::temp_directory_path() / ("ton618-" + name + "-" + pick.version + ".tonpkg");
         say("Downloading " + name + " " + pick.version + " ...");
         if (!downloadFile(url, tmp.string())) { error = "Download failed (" + url + ")."; return false; }
@@ -762,6 +803,19 @@ int cmdInstall(const std::vector<std::string>& args, const std::function<int(con
     return 0;
 }
 
+// Re-downloads a legacy module through `legacy`, keeping the old file if that
+// fails. Returns 1 changed, 0 same, -1 failed.
+int refreshLegacy(const std::string& name, const std::function<int(const std::string&)>& legacy) {
+    std::string path = "modules/" + name + ".ton", before, after;
+    readFileBytes(path, before);
+    if (legacy(name) != 0) {
+        if (!before.empty()) writeFileBytes(path, before); // the failed attempt removed it
+        return -1;
+    }
+    readFileBytes(path, after);
+    return before != after ? 1 : 0;
+}
+
 int cmdUpdate(const std::vector<std::string>& args, const std::function<int(const std::string&)>& legacy) {
     Installer inst;
     inst.legacy = legacy;
@@ -771,14 +825,43 @@ int cmdUpdate(const std::vector<std::string>& args, const std::function<int(cons
         else targets.push_back(args[i]);
     }
     Value* packages = installedPackages(inst.db);
-    if (targets.empty()) for (auto& kv : *packages->dict) targets.push_back(kv.first);
-    if (targets.empty()) { say("No packages installed with ton618 in this folder."); return 0; }
+    bool everything = targets.empty();
+    if (everything) for (auto& kv : *packages->dict) targets.push_back(kv.first);
     if (!inst.needIndex()) return fail(inst.error);
 
+    // modules that sit in modules/ but were never recorded (installed by an
+    // older ton618): they are looked up again too
+    std::vector<std::string> untracked;
+    if (everything && legacy) {
+        std::error_code ec;
+        for (auto& e : fs::directory_iterator("modules", ec)) {
+            if (!e.is_regular_file() || e.path().extension() != ".ton") continue;
+            std::string name = e.path().stem().string();
+            if (packages->findDictEntry(name)) continue;
+            if (inst.entryFor(name)) { say(name + ": installed by hand; 'ton618 install " + name + " --force' puts the registry's version in its place."); continue; }
+            untracked.push_back(name);
+        }
+    }
+    if (targets.empty() && untracked.empty()) { say("No packages installed with ton618 in this folder."); return 0; }
+
     int updated = 0;
+    for (const std::string& name : untracked) {
+        say(name + ": not tracked, checking the original registry ...");
+        int r = refreshLegacy(name, legacy);
+        if (r == 1) { say("Updated " + name + "."); updated++; }
+        else if (r == 0) say(name + " is up to date.");
+        else say(name + ": not in any registry, left as it is.");
+    }
     for (const std::string& name : targets) {
         Value* rec = packages->findDictEntry(name);
         if (!rec) { std::cerr << "[ton618] " << name << " isn't installed (or wasn't installed by ton618 install).\n"; continue; }
+        if (str(*rec, "source") == "legacy") {
+            int r = legacy ? refreshLegacy(name, legacy) : -1;
+            if (r == 1) { say("Updated " + name + "."); updated++; }
+            else if (r == 0) say(name + " is up to date.");
+            else say(name + ": the original registry can't be reached, left as it is.");
+            continue;
+        }
         const Value* entry = inst.entryFor(name);
         if (!entry) { say(name + ": no longer in the registry, left as it is."); continue; }
         // the newest version that every package depending on it still accepts
@@ -990,11 +1073,197 @@ int cmdBuild(const std::vector<std::string>&) {
     return 0;
 }
 
+// ---------------------------------------------------------------------------
+// accounts: register / login / logout / whoami (the registry server keeps them in SQLite)
+// ---------------------------------------------------------------------------
+
+// The server's address: the registry URL without its trailing /registry.
+std::string serverBase() {
+    std::string url = registryBase();
+    const std::string tail = "/registry";
+    if (url.size() > tail.size() && url.compare(url.size() - tail.size(), tail.size(), tail) == 0) url.erase(url.size() - tail.size());
+    return url;
+}
+
+std::string readSecretLine(const std::string& prompt, bool hidden) {
+    std::cerr << prompt << std::flush;
+    std::string line;
+#ifdef _WIN32
+    HANDLE in = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode = 0;
+    bool changed = hidden && GetConsoleMode(in, &mode) && SetConsoleMode(in, mode & ~ENABLE_ECHO_INPUT);
+    std::getline(std::cin, line);
+    if (changed) { SetConsoleMode(in, mode); std::cerr << "\n"; }
+#else
+    struct termios saved;
+    bool changed = false;
+    if (hidden && isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &saved) == 0) {
+        struct termios quiet = saved;
+        quiet.c_lflag &= ~(tcflag_t)ECHO;
+        changed = tcsetattr(STDIN_FILENO, TCSANOW, &quiet) == 0;
+    }
+    std::getline(std::cin, line);
+    if (changed) { tcsetattr(STDIN_FILENO, TCSANOW, &saved); std::cerr << "\n"; }
+#endif
+    while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+    return line;
+}
+
+bool saveCredentials(const std::string& server, const std::string& username, const std::string& key) {
+    Value v = Value::Dict({});
+    setKey(v, "server", Value::String(server));
+    setKey(v, "username", Value::String(username));
+    setKey(v, "api_key", Value::String(key));
+    std::error_code ec;
+    fs::create_directories(configDir(), ec);
+    fs::path file = fs::path(configDir()) / CREDENTIALS_FILE;
+    if (!writeFileBytes(file, v.toJsonPretty() + "\n")) return false;
+#ifndef _WIN32
+    fs::permissions(file, fs::perms::owner_read | fs::perms::owner_write, fs::perm_options::replace, ec); // it holds a key
+#endif
+    return true;
+}
+
+// Calls the registry server. `key` empty: anonymous.
+HttpResult callServer(const std::string& method, const std::string& path, const std::string& body, const std::string& key,
+                      const std::string& contentType = "application/json") {
+    HttpOptions o;
+    o.method = method;
+    o.url = serverBase() + path;
+    o.followRedirects = false;
+    o.headers.push_back({"Accept", "application/json"});
+    if (!key.empty()) o.headers.push_back({"Authorization", "Bearer " + key});
+    if (method != "GET") { o.hasBody = true; o.body = body; o.headers.push_back({"Content-Type", contentType}); }
+    return curlRequest(o);
+}
+
+// The server's "error" message, or a fallback.
+std::string serverError(const HttpResult& r) {
+    if (!r.ok) return "Can't reach the registry server (" + serverBase() + "): " + r.error;
+    try {
+        Value v = parseJson(r.body);
+        if (Value* e = v.findDictEntry("error")) return e->toString();
+    } catch (std::exception&) {}
+    return "The server answered " + std::to_string(r.status) + ".";
+}
+
+int cmdAccount(const std::vector<std::string>& args, bool registering) {
+    std::string server, username, token;
+    bool passwordStdin = false, github = false, noOpen = false;
+    for (size_t i = 1; i < args.size(); i++) {
+        if (args[i] == "--server" && i + 1 < args.size()) server = args[++i];
+        else if (args[i] == "--username" && i + 1 < args.size()) username = args[++i];
+        else if (args[i] == "--token" && i + 1 < args.size()) token = args[++i];
+        else if (args[i] == "--password-stdin") passwordStdin = true;
+        else if (args[i] == "--github") github = true;
+        else if (args[i] == "--no-open") noOpen = true;
+        else return fail("Unknown option '" + args[i] + "'. Usage: ton618 " + (registering ? "register" : "login") + " [--github] [--server URL] [--username NAME] [--password-stdin] [--token API_KEY]");
+    }
+    while (!server.empty() && server.back() == '/') server.pop_back();
+    if (server.size() > 9 && server.compare(server.size() - 9, 9, "/registry") == 0) server.erase(server.size() - 9);
+    if (server.empty()) { Value c = loadCredentials(); if (Value* v = c.findDictEntry("server")) server = v->toString(); }
+    if (server.empty()) server = serverBase();
+    if (server.rfind("http://", 0) != 0 && server.rfind("https://", 0) != 0) return fail("The server must be an http:// or https:// address (try --server https://your-registry.example).");
+    if (server.rfind("http://", 0) == 0 && server.find("localhost") == std::string::npos && server.find("127.0.0.1") == std::string::npos)
+        say("Warning: " + server + " isn't https, so your password and key travel in clear text.");
+
+    // point this command at the chosen server
+    std::string previous;
+    if (const char* e = std::getenv("TON618_PACKAGES_URL")) previous = e;
+#ifdef _WIN32
+    _putenv_s("TON618_PACKAGES_URL", (server + "/registry").c_str());
+#else
+    setenv("TON618_PACKAGES_URL", (server + "/registry").c_str(), 1);
+#endif
+
+    if (!token.empty()) {                       // an API key made elsewhere
+        HttpResult r = callServer("GET", "/api/whoami", "", token);
+        if (!r.ok || r.status != 200) return fail(serverError(r));
+        Value who = parseJson(r.body);
+        std::string name = who.findDictEntry("username") ? who.findDictEntry("username")->toString() : "";
+        if (!saveCredentials(server, name, token)) return fail("Could not save the key in " + configDir());
+        say("Logged in as " + name + " on " + server + ".");
+        return 0;
+    }
+    if (github) {   // sign in with GitHub: the device flow, no password and no secret on this machine
+        HttpResult r = callServer("POST", "/api/oauth/device/start", "{}", "");
+        if (!r.ok || r.status != 200) return fail(serverError(r));
+        Value d = parseJson(r.body);
+        auto field = [&](const char* k) { Value* v = d.findDictEntry(k); return v ? v->toString() : std::string(); };
+        std::string deviceCode = field("device_code"), userCode = field("user_code"), page = field("verification_uri");
+        int interval = std::atoi(field("interval").c_str());
+        int lifetime = std::atoi(field("expires_in").c_str());
+        if (interval < 1) interval = 5;
+        if (lifetime < 30) lifetime = 600;
+        std::cout << "\n  1. Open " << page << "\n  2. Enter the code:  " << userCode << "\n\n";
+        if (!noOpen) openUrl(page);
+        say("Waiting for you to approve on GitHub ...");
+        Value body = Value::Dict({});
+        setKey(body, "device_code", Value::String(deviceCode));
+        for (int waited = 0; waited < lifetime; waited += interval) {
+            std::this_thread::sleep_for(std::chrono::seconds(interval));
+            HttpResult p = callServer("POST", "/api/oauth/device/poll", body.toJson(), "");
+            if (p.ok && p.status == 202) { Value w = parseJson(p.body); if (Value* i = w.findDictEntry("interval")) interval = std::max(1, (int)i->number); continue; }
+            if (!p.ok || p.status != 200) return fail(serverError(p));
+            Value out = parseJson(p.body);
+            std::string key = out.findDictEntry("api_key") ? out.findDictEntry("api_key")->toString() : "";
+            std::string name = out.findDictEntry("username") ? out.findDictEntry("username")->toString() : "";
+            if (key.empty() || !saveCredentials(server, name, key)) return fail("Could not save the API key in " + configDir());
+            say("Logged in as " + name + " on " + server + " (with GitHub).");
+            return 0;
+        }
+        return fail("The code expired before you approved it. Run the command again.");
+    }
+    if (username.empty()) username = readSecretLine("Username: ", false);
+    std::string password = readSecretLine(passwordStdin ? "" : "Password: ", !passwordStdin);
+    if (registering && !passwordStdin) {
+        if (readSecretLine("Repeat the password: ", true) != password) return fail("The two passwords differ.");
+    }
+    Value body = Value::Dict({});
+    setKey(body, "username", Value::String(username));
+    setKey(body, "password", Value::String(password));
+    setKey(body, "key_name", Value::String("ton618 cli"));
+    HttpResult r = callServer("POST", registering ? "/api/register" : "/api/login", body.toJson(), "");
+    if (!r.ok || (r.status != 200 && r.status != 201)) return fail(serverError(r));
+    Value out = parseJson(r.body);
+    std::string key = out.findDictEntry("api_key") ? out.findDictEntry("api_key")->toString() : "";
+    std::string name = out.findDictEntry("username") ? out.findDictEntry("username")->toString() : username;
+    if (key.empty() || !saveCredentials(server, name, key)) return fail("Could not save the API key in " + configDir());
+    say(std::string(registering ? "Account created. " : "") + "Logged in as " + name + " on " + server + ".");
+    say("Your API key is saved in " + (fs::path(configDir()) / CREDENTIALS_FILE).string() + " (only you can read it). `ton618 publish` uses it.");
+    return 0;
+}
+
+int cmdLogout() {
+    std::error_code ec;
+    fs::path file = fs::path(configDir()) / CREDENTIALS_FILE;
+    if (!fs::exists(file, ec)) { say("You weren't logged in."); return 0; }
+    // keep the server address, drop the key
+    Value c = loadCredentials();
+    Value* server = c.findDictEntry("server");
+    std::string address = server ? server->toString() : "";
+    if (address.empty()) fs::remove(file, ec);
+    else saveCredentials(address, "", "");
+    say("Logged out. (The key still exists on the server; revoke it with the registry's key list if the machine isn't yours.)");
+    return 0;
+}
+
+int cmdWhoami() {
+    Value c = loadCredentials();
+    Value* key = c.findDictEntry("api_key");
+    if (!key || key->toString().empty()) { say("Not logged in. Run: ton618 register (new account) or ton618 login"); return 1; }
+    HttpResult r = callServer("GET", "/api/whoami", "", key->toString());
+    if (!r.ok || r.status != 200) return fail(serverError(r) + (r.status == 401 ? " (run ton618 login again)" : ""));
+    Value who = parseJson(r.body);
+    say("Logged in as " + who.findDictEntry("username")->toString() + " on " + serverBase() + ".");
+    return 0;
+}
+
 int cmdPublish(const std::vector<std::string>& args) {
-    bool dryRun = false, noOpen = false;
+    bool dryRun = false;
     for (size_t i = 1; i < args.size(); i++) {
         if (args[i] == "--dry-run") dryRun = true;
-        else if (args[i] == "--no-open") noOpen = true;
+        else if (args[i] == "--no-open") continue; // (kept so older scripts still work)
     }
     Built built;
     std::string error;
@@ -1018,29 +1287,42 @@ int cmdPublish(const std::vector<std::string>& args) {
         say("(Couldn't check the registry: " + err + ")");
     }
 
-    std::string repo = registryRepo();
-    std::string page = "https://github.com/" + repo + "/upload/main/registry/packages";
-    std::string file = fs::absolute(built.path).string();
     if (dryRun) {
         say("Dry run: " + built.name + " " + built.version + " is ready to be published. Nothing was sent.");
         return 0;
     }
-    std::cout << "\n  Publishing " << built.name << " " << built.version << " takes one pull request:\n\n"
-              << "    1. Sign in to GitHub in the page that opens:\n       " << page << "\n"
-              << "    2. Drop this file on it:\n       " << file << "\n"
-              << "    3. Choose \"Create a new branch ... and start a pull request\", then \"Propose changes\".\n\n"
-              << "  A maintainer reviews it (every module runs with the full power of ton618, so each one is\n"
-              << "  read first). Once it's merged, the site updates in about a minute and anyone can run:\n\n"
-              << "    ton618 install " << built.name << "\n\n";
-    if (!noOpen && !openUrl(page)) say("(Couldn't open a browser: open the link above yourself.)");
+    Value credentials = loadCredentials();
+    Value* key = credentials.findDictEntry("api_key");
+    if (!key || key->toString().empty()) return fail("You need an account to publish. Run: ton618 register   (or ton618 login if you have one)");
+    std::string bytes;
+    if (!readFileBytes(built.path, bytes)) return fail("Could not read " + built.path);
+    say("Uploading " + built.name + " " + built.version + " to " + serverBase() + " ...");
+    HttpResult r = callServer("POST", "/api/publish", bytes, key->toString(), "application/octet-stream");
+    if (!r.ok || r.status != 201) return fail(serverError(r) + (r.status == 401 ? " (run ton618 login again)" : ""));
+    say("Published " + built.name + " " + built.version + ". Anyone can now run: ton618 install " + built.name);
     return 0;
 }
 
 } // namespace
 
+// A module installed by the original registry (a bare file from a GitHub repo):
+// remember it, so that `ton618 update` knows about it.
+void recordLegacyInstall(const std::string& name, const std::string& version, const std::string& github) {
+    Value db = loadDb();
+    Value record = Value::Dict({});
+    setKey(record, "version", Value::String(version.empty() ? "unknown" : version));
+    setKey(record, "source", Value::String("legacy"));
+    setKey(record, "github", Value::String(github));
+    setKey(record, "dependencies", Value::Dict({}));
+    setKey(record, "files", Value::Array({Value::String("modules/" + name + ".ton")}));
+    setKey(*installedPackages(db), name, record);
+    saveDb(db);
+}
+
 bool isPackageCommand(const std::string& c) {
     return c == "init" || c == "build" || c == "publish" || c == "install" || c == "update" ||
-           c == "uninstall" || c == "list" || c == "search" || c == "info";
+           c == "uninstall" || c == "list" || c == "search" || c == "info" ||
+           c == "register" || c == "login" || c == "logout" || c == "whoami";
 }
 
 int runPackageCommand(const std::vector<std::string>& args,
@@ -1056,5 +1338,9 @@ int runPackageCommand(const std::vector<std::string>& args,
     if (c == "list") return cmdList(args);
     if (c == "search") return cmdSearch(args);
     if (c == "info") return cmdInfo(args);
+    if (c == "register") return cmdAccount(args, true);
+    if (c == "login") return cmdAccount(args, false);
+    if (c == "logout") return cmdLogout();
+    if (c == "whoami") return cmdWhoami();
     return 1;
 }

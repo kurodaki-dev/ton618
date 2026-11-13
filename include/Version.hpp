@@ -9,7 +9,7 @@
 // compares it against GitHub release tags — see TON618_REPO below.
 // ============================================================================
 
-#define TON618_VERSION "beta-2.1.0"
+#define TON618_VERSION "1.0.0"
 
 // "owner/repo" on GitHub that --update pulls precompiled binaries from and
 // that install.sh / install.ps1 point at. Change this if the project ever
@@ -23,9 +23,13 @@
 // trailing slash) to point at your own deployment.
 #define TON618_REGISTRY_URL "https://file330.duckdns.org/ton618-registry-api"
 
-// Where `ton618 install/update/search` find packages: a static website (the
-// documentation site's /registry folder, served by GitHub Pages) made of
-// index.json plus one .tonpkg file per published version. Override without
+// Where `ton618 install/update/search/publish` talk to: the registry server
+// (server/registry_server.py, SQLite) that serves index.json plus one .tonpkg
+// file per published version, and holds the accounts. Override without
 // rebuilding with the TON618_PACKAGES_URL environment variable (a file:// URL
 // works too, for a local registry).
-#define TON618_PACKAGE_REGISTRY_URL "https://c-ton618.duckdns.org/registry"
+#define TON618_PACKAGE_REGISTRY_URL "https://api-ton.duckdns.org/registry"
+
+// Read-only copy of the same packages on the documentation site, used only when the
+// registry server above can't be reached (and no other registry was chosen).
+#define TON618_PACKAGE_REGISTRY_FALLBACK_URL "https://c-ton618.duckdns.org/registry"

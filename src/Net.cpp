@@ -3,12 +3,18 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 
 #ifdef _WIN32
   #include <windows.h>
   #define popen _popen
   #define pclose _pclose
+#else
+  #include <sys/wait.h>
 #endif
 
 bool commandExists(const std::string& cmd) {
@@ -163,4 +169,201 @@ bool openUrl(const std::string& url) {
     }
     return false;
 #endif
+}
+
+// ---- base64 -----------------------------------------------------------------
+
+std::string base64Encode(const std::string& data) {
+    static const char* t = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    size_t i = 0;
+    while (i + 2 < data.size()) {
+        uint32_t v = ((uint32_t)(unsigned char)data[i] << 16) | ((uint32_t)(unsigned char)data[i + 1] << 8) | (unsigned char)data[i + 2];
+        out += t[(v >> 18) & 63]; out += t[(v >> 12) & 63]; out += t[(v >> 6) & 63]; out += t[v & 63];
+        i += 3;
+    }
+    if (i + 1 == data.size()) {
+        uint32_t v = (uint32_t)(unsigned char)data[i] << 16;
+        out += t[(v >> 18) & 63]; out += t[(v >> 12) & 63]; out += "==";
+    } else if (i + 2 == data.size()) {
+        uint32_t v = ((uint32_t)(unsigned char)data[i] << 16) | ((uint32_t)(unsigned char)data[i + 1] << 8);
+        out += t[(v >> 18) & 63]; out += t[(v >> 12) & 63]; out += t[(v >> 6) & 63]; out += '=';
+    }
+    return out;
+}
+
+bool base64Decode(const std::string& text, std::string& out) {
+    out.clear();
+    uint32_t acc = 0;
+    int bits = 0;
+    for (char c : text) {
+        int v;
+        if (c >= 'A' && c <= 'Z') v = c - 'A';
+        else if (c >= 'a' && c <= 'z') v = c - 'a' + 26;
+        else if (c >= '0' && c <= '9') v = c - '0' + 52;
+        else if (c == '+' || c == '-') v = 62;
+        else if (c == '/' || c == '_') v = 63;
+        else if (c == '=' || c == '\n' || c == '\r' || c == ' ') continue;
+        else return false;
+        acc = (acc << 6) | (uint32_t)v;
+        bits += 6;
+        if (bits >= 8) { bits -= 8; out += (char)((acc >> bits) & 0xFF); }
+    }
+    return true;
+}
+
+// ---- configuration folder ---------------------------------------------------
+
+std::string configDir() {
+#ifdef _WIN32
+    const char* appdata = std::getenv("APPDATA");
+    return std::string(appdata ? appdata : ".") + "\\ton618";
+#else
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    if (xdg && *xdg) return std::string(xdg) + "/ton618";
+    const char* home = std::getenv("HOME");
+    return std::string(home ? home : ".") + "/.config/ton618";
+#endif
+}
+
+// ---- HTTP(S) through curl ---------------------------------------------------
+
+namespace {
+
+std::string quoteForCurlConfig(const std::string& v) {
+    std::string out = "\"";
+    for (char c : v) {
+        switch (c) {
+            case '\\': out += "\\\\"; break;
+            case '"': out += "\\\""; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default: out += c;
+        }
+    }
+    return out + "\"";
+}
+
+bool slurp(const std::filesystem::path& p, std::string& out) {
+    std::ifstream f(p, std::ios::binary);
+    if (!f) return false;
+    std::stringstream ss;
+    ss << f.rdbuf();
+    out = ss.str();
+    return true;
+}
+
+std::string lowerCase(std::string s) {
+    for (char& c : s) c = (char)std::tolower((unsigned char)c);
+    return s;
+}
+
+} // namespace
+
+HttpResult curlRequest(const HttpOptions& o) {
+    namespace fs = std::filesystem;
+    HttpResult r;
+    auto bad = [&](const std::string& why) { r.error = why; return r; };
+
+    std::string lowerUrl = lowerCase(o.url.substr(0, 8));
+    if (lowerUrl.rfind("http://", 0) != 0 && lowerUrl.rfind("https://", 0) != 0) return bad("Only http:// and https:// URLs are supported.");
+    for (char c : o.url) if ((unsigned char)c < 0x20 || c == ' ') return bad("The URL contains spaces or control characters.");
+    for (auto& h : o.headers) {
+        if (h.first.empty() || h.first.find_first_of(":\r\n") != std::string::npos || h.second.find_first_of("\r\n") != std::string::npos)
+            return bad("Invalid HTTP header '" + h.first + "'.");
+    }
+    for (char c : o.method) if (!std::isalpha((unsigned char)c)) return bad("Invalid HTTP method.");
+    if (!commandExists("curl")) return bad("curl is needed for this (Termux: pkg install curl).");
+
+    static unsigned counter = 0;
+    std::error_code ec;
+    fs::path dir = fs::temp_directory_path(ec);
+    std::string stamp = std::to_string((unsigned long long)std::chrono::steady_clock::now().time_since_epoch().count()) + "-" + std::to_string(counter++);
+    fs::path cfg = dir / ("ton618-curl-" + stamp + ".cfg"), bodyOut = dir / ("ton618-curl-" + stamp + ".out"),
+             headOut = dir / ("ton618-curl-" + stamp + ".hdr"), errOut = dir / ("ton618-curl-" + stamp + ".err"),
+             bodyIn = dir / ("ton618-curl-" + stamp + ".in");
+    auto cleanup = [&]() { for (auto& p : {cfg, bodyOut, headOut, errOut, bodyIn}) fs::remove(p, ec); };
+    for (auto& p : {cfg, bodyOut, headOut, errOut, bodyIn}) if (!isSafePath(p.string())) return bad("The temporary folder has an unusable name.");
+
+    std::string c = "silent\nshow-error\nproto = \"=http,https\"\nproto-redir = \"=http,https\"\n";
+    c += "url = " + quoteForCurlConfig(o.url) + "\n";
+    std::string method = o.method;
+    for (char& ch : method) ch = (char)std::toupper((unsigned char)ch);
+    if (method == "HEAD") c += "head\n"; else if (method != "GET") c += "request = " + quoteForCurlConfig(method) + "\n";
+    for (auto& h : o.headers) c += "header = " + quoteForCurlConfig(h.first + ": " + h.second) + "\n";
+    if (o.hasBody) {
+        std::ofstream f(bodyIn, std::ios::binary);
+        f << o.body;
+        f.close();
+        c += "data-binary = " + quoteForCurlConfig("@" + bodyIn.string()) + "\n";
+    }
+    int timeout = o.timeoutSeconds < 1 ? 1 : (o.timeoutSeconds > 600 ? 600 : o.timeoutSeconds);
+    c += "max-time = " + std::to_string(timeout) + "\nconnect-timeout = " + std::to_string(timeout < 15 ? timeout : 15) + "\n";
+    if (o.followRedirects) c += "location\nmax-redirs = 10\n";
+    if (!o.verifyTls) c += "insecure\n";
+    c += "user-agent = \"ton618\"\n";
+    c += "output = " + quoteForCurlConfig(bodyOut.string()) + "\n";
+    c += "dump-header = " + quoteForCurlConfig(headOut.string()) + "\n";
+    c += "stderr = " + quoteForCurlConfig(errOut.string()) + "\n";
+    c += "write-out = \"%{http_code}\\n%{url_effective}\\n\"\n";
+    {
+        std::ofstream f(cfg, std::ios::binary);
+        f << c;
+    }
+#ifndef _WIN32
+    fs::permissions(cfg, fs::perms::owner_read | fs::perms::owner_write, fs::perm_options::replace, ec); // it holds tokens
+#endif
+
+    std::string cmd = "curl -q -K \"" + cfg.string() + "\"";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) { cleanup(); return bad("Could not start curl."); }
+    std::string out;
+    char buf[512];
+    size_t n;
+    while ((n = std::fread(buf, 1, sizeof(buf), pipe)) > 0) out.append(buf, n);
+    int rc = pclose(pipe);
+#ifndef _WIN32
+    if (WIFEXITED(rc)) rc = WEXITSTATUS(rc);
+#endif
+
+    std::stringstream lines(out);
+    std::string code, finalUrl;
+    std::getline(lines, code);
+    std::getline(lines, finalUrl);
+    if (!code.empty() && code.back() == '\r') code.pop_back();
+    if (!finalUrl.empty() && finalUrl.back() == '\r') finalUrl.pop_back();
+    r.status = std::atoi(code.c_str());
+    r.url = finalUrl.empty() ? o.url : finalUrl;
+
+    if (rc != 0 || r.status == 0) {
+        std::string why;
+        slurp(errOut, why);
+        while (!why.empty() && (why.back() == '\n' || why.back() == '\r')) why.pop_back();
+        r.error = why.empty() ? "The request failed (curl exit code " + std::to_string(rc) + ")." : why;
+        cleanup();
+        return r;
+    }
+    r.ok = true;
+    slurp(bodyOut, r.body);
+    std::string headText;
+    slurp(headOut, headText);
+    // the dump holds one block per redirect: keep the last one
+    size_t lastBlock = headText.rfind("HTTP/");
+    if (lastBlock != std::string::npos) headText = headText.substr(lastBlock);
+    std::stringstream hs(headText);
+    std::string line;
+    std::getline(hs, line); // status line
+    while (std::getline(hs, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        size_t colon = line.find(':');
+        if (colon == std::string::npos || colon == 0) continue;
+        std::string name = lowerCase(line.substr(0, colon)), value = line.substr(colon + 1);
+        value.erase(0, value.find_first_not_of(" \t"));
+        bool merged = false;
+        for (auto& h : r.headers) if (h.first == name) { h.second += ", " + value; merged = true; break; }
+        if (!merged) r.headers.push_back({name, value});
+    }
+    cleanup();
+    return r;
 }

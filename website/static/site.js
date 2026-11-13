@@ -149,3 +149,217 @@
     }
   });
 })();
+
+// ---- the registry's database: live package list, package pages and the account page ----
+(function () {
+  "use strict";
+  var body = document.body, api = (body.dataset.api || "").replace(/\/$/, "");
+  var fr = body.dataset.lang === "fr";
+  if (!api) return;
+
+  function el(tag, props, kids) {
+    var e = document.createElement(tag);
+    Object.keys(props || {}).forEach(function (k) {
+      if (k === "text") e.textContent = props[k];
+      else if (k === "class") e.className = props[k];
+      else if (k.indexOf("on") === 0) e[k] = props[k];
+      else e.setAttribute(k, props[k]);
+    });
+    (kids || []).forEach(function (c) { if (c) e.append(c); });
+    return e;
+  }
+  function call(method, path, data, key) {
+    var headers = {};
+    if (data !== undefined) headers["Content-Type"] = "application/json";
+    if (key) headers["Authorization"] = "Bearer " + key;
+    return fetch(api + path, { method: method, headers: headers, body: data === undefined ? undefined : JSON.stringify(data) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, status: r.status, data: j }; }); });
+  }
+  function plain(s) { return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""); }
+  function verKey(v) { return v.split(/[.-]/).map(function (x) { return /^\d+$/.test(x) ? ("00000000" + x).slice(-8) : x; }).join("."); }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    var list = document.getElementById("pkg-list");
+    if (list) livePackages(list);
+    var view = document.getElementById("pkg-view");
+    if (view) packageView(view);
+    var account = document.getElementById("account");
+    if (account) accountPage(account);
+  });
+
+  // The packages page starts with the packages known when the site was built, then shows the registry's.
+  function livePackages(list) {
+    fetch(api + "/registry/index.json?t=" + Date.now()).then(function (r) { return r.json(); }).then(function (ix) {
+      var known = {};
+      [].forEach.call(list.querySelectorAll("li.pkg"), function (li) { known[li.querySelector(".pkg-name").textContent] = li.querySelector(".pkg-name").getAttribute("href"); });
+      var names = Object.keys(ix.packages).sort();
+      list.textContent = "";
+      var base = list.dataset.detail;
+      names.forEach(function (n) {
+        var p = ix.packages[n];
+        var href = known[n] || base + "view/?name=" + encodeURIComponent(n);
+        list.append(el("li", { class: "pkg", "data-text": plain(n + " " + p.description + " " + (p.keywords || []).join(" ")) }, [
+          el("div", {}, [el("a", { class: "pkg-name", href: href, text: n }), el("span", { class: "pkg-version", text: p.latest })]),
+          el("p", { text: p.description }),
+          el("code", { text: "ton618 install " + n }),
+        ]));
+      });
+      var count = document.querySelector(".pkg-count");
+      if (count) count.textContent = names.length + " " + (names.length === 1 ? (fr ? "paquet" : "package") : (fr ? "paquets" : "packages"));
+      var filter = document.getElementById("pkg-filter"), fresh = filter.cloneNode(true);
+      filter.replaceWith(fresh);
+      fresh.addEventListener("input", function () {
+        var q = plain(fresh.value.trim()), shown = 0;
+        [].forEach.call(list.children, function (li) { var hit = !q || li.dataset.text.indexOf(q) >= 0; li.hidden = !hit; if (hit) shown++; });
+        document.getElementById("pkg-none").hidden = shown > 0;
+      });
+    }).catch(function () { /* the registry is unreachable: the built list stays */ });
+  }
+
+  function packageView(root) {
+    var L = JSON.parse(root.dataset.labels), name = new URLSearchParams(location.search).get("name") || "";
+    fetch(api + "/registry/index.json?t=" + Date.now()).then(function (r) { return r.json(); }).then(function (ix) {
+      var p = ix.packages[name];
+      if (!p) { root.append(el("p", { text: L.none || "?" })); return; }
+      document.title = name + " · TON618";
+      var rows = [[L.latest, p.latest], [L.license, p.license], [L.author, p.owner || p.author]];
+      var latest = p.versions[p.latest];
+      if (latest && latest.requires) rows.push([L.requires, latest.requires]);
+      var deps = latest && latest.dependencies ? Object.keys(latest.dependencies) : [];
+      if (deps.length) rows.push([L.needs, deps.map(function (d) { return d + " " + latest.dependencies[d]; }).join(", ")]);
+      var versions = Object.keys(p.versions).sort(function (a, b) { return verKey(b) < verKey(a) ? -1 : 1; });
+      root.append(
+        el("h1", {}, [name + " ", el("span", { class: "pkg-version", text: p.latest })]),
+        el("p", { class: "lead", text: p.description }),
+        el("pre", {}, [el("code", { text: "ton618 install " + name })]),
+        el("table", { class: "facts" }, [el("tbody", {}, rows.filter(function (r) { return r[1]; }).map(function (r) { return el("tr", {}, [el("th", { text: r[0] }), el("td", { text: r[1] })]); }))]),
+        el("table", { class: "facts" }, [
+          el("thead", {}, [el("tr", {}, [el("th", { text: L.versions }), el("th", { text: "sha256" }), el("th")])]),
+          el("tbody", {}, versions.map(function (v) {
+            return el("tr", {}, [el("td", {}, [el("code", { text: v })]), el("td", {}, [el("code", { text: p.versions[v].sha256.slice(0, 12) + "…" })]),
+              el("td", {}, [el("a", { href: api + "/registry/" + p.versions[v].file, text: L.download })])]);
+          })),
+        ]),
+        el("p", { class: "callout", text: L.caution }),
+        el("h2", { text: L.readme }),
+        (function () { var box = el("pre", {}, [el("code", { text: "…" })]); readme(name, p.latest, p.versions[p.latest].file, box, L.no_readme); return box; })()
+      );
+    }).catch(function () { root.append(el("p", { text: "…" })); });
+  }
+  function readme(name, version, file, box, none) {
+    fetch(api + "/registry/" + file).then(function (r) { return r.json(); }).then(function (pkg) {
+      var text = pkg.files && Object.keys(pkg.files).filter(function (f) { return /^readme/i.test(f); }).map(function (f) { return pkg.files[f]; })[0];
+      box.firstChild.textContent = text || none;
+    }).catch(function () { box.firstChild.textContent = none; });
+  }
+
+  // ---- account ----
+  function accountPage(root) {
+    var L = JSON.parse(root.dataset.labels), store = "ton618.session";
+    function session() { try { return JSON.parse(localStorage.getItem(store)); } catch (e) { return null; } }
+    function save(v) { try { v ? localStorage.setItem(store, JSON.stringify(v)) : localStorage.removeItem(store); } catch (e) { /* private mode */ } }
+    // coming back from GitHub: the server put the new key in the URL fragment
+    var back = new URLSearchParams(location.hash.replace(/^#/, ""));
+    if (back.get("key") && back.get("username")) {
+      save({ key: back.get("key"), username: back.get("username") });
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+    var s = session();
+    s ? signedIn(s) : signedOut();
+
+    function message(box, text, bad) { box.textContent = text; box.style.color = bad ? "#ff8a8a" : ""; }
+
+    function signedOut() {
+      root.textContent = "";
+      function form(kind) {
+        var out = el("p", { class: "pkg-count", role: "status" });
+        var user = el("input", { type: "text", id: kind + "-u", autocomplete: "username", placeholder: L.username, required: "", style: "display:block;margin:0 0 10px" });
+        var pass = el("input", { type: "password", id: kind + "-p", autocomplete: kind === "register" ? "new-password" : "current-password", placeholder: L.password, required: "", style: "display:block;margin:0 0 10px" });
+        var go = el("button", { type: "submit", text: kind === "register" ? L.register : L.login, style: "font:inherit;padding:8px 14px;cursor:pointer" });
+        var f = el("form", { style: "margin:0 0 36px" }, [el("h2", { text: kind === "register" ? L.register : L.login }), user, pass, go, out]);
+        f.onsubmit = function (e) {
+          e.preventDefault();
+          call("POST", "/api/" + kind, { username: user.value, password: pass.value, key_name: "website" }).then(function (r) {
+            if (!r.ok) return message(out, r.data.error || L.error, true);
+            var v = { key: r.data.api_key, username: r.data.username };
+            save(v);
+            signedIn(v);
+          }).catch(function () { message(out, L.error, true); });
+        };
+        return f;
+      }
+      var github = el("div");
+      root.append(github, form("login"), form("register"));
+      call("GET", "/api/oauth/config").then(function (r) {
+        if (!r.ok || !r.data.github) return;
+        github.append(el("p", {}, [el("a", {
+          href: api + "/api/oauth/github/login?return=" + encodeURIComponent(location.origin + location.pathname),
+          text: L.github, style: "display:inline-block;padding:9px 16px;border:1px solid #595959;border-radius:4px;text-decoration:none;font-weight:600",
+        })]), el("p", { class: "pkg-count", text: "— " + L.or + " —" }));
+      }).catch(function () { /* no GitHub sign-in */ });
+    }
+
+    function signedIn(v) {
+      root.textContent = "";
+      var fresh = el("div");
+      var keysBox = el("div"), pkgBox = el("div");
+      var out = el("button", { type: "button", text: L.logout, style: "font:inherit;padding:6px 12px;cursor:pointer;margin-left:12px" });
+      out.onclick = function () {
+        call("GET", "/api/keys", undefined, v.key).then(function (r) {
+          var mine = ((r.data && r.data.keys) || []).filter(function (k) { return k.name === "website"; }).sort(function (a, b) { return b.id - a.id; })[0];
+          return mine ? call("DELETE", "/api/keys/" + mine.id, undefined, v.key) : null;
+        }).finally(function () { save(null); signedOut(); });
+      };
+      root.append(el("p", {}, [L.hello + " ", el("b", { text: v.username }), out]), fresh,
+        el("h2", { text: L.keys }), keysBox,
+        el("h2", { text: L.mine }), pkgBox);
+
+      var name = el("input", { type: "text", placeholder: L.key_name, style: "margin-right:8px" });
+      var create = el("button", { type: "button", text: L.create, style: "font:inherit;padding:8px 14px;cursor:pointer" });
+      create.onclick = function () {
+        call("POST", "/api/keys", { name: name.value || "key" }, v.key).then(function (r) {
+          if (!r.ok) return;
+          fresh.textContent = "";
+          fresh.append(el("p", { class: "callout", text: L.shown_once }),
+            el("pre", {}, [el("code", { text: r.data.api_key })]),
+            el("p", { text: L.use }), el("pre", {}, [el("code", { text: "ton618 login --token " + r.data.api_key })]));
+          name.value = "";
+          loadKeys();
+        });
+      };
+
+      function when(ts) { return ts ? new Date(ts * 1000).toLocaleDateString() : L.never; }
+      function loadKeys() {
+        call("GET", "/api/keys", undefined, v.key).then(function (r) {
+          if (r.status === 401) { save(null); return signedOut(); }
+          keysBox.textContent = "";
+          ((r.data && r.data.keys) || []).forEach(function (k) {
+            var del = el("button", { type: "button", text: L.revoke, style: "font:inherit;padding:3px 9px;cursor:pointer;margin-left:10px" });
+            del.onclick = function () { call("DELETE", "/api/keys/" + k.id, undefined, v.key).then(loadKeys); };
+            keysBox.append(el("p", { class: "pkg" }, [el("b", { text: k.name }), " · " + L.created + " " + when(k.created_at) + " · " + L.last + " " + when(k.last_used), del]));
+          });
+          keysBox.append(el("p", {}, [name, create]));
+        }).catch(function () { message(keysBox, L.error, true); });
+      }
+      function loadPackages() {
+        call("GET", "/api/me/packages", undefined, v.key).then(function (r) {
+          pkgBox.textContent = "";
+          var rows = (r.data && r.data.versions) || [];
+          if (!rows.length) pkgBox.append(el("p", { text: L.none }));
+          rows.forEach(function (p) {
+            var item = el("p", { class: "pkg" }, [el("code", { text: p.name + " " + p.version }), p.yanked ? " · " + L.yanked : ""]);
+            if (!p.yanked) {
+              var hide = el("button", { type: "button", text: L.yank, style: "font:inherit;padding:3px 9px;cursor:pointer;margin-left:10px" });
+              hide.onclick = function () { call("POST", "/api/yank/" + p.name + "/" + p.version, {}, v.key).then(loadPackages); };
+              item.append(hide);
+            }
+            pkgBox.append(item);
+          });
+          pkgBox.append(el("p", { class: "pkg-count", text: L.tip }));
+        }).catch(function () { message(pkgBox, L.error, true); });
+      }
+      loadKeys();
+      loadPackages();
+    }
+  }
+})();

@@ -56,18 +56,19 @@ A module can use every language feature an ordinary script can — default/rest 
 
 ## Publishing to the TON618 package registry (beta-2.1.0+)
 
-A module is shared as a **package**. Turn the module's folder into a project, build it, and propose it:
+A module is shared as a **package**. Turn the module's folder into a project, build it, and publish it:
 
 ```
 ton618 init mathx          # tonproject.toml + mathx.ton + README.md (use the module's real name)
 # edit tonproject.toml: description, authors, license, [dependencies] ...
 ton618 build               # checks the manifest and every .ton file's syntax, writes dist/mathx-1.0.0.tonpkg
-ton618 publish             # checks the version is new, then opens the page where the .tonpkg is dropped to open a pull request
+ton618 register            # once: create an account (saves an API key)
+ton618 publish             # builds, checks, uploads to the registry
 ```
 
-`tonproject.toml` is like `pyproject.toml`: `[project]` has `name` (2-40 chars, `a-z 0-9 - _`, starts with a letter), `version` (`1.2.3`), `description`, `authors`, `license`, `readme`, `main` (the file `IMPORT://<name>` loads, default `<name>.ton`), optional `repository`, `keywords`, `requires` (a ton618 version range such as `">=2.1.0"`); `[dependencies]` maps package names to version ranges (`"^1.0"`, `"~1.2"`, `">=1.0 <2"`, `"1.2.3"`); optional `[build]` has `include` / `exclude` patterns (default: every `.ton` file, README, LICENSE). Package files are text (`.ton .md .txt .json .csv`), at most 200 files, 256 KB each, 1 MB in all. Extra `.ton` files of a package are installed in `modules/<name>/` and imported as `IMPORT://<name>/<file>`.
+`tonproject.toml` is like `pyproject.toml`: `[project]` has `name` (2-40 chars, `a-z 0-9 - _`, starts with a letter), `version` (`1.2.3`), `description`, `authors`, `license`, `readme`, `main` (the file `IMPORT://<name>` loads, default `<name>.ton`), optional `repository`, `keywords`, `requires` (a ton618 version range such as `">=1.0.0"`); `[dependencies]` maps package names to version ranges (`"^1.0"`, `"~1.2"`, `">=1.0 <2"`, `"1.2.3"`); optional `[build]` has `include` / `exclude` patterns (default: every `.ton` file, README, LICENSE). Package files are text (`.ton .md .txt .json .csv`), at most 200 files, 256 KB each, 1 MB in all. Extra `.ton` files of a package are installed in `modules/<name>/` and imported as `IMPORT://<name>/<file>`.
 
-**Rules for an AI agent:** `ton618 build` and `ton618 publish --dry-run` are safe to run. The last step of publishing (signing in to GitHub and opening the pull request) belongs to the user — tell them their package is built and point them at `ton618 publish`; never try to push to the registry yourself. A published version never changes: to fix something, raise `version`. Every package is reviewed by a maintainer before it goes online.
+**Rules for an AI agent:** `ton618 build` and `ton618 publish --dry-run` are safe to run. Creating the account (`ton618 register`) and the real `ton618 publish` belong to the user — it needs their password and uploads under their name; tell them their package is built and ready, and never publish for them. A published version never changes: to fix something, raise `version`.
 
 Anyone installs it with:
 ```

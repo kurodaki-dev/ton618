@@ -3,6 +3,7 @@
 #include "Parser.hpp"
 #include "LocalServer.hpp"
 #include "HttpClient.hpp"
+#include "Net.hpp"
 #include "JsonParser.hpp"
 #include "Platform.hpp"
 #include "Version.hpp"
@@ -1809,6 +1810,33 @@ void Interpreter::registerBuiltinRequests() {
         if (args.size() < 2) throw std::runtime_error("requests_request(method, url, [body]) expects a method and a URL.");
         std::string body = args.size() >= 3 ? args[2].toString() : "";
         return toResultDict(httpRequest(args[0].toString(), args[1].toString(), body));
+    });
+
+    // requests_send(method, url, [headers], [body], [timeout_seconds], [verify]) -> {ok, status, body, error, headers, url}
+    // The full client behind the `requests` package: https://, headers, redirects,
+    // any method. It goes through curl (there is no TLS library in ton618 itself).
+    def("requests_send", [](std::vector<Value>& args) -> Value {
+        if (args.size() < 2) throw std::runtime_error("requests_send(method, url, [headers], [body], [timeout], [verify]) expects a method and a URL.");
+        HttpOptions o;
+        o.method = args[0].toString();
+        o.url = args[1].toString();
+        if (args.size() >= 3 && args[2].type == ValueType::DICT) {
+            for (auto& kv : *args[2].dict) o.headers.push_back({kv.first, kv.second.toString()});
+        }
+        if (args.size() >= 4 && args[3].type != ValueType::NIL) { o.body = args[3].toString(); o.hasBody = true; }
+        if (args.size() >= 5 && args[4].type == ValueType::NUMBER && args[4].number > 0) o.timeoutSeconds = (int)args[4].number;
+        if (args.size() >= 6 && args[5].type == ValueType::BOOL) o.verifyTls = args[5].isTruthy();
+        HttpResult r = curlRequest(o);
+        std::vector<std::pair<std::string, Value>> headers;
+        for (auto& h : r.headers) headers.push_back({h.first, Value::String(h.second)});
+        return Value::Dict({
+            {"ok", Value::Bool(r.ok)},
+            {"status", Value::Number(r.status)},
+            {"body", Value::String(r.body)},
+            {"error", Value::String(r.error)},
+            {"headers", Value::Dict(headers)},
+            {"url", Value::String(r.url)},
+        });
     });
 }
 

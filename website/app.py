@@ -14,6 +14,7 @@ always says exactly what the reference says.
 from __future__ import annotations
 
 import html
+import json
 import os
 import re
 import shutil
@@ -32,6 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 REPO = "https://github.com/kurodaki-dev/ton618"
 LATEST = REPO + "/releases/latest"
 VERSION = re.search(r'TON618_VERSION "([^"]+)"', (ROOT / "include/Version.hpp").read_text()).group(1)
+API = os.environ.get("TON618_API", "https://api-ton.duckdns.org")  # the registry server (SQLite): accounts, keys, packages
 HIGHLIGHT = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"
 FONTS = ("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700"
          "&family=IBM+Plex+Mono:wght@400;500;600&display=swap")
@@ -249,8 +251,28 @@ VERSIONS = {}
 for _p in PACKAGE_FILES:
     VERSIONS.setdefault(_p.name, {})[_p.version] = _p
 
-TEXT["en"].update(packages="Packages")
-TEXT["fr"].update(packages="Paquets")
+TEXT["en"].update(packages="Packages", account="Account")
+TEXT["fr"].update(packages="Paquets", account="Compte")
+ACCOUNT = {
+    "en": {
+        "title": "Your account", "lead": "Sign in to get an API key and publish packages. Accounts and packages live in the registry's database.",
+        "login": "Sign in", "github": "Sign in with GitHub", "or": "or", "register": "Create an account", "username": "Username", "password": "Password (8 characters or more)",
+        "logout": "Sign out", "hello": "Signed in as", "keys": "API keys", "new_key": "New API key", "key_name": "Name (for example: my laptop)",
+        "create": "Create", "revoke": "Revoke", "shown_once": "Copy it now: it is shown only once.",
+        "use": "Use it on a computer with:", "mine": "Your packages", "none": "You haven't published anything yet.",
+        "yank": "Hide", "yanked": "hidden", "created": "created", "last": "last used", "never": "never",
+        "error": "The registry server can't be reached right now.", "tip": "Tip: on your computer, ton618 register / ton618 login do the same thing from the terminal.",
+    },
+    "fr": {
+        "title": "Ton compte", "lead": "Connecte-toi pour obtenir une clé API et publier des paquets. Les comptes et les paquets sont dans la base de données du registre.",
+        "login": "Se connecter", "github": "Se connecter avec GitHub", "or": "ou", "register": "Créer un compte", "username": "Nom d'utilisateur", "password": "Mot de passe (8 caractères ou plus)",
+        "logout": "Se déconnecter", "hello": "Connecté en tant que", "keys": "Clés API", "new_key": "Nouvelle clé API", "key_name": "Nom (par exemple : mon portable)",
+        "create": "Créer", "revoke": "Révoquer", "shown_once": "Copie-la maintenant : elle n'est affichée qu'une fois.",
+        "use": "À utiliser sur un ordinateur avec :", "mine": "Tes paquets", "none": "Tu n'as encore rien publié.",
+        "yank": "Masquer", "yanked": "masquée", "created": "créée", "last": "dernier usage", "never": "jamais",
+        "error": "Le serveur du registre est injoignable pour le moment.", "tip": "Astuce : sur ton ordinateur, ton618 register / ton618 login font la même chose dans le terminal.",
+    },
+}
 PKG = {
     "en": {
         "title": "Packages", "lead": "Modules published for TON618. Install one with a single command.",
@@ -322,6 +344,7 @@ def sidebar(lang: str, current: Chapter | None, switch_to: str):
         menu(lang, current),
         t.div(
             t.a(w["packages"], href=link(w["root"] + "/packages/")),
+            t.a(w["account"], href=link(w["root"] + "/account/")),
             t.a(w["playground"], href=link("/playground.html")),
             t.a(w["download"], href=LATEST),
             t.a(w["skills"], href=link("/skills.html")),
@@ -358,7 +381,7 @@ def shell(lang: str, title: str, content, *, current: Chapter | None = None, swi
         lang=lang,
         description=summary or w["lead"],
         favicon=link("/logo.svg"),
-        body_attrs={"data-root": link("/").rstrip("/"), "data-lang": lang},
+        body_attrs={"data-root": link("/").rstrip("/"), "data-lang": lang, "data-api": API},
     )
 
 
@@ -401,7 +424,7 @@ def home(lang: str) -> Page:
         t.section(
             t.h2(PKG[lang]["publish_title"]),
             t.p(PKG[lang]["publish"]),
-            code("ton618 init mathx      # creates tonproject.toml\nton618 build           # -> dist/mathx-0.1.0.tonpkg\nton618 publish         # opens the pull request",
+            code("ton618 init mathx      # creates tonproject.toml\nton618 build           # -> dist/mathx-0.1.0.tonpkg\nton618 publish         # uploads it (needs `ton618 register` once)",
                  "bash"),
             t.p(t.a(PKG[lang]["title"] + " (" + str(len(PACKAGE_INDEX)) + ") →", href=link(w["root"] + "/packages/")), " · ",
                 t.a(PKG[lang]["guide"], href=PACKAGES_CHAPTER[lang].url)),
@@ -504,7 +527,7 @@ def packages_page(lang: str) -> Page:
         t.p(k["lead"], class_="lead"),
         t.input(type="search", id="pkg-filter", placeholder=k["filter"], aria_label=k["filter"]),
         t.p(f"{count} {k['count1'] if count == 1 else k['count']}", class_="pkg-count"),
-        t.ul(rows, class_="pkg-list", id="pkg-list"),
+        t.ul(rows, class_="pkg-list", id="pkg-list", data_detail=link(f"{w['root']}/packages/")),
         t.p(k["none"], id="pkg-none", hidden=True),
         t.h2(k["publish_title"]),
         t.p(k["publish"]),
@@ -562,6 +585,36 @@ def package_page(lang: str, name: str) -> Page:
                  switch_to=link(f"{TEXT[w['other']]['root']}/packages/{name}/"), summary=info["description"])
 
 
+def account_page(lang: str) -> Page:
+    w, a = TEXT[lang], ACCOUNT[lang]
+    keys = ("title lead login github or register username password logout hello keys new_key key_name create revoke shown_once use "
+            "mine none yank yanked created last never error tip").split()
+    labels = {k: a[k] for k in keys}
+    content = t.article(
+        t.h1(a["title"]),
+        t.p(a["lead"], class_="lead"),
+        t.div(id="account", data_labels=json.dumps(labels, ensure_ascii=False)),
+        t.noscript(t.p("JavaScript is needed on this page.")),
+        class_="doc",
+    )
+    return shell(lang, f"{a['title']} · TON618", content,
+                 switch_to=link(f"{TEXT[w['other']]['root']}/account/"), summary=a["lead"])
+
+
+def package_view_page(lang: str) -> Page:
+    """A package that is only in the live registry (published after the site was built): filled in by site.js."""
+    w, k = TEXT[lang], PKG[lang]
+    labels = {key: k[key] for key in ("latest", "license", "author", "homepage", "requires", "needs", "versions", "download",
+                                      "readme", "no_readme", "caution", "none", "back")}
+    content = t.article(
+        t.p(t.a(k["back"], href=link(f"{w['root']}/packages/")), class_="trail"),
+        t.div(id="pkg-view", data_labels=json.dumps(labels, ensure_ascii=False), data_list=link(f"{w['root']}/packages/")),
+        class_="doc",
+    )
+    return shell(lang, f"{k['title']} · TON618", content,
+                 switch_to=link(f"{TEXT[w['other']]['root']}/packages/view/"), summary=k["lead"])
+
+
 # ===========================================================================
 # Routes
 # ===========================================================================
@@ -573,6 +626,8 @@ for lang in ("en", "fr"):
                   (lambda l: lambda: [{"t": c.title, "u": c.url, "x": c.plain[:5000]} for c in DOCS.chapters[l]])(lang),
                   name=f"search_{lang}")
     app.add_route(root + "/packages/", (lambda l: lambda: packages_page(l))(lang), name=f"packages_{lang}")
+    app.add_route(root + "/packages/view/", (lambda l: lambda: package_view_page(l))(lang), name=f"package_view_{lang}")
+    app.add_route(root + "/account/", (lambda l: lambda: account_page(l))(lang), name=f"account_{lang}")
     for package_name in PACKAGE_INDEX:
         app.add_route(f"{root}/packages/{package_name}/", (lambda l, n: lambda: package_page(l, n))(lang, package_name),
                       name=f"package_{lang}_{package_name}")

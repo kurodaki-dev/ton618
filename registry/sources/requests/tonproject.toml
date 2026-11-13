@@ -1,0 +1,11 @@
+[project]
+name = "requests"
+version = "1.0.0"
+description = "HTTP for humans: GET/POST/PUT/PATCH/DELETE over http and https, headers, query parameters, JSON, forms, auth and timeouts."
+authors = ["kurodaki-dev"]
+license = "Apache-2.0"
+readme = "README.md"
+main = "requests.ton"
+repository = "https://github.com/kurodaki-dev/ton618"
+keywords = ["http", "https", "web", "api", "client", "network"]
+requires = ">=1.0.0"

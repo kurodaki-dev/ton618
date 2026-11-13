@@ -82,6 +82,23 @@ grep -q 'alpha = "^2.0.0"' tonproject.toml && ok "dependency saved in tonproject
 rm -rf modules; expect_ok "install with no name reads tonproject.toml" "$BIN" install; [ -f modules/alpha.ton ] && ok "  and installs it" || bad "  not installed"
 expect_fail "publish refuses the placeholder description" "$BIN" publish --dry-run --no-open; has "real description"
 
+# update and modules installed by the original installer (not recorded in .installed.json)
+mkdir -p "$T/old/modules" && cd "$T/old" || exit 1
+printf 'ton.function legacymod_hi() { return "old" }\n' > modules/legacymod.ton
+expect_ok "update looks at modules that were never recorded" "$BIN" update; has "legacymod: not tracked"
+grep -q old modules/legacymod.ton && ok "an unreachable registry leaves the module intact" || bad "legacymod.ton was damaged"
+printf '{"format":1,"packages":{"legacymod":{"version":"1","source":"legacy","github":"x/y","dependencies":{},"files":["modules/legacymod.ton"]}}}' > modules/.installed.json
+expect_ok "update handles a recorded legacy module" "$BIN" update; has "original registry can't be reached"
+grep -q old modules/legacymod.ton && ok "and keeps it" || bad "legacymod.ton was damaged"
+
+# the index is fetched fresh: a new version published after the first run shows up
+mkdir -p "$T/fresh" && cd "$T/fresh" || exit 1
+rebuild() { python3 "$ROOT/scripts/registry.py" build "$T/site" --packages "$T/registry/packages" >/dev/null 2>&1; }
+mkpkg gamma 1.0.0; rebuild
+expect_ok "install gamma 1.0.0" "$BIN" install gamma
+mkpkg gamma 1.1.0; rebuild
+expect_ok "update sees the version published after install" "$BIN" update gamma; has "Updated gamma: 1.0.0 -> 1.1.0"
+
 # build errors
 mkdir -p "$T/broken" && cd "$T/broken" || exit 1
 printf '[project]\nname = "Bad Name"\nversion = "1.0.0"\n' > tonproject.toml
