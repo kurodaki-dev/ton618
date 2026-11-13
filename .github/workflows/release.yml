@@ -163,6 +163,12 @@ jobs:
           mkdir -p src-tauri/binaries
           EXT=""; [ "${{ runner.os }}" = "Windows" ] && EXT=".exe"
           cp "interpreter/${{ matrix.interpreter }}" "src-tauri/binaries/ton618-${{ matrix.triple }}$EXT"
+          # A universal macOS build compiles each architecture on its own and
+          # looks for the sidecar under each name: the universal binary fits all.
+          if [ "${{ matrix.triple }}" = "universal-apple-darwin" ]; then
+            cp interpreter/ton618-macos-universal src-tauri/binaries/ton618-aarch64-apple-darwin
+            cp interpreter/ton618-macos-universal src-tauri/binaries/ton618-x86_64-apple-darwin
+          fi
           chmod +x src-tauri/binaries/*
       - name: Logo (with its copyright notice) and icons
         run: |
