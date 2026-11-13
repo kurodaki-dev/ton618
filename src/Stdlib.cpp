@@ -15,7 +15,9 @@
 #include "Interpreter.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 
