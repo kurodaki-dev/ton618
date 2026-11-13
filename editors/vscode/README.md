@@ -27,4 +27,4 @@ If it isn't on your `PATH`, set **TON618: Interpreter Path** (`ton618.interprete
 | `ton618.checkOnSave` | `true` | Underline syntax errors on open/save |
 | `ton618.saveBeforeRun` | `true` | Save the file before running it |
 
-The TON618 logo is © 2026 kurodaki-dev, all rights reserved. The extension's code is under the Apache 2.0 license.
+The TON618 logo is © 2026 kurodaki-dev, all rights reserved. The extension's code is under the MIT license.

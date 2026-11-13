@@ -1572,7 +1572,7 @@ One-time setup:
 **1.0.1** — fix:
 
 - **Acode plugin 2.1.1**: fixed `editorManager.editor.on is not a function` (newer Acode versions use CodeMirror, not Ace). The sidebar with Run, the output and the module library works with any editor; syntax errors also show in the sidebar.
-- The licence is now **MIT or Apache 2.0**, as you prefer (`LICENSE-MIT`, `LICENSE`).
+- The licence is now **MIT** (`LICENSE-MIT`; the Apache 2.0 file is gone).
 - The website's Account page shows a new API key right under the Create button.
 
 **1.0.0** — the first stable version:
@@ -3304,7 +3304,7 @@ Configuration unique :
 **1.0.1** — correctif :
 
 - **Plugin Acode 2.1.1** : correction de `editorManager.editor.on is not a function` (les Acode récents utilisent CodeMirror, pas Ace). La barre latérale avec Run, la sortie et la bibliothèque de modules marche avec n'importe quel éditeur ; les erreurs de syntaxe s'affichent aussi dans la barre latérale.
-- La licence est maintenant **MIT ou Apache 2.0**, au choix (`LICENSE-MIT`, `LICENSE`).
+- La licence est maintenant **MIT** (`LICENSE-MIT` ; le fichier Apache 2.0 a disparu).
 - La page Compte du site affiche une nouvelle clé API juste sous le bouton Créer.
 
 **1.0.0** — la première version stable :

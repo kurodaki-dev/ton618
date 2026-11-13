@@ -4,7 +4,7 @@
   "description": "TON618 language support: syntax highlighting, snippets, run a file or open the REPL, syntax errors as you save.",
   "version": "2.0.0",
   "publisher": "kurodaki-dev",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "icon": "icon.png",
   "homepage": "https://c-ton618.duckdns.org/",
   "repository": { "type": "git", "url": "https://github.com/kurodaki-dev/ton618" },

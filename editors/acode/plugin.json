@@ -9,7 +9,7 @@
   "files": ["ton618-lite.js"],
   "minVersionCode": 290,
   "price": 0,
-  "license": "Apache-2.0",
+  "license": "MIT",
   "keywords": ["ton618", "ton", "language", "run"],
   "author": { "name": "kurodaki-dev", "github": "kurodaki-dev" }
 }

@@ -4,7 +4,7 @@
 
 The TON618 logo (`exemples/logo.svg`, and every icon generated from it: the
 website's favicon, the IDE's application icons, the VS Code and Acode icons)
-is **not** covered by the Apache 2.0 license that applies to the TON618
+is **not** covered by the MIT license that applies to the TON618
 source code (see [LICENSE](LICENSE)).
 
 You may display the unmodified logo to refer to the TON618 project — for

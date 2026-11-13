@@ -16,4 +16,4 @@ curl -fsSL https://raw.githubusercontent.com/kurodaki-dev/ton618/main/scripts/in
 ton618 my_script.ton
 ```
 
-The TON618 logo is © 2026 kurodaki-dev, all rights reserved. The plugin's code is under the Apache 2.0 license.
+The TON618 logo is © 2026 kurodaki-dev, all rights reserved. The plugin's code is under the MIT license.
