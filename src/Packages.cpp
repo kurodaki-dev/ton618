@@ -15,6 +15,8 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <thread>
+#include <chrono>
 
 #ifdef _WIN32
   #include <windows.h>
@@ -1147,13 +1149,15 @@ std::string serverError(const HttpResult& r) {
 
 int cmdAccount(const std::vector<std::string>& args, bool registering) {
     std::string server, username, token;
-    bool passwordStdin = false;
+    bool passwordStdin = false, github = false, noOpen = false;
     for (size_t i = 1; i < args.size(); i++) {
         if (args[i] == "--server" && i + 1 < args.size()) server = args[++i];
         else if (args[i] == "--username" && i + 1 < args.size()) username = args[++i];
         else if (args[i] == "--token" && i + 1 < args.size()) token = args[++i];
         else if (args[i] == "--password-stdin") passwordStdin = true;
-        else return fail("Unknown option '" + args[i] + "'. Usage: ton618 " + (registering ? "register" : "login") + " [--server URL] [--username NAME] [--password-stdin] [--token API_KEY]");
+        else if (args[i] == "--github") github = true;
+        else if (args[i] == "--no-open") noOpen = true;
+        else return fail("Unknown option '" + args[i] + "'. Usage: ton618 " + (registering ? "register" : "login") + " [--github] [--server URL] [--username NAME] [--password-stdin] [--token API_KEY]");
     }
     while (!server.empty() && server.back() == '/') server.pop_back();
     if (server.size() > 9 && server.compare(server.size() - 9, 9, "/registry") == 0) server.erase(server.size() - 9);
@@ -1180,6 +1184,35 @@ int cmdAccount(const std::vector<std::string>& args, bool registering) {
         if (!saveCredentials(server, name, token)) return fail("Could not save the key in " + configDir());
         say("Logged in as " + name + " on " + server + ".");
         return 0;
+    }
+    if (github) {   // sign in with GitHub: the device flow, no password and no secret on this machine
+        HttpResult r = callServer("POST", "/api/oauth/device/start", "{}", "");
+        if (!r.ok || r.status != 200) return fail(serverError(r));
+        Value d = parseJson(r.body);
+        auto field = [&](const char* k) { Value* v = d.findDictEntry(k); return v ? v->toString() : std::string(); };
+        std::string deviceCode = field("device_code"), userCode = field("user_code"), page = field("verification_uri");
+        int interval = std::atoi(field("interval").c_str());
+        int lifetime = std::atoi(field("expires_in").c_str());
+        if (interval < 1) interval = 5;
+        if (lifetime < 30) lifetime = 600;
+        std::cout << "\n  1. Open " << page << "\n  2. Enter the code:  " << userCode << "\n\n";
+        if (!noOpen) openUrl(page);
+        say("Waiting for you to approve on GitHub ...");
+        Value body = Value::Dict({});
+        setKey(body, "device_code", Value::String(deviceCode));
+        for (int waited = 0; waited < lifetime; waited += interval) {
+            std::this_thread::sleep_for(std::chrono::seconds(interval));
+            HttpResult p = callServer("POST", "/api/oauth/device/poll", body.toJson(), "");
+            if (p.ok && p.status == 202) { Value w = parseJson(p.body); if (Value* i = w.findDictEntry("interval")) interval = std::max(1, (int)i->number); continue; }
+            if (!p.ok || p.status != 200) return fail(serverError(p));
+            Value out = parseJson(p.body);
+            std::string key = out.findDictEntry("api_key") ? out.findDictEntry("api_key")->toString() : "";
+            std::string name = out.findDictEntry("username") ? out.findDictEntry("username")->toString() : "";
+            if (key.empty() || !saveCredentials(server, name, key)) return fail("Could not save the API key in " + configDir());
+            say("Logged in as " + name + " on " + server + " (with GitHub).");
+            return 0;
+        }
+        return fail("The code expired before you approved it. Run the command again.");
     }
     if (username.empty()) username = readSecretLine("Username: ", false);
     std::string password = readSecretLine(passwordStdin ? "" : "Password: ", !passwordStdin);

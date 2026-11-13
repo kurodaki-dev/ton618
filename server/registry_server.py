@@ -24,6 +24,12 @@ What it serves (the same layout the ton618 client already reads):
     POST /api/publish   body = a .tonpkg       (Authorization: Bearer <key>)
     POST /api/yank/<name>/<version>            (owner or admin) hide a version from the index
 
+Sign in with GitHub (optional; accounts stay in SQLite, GitHub only proves who you are): create an OAuth App
+at github.com/settings/developers (callback URL <PUBLIC_URL>/api/oauth/github/callback, tick "Enable Device Flow")
+and set TON618_GITHUB_CLIENT_ID, TON618_GITHUB_CLIENT_SECRET, TON618_PUBLIC_URL (and TON618_SITE_URLS).
+    GET  /api/oauth/config  /  GET /api/oauth/github/login?return=<site url>  /  GET /api/oauth/github/callback
+    POST /api/oauth/device/start  /  POST /api/oauth/device/poll {device_code}    (used by `ton618 login --github`)
+
 Passwords are stored as scrypt hashes, API keys as SHA-256 hashes (the key is shown once).
 A package belongs to whoever publishes its first version; only owners add versions.
 Published versions never change. Every package is syntax-checked and size-limited.
@@ -42,9 +48,12 @@ import sqlite3
 import sys
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse, parse_qs
+from urllib.parse import unquote, urlparse, parse_qs, urlencode
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "scripts"))
@@ -66,7 +75,32 @@ CREATE TABLE IF NOT EXISTS versions (
   size INTEGER NOT NULL, data BLOB NOT NULL, yanked INTEGER NOT NULL DEFAULT 0,
   published_by INTEGER REFERENCES users(id), published_at INTEGER NOT NULL, PRIMARY KEY (name, version));
 CREATE TABLE IF NOT EXISTS attempts (ip TEXT NOT NULL, at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS oauth_states (state TEXT PRIMARY KEY, return_url TEXT NOT NULL, at INTEGER NOT NULL);
 """
+
+# Sign in with GitHub (optional): create an OAuth App on GitHub, then set these in the service.
+GH_CLIENT_ID = lambda: os.environ.get("TON618_GITHUB_CLIENT_ID", "")          # noqa: E731
+GH_CLIENT_SECRET = lambda: os.environ.get("TON618_GITHUB_CLIENT_SECRET", "")  # noqa: E731
+GH_OAUTH = lambda: os.environ.get("TON618_GITHUB_OAUTH_URL", "https://github.com").rstrip("/")      # noqa: E731
+GH_API = lambda: os.environ.get("TON618_GITHUB_API_URL", "https://api.github.com").rstrip("/")      # noqa: E731
+PUBLIC_URL = lambda: os.environ.get("TON618_PUBLIC_URL", "").rstrip("/")      # noqa: E731  e.g. https://api-ton.duckdns.org
+SITE_URLS = lambda: [u.strip().rstrip("/") for u in os.environ.get("TON618_SITE_URLS", "https://c-ton618.duckdns.org").split(",") if u.strip()]  # noqa: E731
+
+
+def http_json(url: str, data: dict | None = None, headers: dict | None = None) -> dict:
+    """A small JSON request to GitHub (standard library; HTTPS verified)."""
+    body = urlencode(data).encode() if data is not None else None
+    req = urllib.request.Request(url, data=body, headers={"Accept": "application/json", "User-Agent": "ton618-registry", **(headers or {})})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read().decode("utf-8"))
+        except ValueError:
+            raise Fail(502, f"GitHub answered {e.code}.")
+    except (urllib.error.URLError, OSError, ValueError):
+        raise Fail(502, "GitHub can't be reached right now.")
 
 
 class Db:
@@ -74,8 +108,11 @@ class Db:
 
     def __init__(self, path: str):
         self.path, self.local = path, threading.local()
-        with self.conn() as c:
-            c.executescript(SCHEMA)
+        c = self.conn()
+        c.executescript(SCHEMA)
+        if "github_id" not in {r["name"] for r in c.execute("PRAGMA table_info(users)")}:
+            c.execute("ALTER TABLE users ADD COLUMN github_id INTEGER")
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_github ON users(github_id)")
 
     def conn(self) -> sqlite3.Connection:
         c = getattr(self.local, "c", None)
@@ -127,10 +164,29 @@ class Registry:
             raise Fail(409, "That username is taken.")
         return cur.lastrowid
 
+    def github_user(self, github_id: int, login: str) -> int:
+        """The account for a GitHub identity, created on first sign-in. Never merged with a password account."""
+        c = self.db.conn()
+        row = c.execute("SELECT id FROM users WHERE github_id=?", (github_id,)).fetchone()
+        if row:
+            return row["id"]
+        name = re.sub(r"[^a-z0-9_-]", "-", login.lower())
+        if not USER_RE.match(name):
+            name = f"gh-{github_id}"
+        if c.execute("SELECT 1 FROM users WHERE username=?", (name,)).fetchone():
+            name = f"{name}-{github_id}"[:32]
+        first = c.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+        cur = c.execute("INSERT INTO users(username,salt,pwhash,is_admin,created_at,github_id) VALUES(?,?,?,?,?,?)",
+                        (name, b"", b"", 1 if first else 0, int(time.time()), github_id))
+        return cur.lastrowid
+
+    def username(self, user_id: int) -> str:
+        return self.db.conn().execute("SELECT username FROM users WHERE id=?", (user_id,)).fetchone()["username"]
+
     def check_password(self, username: str, password: str):
         row = self.db.conn().execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
         salt = row["salt"] if row else b"\0" * 16   # same work whether or not the user exists
-        good = hmac.compare_digest(hash_password(password, salt), row["pwhash"] if row else b"\0" * 32)
+        good = bool(row and row["pwhash"]) and hmac.compare_digest(hash_password(password, salt), row["pwhash"])
         return row if row and good else None
 
     def new_key(self, user_id: int, name: str) -> str:
@@ -317,6 +373,51 @@ def make_handler(reg: Registry, trust_proxy: bool):
                 sys.stderr.write(f"error: {e!r}\n")
                 self.send(500, {"error": "Server error."})
 
+        # ---- sign in with GitHub ----
+        def github_identity(self, token: str) -> int:
+            me = http_json(GH_API() + "/user", headers={"Authorization": "Bearer " + token, "X-GitHub-Api-Version": "2022-11-28"})
+            if not isinstance(me.get("id"), int) or not me.get("login"):
+                raise Fail(502, "GitHub didn't tell who you are.")
+            return reg.github_user(me["id"], str(me["login"]))
+
+        def redirect(self, url: str):
+            self.send_response(302)
+            self.send_header("Location", url)
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+
+        def github_login(self, q):
+            if not (GH_CLIENT_ID() and GH_CLIENT_SECRET() and PUBLIC_URL()):
+                raise Fail(501, "Sign in with GitHub isn't set up on this server.")
+            back = (q.get("return") or [""])[0]
+            if back.split("#")[0].rstrip("/") not in SITE_URLS() and not any(back.startswith(u + "/") for u in SITE_URLS()):
+                raise Fail(400, "That return address isn't allowed.")
+            c = reg.db.conn()
+            now = int(time.time())
+            c.execute("DELETE FROM oauth_states WHERE at < ?", (now - 600,))
+            state = secrets.token_urlsafe(24)
+            c.execute("INSERT INTO oauth_states(state,return_url,at) VALUES(?,?,?)", (state, back.split("#")[0], now))
+            self.redirect(GH_OAUTH() + "/login/oauth/authorize?" + urlencode({
+                "client_id": GH_CLIENT_ID(), "redirect_uri": PUBLIC_URL() + "/api/oauth/github/callback", "state": state, "scope": ""}))
+
+        def github_callback(self, q):
+            state, code = (q.get("state") or [""])[0], (q.get("code") or [""])[0]
+            c = reg.db.conn()
+            row = c.execute("SELECT return_url, at FROM oauth_states WHERE state=?", (state,)).fetchone()
+            c.execute("DELETE FROM oauth_states WHERE state=?", (state,))   # single use
+            if not row or row["at"] < int(time.time()) - 600 or not code:
+                raise Fail(400, "This sign-in link expired. Start again from the website.")
+            d = http_json(GH_OAUTH() + "/login/oauth/access_token", {
+                "client_id": GH_CLIENT_ID(), "client_secret": GH_CLIENT_SECRET(), "code": code,
+                "redirect_uri": PUBLIC_URL() + "/api/oauth/github/callback"})
+            if "access_token" not in d:
+                raise Fail(400, d.get("error_description") or "GitHub refused the sign-in.")
+            uid = self.github_identity(d["access_token"])
+            key = reg.new_key(uid, "website")
+            # the key travels in the URL fragment: it never reaches a server log
+            self.redirect(row["return_url"] + "#" + urlencode({"key": key, "username": reg.username(uid)}))
+
         # ---- routes ----
         def do_OPTIONS(self):
             self.send(204, b"", extra={"Access-Control-Allow-Headers": "Authorization, Content-Type", "Access-Control-Allow-Methods": "GET, POST, DELETE"})
@@ -345,6 +446,12 @@ def make_handler(reg: Registry, trust_proxy: bool):
                 if not idx:
                     raise Fail(404, "Module not found.")
                 return self.send(200, {"name": m.group(1), "github": idx.get("homepage", ""), "version": idx["latest"]})
+            if path == "/api/oauth/config":
+                return self.send(200, {"github": bool(GH_CLIENT_ID() and GH_CLIENT_SECRET() and PUBLIC_URL()), "device": bool(GH_CLIENT_ID())})
+            if path == "/api/oauth/github/login":
+                return self.github_login(parse_qs(urlparse(self.path).query))
+            if path == "/api/oauth/github/callback":
+                return self.github_callback(parse_qs(urlparse(self.path).query))
             if path == "/api/whoami":
                 u = self.user()
                 return self.send(200, {"username": u["username"], "admin": bool(u["is_admin"])})
@@ -386,6 +493,25 @@ def make_handler(reg: Registry, trust_proxy: bool):
                     uid = user["id"]
                 key = reg.new_key(uid, str(d.get("key_name") or "ton618 cli"))
                 return self.send(201 if path == "/api/register" else 200, {"username": username, "api_key": key})
+            if path == "/api/oauth/device/start":
+                if not GH_CLIENT_ID():
+                    raise Fail(501, "Sign in with GitHub isn't set up on this server.")
+                d = http_json(GH_OAUTH() + "/login/device/code", {"client_id": GH_CLIENT_ID(), "scope": ""})
+                if "device_code" not in d:
+                    raise Fail(502, d.get("error_description") or "GitHub refused the request (is the device flow enabled on the OAuth App?).")
+                return self.send(200, {k: d.get(k) for k in ("device_code", "user_code", "verification_uri", "expires_in", "interval")})
+            if path == "/api/oauth/device/poll":
+                if not GH_CLIENT_ID():
+                    raise Fail(501, "Sign in with GitHub isn't set up on this server.")
+                code = str(self.json_body().get("device_code", ""))
+                d = http_json(GH_OAUTH() + "/login/oauth/access_token", {
+                    "client_id": GH_CLIENT_ID(), "device_code": code, "grant_type": "urn:ietf:params:oauth:grant-type:device_code"})
+                if d.get("error") in ("authorization_pending", "slow_down"):
+                    return self.send(202, {"pending": True, "interval": 10 if d["error"] == "slow_down" else 5})
+                if "access_token" not in d:
+                    raise Fail(400, d.get("error_description") or "The GitHub sign-in was refused or expired.")
+                uid = self.github_identity(d["access_token"])
+                return self.send(200, {"username": reg.username(uid), "api_key": reg.new_key(uid, "ton618 cli")})
             if path == "/api/keys":
                 u = self.user()
                 return self.send(201, {"api_key": reg.new_key(u["id"], str(self.json_body().get("name", "key")))})
