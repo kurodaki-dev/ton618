@@ -256,7 +256,7 @@ TEXT["fr"].update(packages="Paquets", account="Compte")
 ACCOUNT = {
     "en": {
         "title": "Your account", "lead": "Sign in to get an API key and publish packages. Accounts and packages live in the registry's database.",
-        "login": "Sign in", "register": "Create an account", "username": "Username", "password": "Password (8 characters or more)",
+        "login": "Sign in", "github": "Sign in with GitHub", "or": "or", "register": "Create an account", "username": "Username", "password": "Password (8 characters or more)",
         "logout": "Sign out", "hello": "Signed in as", "keys": "API keys", "new_key": "New API key", "key_name": "Name (for example: my laptop)",
         "create": "Create", "revoke": "Revoke", "shown_once": "Copy it now: it is shown only once.",
         "use": "Use it on a computer with:", "mine": "Your packages", "none": "You haven't published anything yet.",
@@ -265,7 +265,7 @@ ACCOUNT = {
     },
     "fr": {
         "title": "Ton compte", "lead": "Connecte-toi pour obtenir une clé API et publier des paquets. Les comptes et les paquets sont dans la base de données du registre.",
-        "login": "Se connecter", "register": "Créer un compte", "username": "Nom d'utilisateur", "password": "Mot de passe (8 caractères ou plus)",
+        "login": "Se connecter", "github": "Se connecter avec GitHub", "or": "ou", "register": "Créer un compte", "username": "Nom d'utilisateur", "password": "Mot de passe (8 caractères ou plus)",
         "logout": "Se déconnecter", "hello": "Connecté en tant que", "keys": "Clés API", "new_key": "Nouvelle clé API", "key_name": "Nom (par exemple : mon portable)",
         "create": "Créer", "revoke": "Révoquer", "shown_once": "Copie-la maintenant : elle n'est affichée qu'une fois.",
         "use": "À utiliser sur un ordinateur avec :", "mine": "Tes paquets", "none": "Tu n'as encore rien publié.",
@@ -587,7 +587,7 @@ def package_page(lang: str, name: str) -> Page:
 
 def account_page(lang: str) -> Page:
     w, a = TEXT[lang], ACCOUNT[lang]
-    keys = ("title lead login register username password logout hello keys new_key key_name create revoke shown_once use "
+    keys = ("title lead login github or register username password logout hello keys new_key key_name create revoke shown_once use "
             "mine none yank yanked created last never error tip").split()
     labels = {k: a[k] for k in keys}
     content = t.article(

@@ -38,3 +38,16 @@ Run it daily (cron or a systemd timer) and copy a backup off the machine now and
 ## API
 
 `GET /registry/index.json`, `GET /registry/packages/<name>-<version>.tonpkg`, `POST /api/register`, `POST /api/login`, `GET /api/whoami`, `GET|POST /api/keys`, `DELETE /api/keys/<id>`, `POST /api/publish` (body: the `.tonpkg`), `POST /api/yank/<name>/<version>`, `GET /healthz`. Keys go in `Authorization: Bearer <key>`.
+
+## Sign in with GitHub (optional)
+
+Accounts stay in SQLite; GitHub only proves who someone is. Create an OAuth App at github.com/settings/developers: callback URL `<public url>/api/oauth/github/callback`, tick *Enable Device Flow*. Then give the service its settings (never put them in the repository):
+
+```
+TON618_GITHUB_CLIENT_ID=...
+TON618_GITHUB_CLIENT_SECRET=...
+TON618_PUBLIC_URL=https://your-registry.example
+TON618_SITE_URLS=https://your-docs-site.example     # where the website lives (comma separated)
+```
+
+A GitHub account gets its own account named after its login (never merged with a password account), with no password.

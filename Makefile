@@ -92,5 +92,6 @@ test: $(OUT)
 	tests/packages.sh ./$(OUT)
 	tests/requests.sh ./$(OUT)
 	tests/server.sh ./$(OUT)
+	tests/oauth.sh ./$(OUT)
 
 .PHONY: all linux windows android macos dist clean distclean docs test site

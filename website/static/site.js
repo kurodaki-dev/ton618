@@ -258,6 +258,12 @@
     var L = JSON.parse(root.dataset.labels), store = "ton618.session";
     function session() { try { return JSON.parse(localStorage.getItem(store)); } catch (e) { return null; } }
     function save(v) { try { v ? localStorage.setItem(store, JSON.stringify(v)) : localStorage.removeItem(store); } catch (e) { /* private mode */ } }
+    // coming back from GitHub: the server put the new key in the URL fragment
+    var back = new URLSearchParams(location.hash.replace(/^#/, ""));
+    if (back.get("key") && back.get("username")) {
+      save({ key: back.get("key"), username: back.get("username") });
+      history.replaceState(null, "", location.pathname + location.search);
+    }
     var s = session();
     s ? signedIn(s) : signedOut();
 
@@ -282,7 +288,15 @@
         };
         return f;
       }
-      root.append(form("login"), form("register"));
+      var github = el("div");
+      root.append(github, form("login"), form("register"));
+      call("GET", "/api/oauth/config").then(function (r) {
+        if (!r.ok || !r.data.github) return;
+        github.append(el("p", {}, [el("a", {
+          href: api + "/api/oauth/github/login?return=" + encodeURIComponent(location.origin + location.pathname),
+          text: L.github, style: "display:inline-block;padding:9px 16px;border:1px solid #595959;border-radius:4px;text-decoration:none;font-weight:600",
+        })]), el("p", { class: "pkg-count", text: "— " + L.or + " —" }));
+      }).catch(function () { /* no GitHub sign-in */ });
     }
 
     function signedIn(v) {
