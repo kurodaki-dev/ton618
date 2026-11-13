@@ -29,7 +29,7 @@
 // same text compare equal (they already interoperate everywhere else:
 // concatenation, printing, any string function) — every other type mismatch
 // is never equal. Functions never compare equal to anything.
-static bool valuesEqual(const Value& a, const Value& b) {
+bool valuesEqual(const Value& a, const Value& b) {
     bool aIsText = a.type == ValueType::STRING || a.type == ValueType::HTML;
     bool bIsText = b.type == ValueType::STRING || b.type == ValueType::HTML;
     if (aIsText && bIsText) return a.str == b.str;
@@ -54,6 +54,8 @@ static bool valuesEqual(const Value& a, const Value& b) {
             }
             return true;
         }
+        case ValueType::CLASS: return a.klass == b.klass;
+        case ValueType::INSTANCE: return a.instance == b.instance; // objects compare by identity
         default: return false; // functions (user or native) never compare equal
     }
 }
@@ -140,14 +142,37 @@ Interpreter::Interpreter() {
     globals = std::make_shared<Environment>();
     std::srand((unsigned)std::time(nullptr));
     defineNatives();
+    defineNativesV2(); // src/Stdlib.cpp — also upgrades a few of the natives above
+    // print/str/format of an object use its class's toString() method, if any.
+    Value::instanceToString() = [this](const Value& v) -> std::string {
+        auto m = v.instance->klass->findMethod("toString");
+        if (!m) return instanceDefaultString(v);
+        Value fv; fv.type = ValueType::FUNCTION; fv.function = m;
+        std::vector<Value> noArgs;
+        return callFunction(fv, noArgs, 0, &v).toString();
+    };
 }
 
 void Interpreter::runtimeError(int line, const std::string& msg) {
-    throw std::runtime_error("Error at line " + std::to_string(line) + ": " + msg);
+    if (errorTrace.empty()) {
+        for (auto& f : debugger.callStack) errorTrace.push_back({f.functionName, f.callLine});
+        errorTrace.push_back({"", line});
+    }
+    throw LineError("Error at line " + std::to_string(line) + ": " + msg);
 }
 
-void Interpreter::checkType(VarKind kind, const Value& v, const std::string& varName, int line) {
-    if (kind == VarKind::NONE) return;
+void Interpreter::checkType(VarKind kind, const Value& v, const std::string& varName, int line,
+                            const std::string& typeName, const std::shared_ptr<Environment>& env) {
+    if (kind == VarKind::NONE || kind == VarKind::ANY) return;
+    if (kind == VarKind::CLASS) {
+        Value klass;
+        if (!env || !env->get(typeName, klass)) runtimeError(line, "Unknown type '" + typeName + "' for 'ton." + varName + "'.");
+        if (klass.type != ValueType::CLASS) runtimeError(line, "'" + typeName + "' is not a class, so it can't be used as the type of 'ton." + varName + "'.");
+        if (v.type == ValueType::NIL) return; // nil is allowed for an object variable (no object yet)
+        if (v.type != ValueType::INSTANCE || !v.instance->klass->isSubclassOf(klass.klass.get()))
+            runtimeError(line, "Invalid type for 'ton." + varName + "': expected " + typeName + " but got " + v.typeName() + ".");
+        return;
+    }
     bool ok = true;
     std::string expected;
     switch (kind) {
@@ -192,14 +217,6 @@ void Interpreter::defineNatives() {
         globals->define(name, v);
     };
 
-    def("len", [](std::vector<Value>& args) -> Value {
-        if (args.empty()) return Value::Number(0);
-        if (args[0].type == ValueType::STRING || args[0].type == ValueType::HTML)
-            return Value::Number((double)args[0].str.size());
-        if (args[0].type == ValueType::ARRAY) return Value::Number((double)args[0].array->size());
-        if (args[0].type == ValueType::DICT) return Value::Number((double)args[0].dict->size());
-        return Value::Number(0);
-    });
 
     def("str", [](std::vector<Value>& args) -> Value {
         if (args.empty()) return Value::String("");
@@ -318,19 +335,6 @@ void Interpreter::defineNatives() {
     def("abs", [](std::vector<Value>& args) -> Value { return Value::Number(std::fabs(args.empty() ? 0 : args[0].number)); });
     def("floor", [](std::vector<Value>& args) -> Value { return Value::Number(std::floor(args.empty() ? 0 : args[0].number)); });
     def("ceil", [](std::vector<Value>& args) -> Value { return Value::Number(std::ceil(args.empty() ? 0 : args[0].number)); });
-    def("round", [](std::vector<Value>& args) -> Value { return Value::Number(std::round(args.empty() ? 0 : args[0].number)); });
-    def("min", [](std::vector<Value>& args) -> Value {
-        if (args.empty()) return Value::Nil();
-        double m = args[0].number;
-        for (auto& a : args) m = std::min(m, a.number);
-        return Value::Number(m);
-    });
-    def("max", [](std::vector<Value>& args) -> Value {
-        if (args.empty()) return Value::Nil();
-        double m = args[0].number;
-        for (auto& a : args) m = std::max(m, a.number);
-        return Value::Number(m);
-    });
     // ton.random() -> a float in [0, 1). ton.random(max) -> an int in [0, max).
     // ton.random(min, max) -> an int in [min, max).
     def("random", [](std::vector<Value>& args) -> Value {
@@ -460,96 +464,9 @@ void Interpreter::defineNatives() {
         }
         return Value::String(out);
     });
-    def("reverse", [](std::vector<Value>& args) -> Value {
-        if (!args.empty() && args[0].type == ValueType::ARRAY) std::reverse(args[0].array->begin(), args[0].array->end());
-        return args.empty() ? Value::Nil() : args[0];
-    });
-    // ton.sort(arr) — sorts numbers ascending or strings alphabetically, in place.
-    def("sort", [](std::vector<Value>& args) -> Value {
-        if (args.empty() || args[0].type != ValueType::ARRAY) return args.empty() ? Value::Nil() : args[0];
-        std::sort(args[0].array->begin(), args[0].array->end(), [](const Value& a, const Value& b) {
-            if (a.type == ValueType::NUMBER && b.type == ValueType::NUMBER) return a.number < b.number;
-            return a.toString() < b.toString();
-        });
-        return args[0];
-    });
-    // ton.map(arr, fn) — applies fn to every element, returns a new array of the results.
-    def("map", [this](std::vector<Value>& args) -> Value {
-        if (args.size() < 2 || args[0].type != ValueType::ARRAY) return Value::Array({});
-        std::vector<Value> out;
-        for (auto& item : *args[0].array) {
-            std::vector<Value> callArgs = {item};
-            out.push_back(callFunction(args[1], callArgs, 0));
-        }
-        return Value::Array(out);
-    });
-    // ton.filter(arr, fn) — keeps only the elements for which fn(element) is truthy.
-    def("filter", [this](std::vector<Value>& args) -> Value {
-        if (args.size() < 2 || args[0].type != ValueType::ARRAY) return Value::Array({});
-        std::vector<Value> out;
-        for (auto& item : *args[0].array) {
-            std::vector<Value> callArgs = {item};
-            if (callFunction(args[1], callArgs, 0).isTruthy()) out.push_back(item);
-        }
-        return Value::Array(out);
-    });
-    // ton.reduce(arr, fn, initial) — folds the array into a single value via fn(acc, element).
-    def("reduce", [this](std::vector<Value>& args) -> Value {
-        if (args.size() < 2 || args[0].type != ValueType::ARRAY) return Value::Nil();
-        Value acc = args.size() >= 3 ? args[2] : Value::Nil();
-        for (auto& item : *args[0].array) {
-            std::vector<Value> callArgs = {acc, item};
-            acc = callFunction(args[1], callArgs, 0);
-        }
-        return acc;
-    });
-    // ton.find(arr, fn) — the first element for which fn(element) is truthy, or nil.
-    def("find", [this](std::vector<Value>& args) -> Value {
-        if (args.size() < 2 || args[0].type != ValueType::ARRAY) return Value::Nil();
-        for (auto& item : *args[0].array) {
-            std::vector<Value> callArgs = {item};
-            if (callFunction(args[1], callArgs, 0).isTruthy()) return item;
-        }
-        return Value::Nil();
-    });
-    // ton.any(arr, fn) — true if fn(element) is truthy for at least one element.
-    def("any", [this](std::vector<Value>& args) -> Value {
-        if (args.size() < 2 || args[0].type != ValueType::ARRAY) return Value::Bool(false);
-        for (auto& item : *args[0].array) {
-            std::vector<Value> callArgs = {item};
-            if (callFunction(args[1], callArgs, 0).isTruthy()) return Value::Bool(true);
-        }
-        return Value::Bool(false);
-    });
-    // ton.all(arr, fn) — true if fn(element) is truthy for every element.
-    def("all", [this](std::vector<Value>& args) -> Value {
-        if (args.size() < 2 || args[0].type != ValueType::ARRAY) return Value::Bool(true);
-        for (auto& item : *args[0].array) {
-            std::vector<Value> callArgs = {item};
-            if (!callFunction(args[1], callArgs, 0).isTruthy()) return Value::Bool(false);
-        }
-        return Value::Bool(true);
-    });
 
     // ---- dicts -----------------------------------------------------------------
 
-    def("keys", [](std::vector<Value>& args) -> Value {
-        std::vector<Value> out;
-        if (!args.empty() && args[0].type == ValueType::DICT)
-            for (auto& kv : *args[0].dict) out.push_back(Value::String(kv.first));
-        return Value::Array(out);
-    });
-    def("values", [](std::vector<Value>& args) -> Value {
-        std::vector<Value> out;
-        if (!args.empty() && args[0].type == ValueType::DICT)
-            for (auto& kv : *args[0].dict) out.push_back(kv.second);
-        return Value::Array(out);
-    });
-    def("has", [](std::vector<Value>& args) -> Value {
-        if (args.size() < 2 || args[0].type != ValueType::DICT) return Value::Bool(false);
-        std::string key = (args[1].type == ValueType::STRING) ? args[1].str : args[1].toString();
-        return Value::Bool(args[0].findDictEntry(key) != nullptr);
-    });
 
     // ton.get(path, handlerFunction) — registers a GET route.
     // ton.get(path, handlerFunction) — registers a GET route. `path` may contain
@@ -623,9 +540,39 @@ void Interpreter::defineNatives() {
     });
 }
 
+// ---- Modules -----------------------------------------------------------------
+
+// Finds "name.ton" next to the script, or in its modules/ folder. A name
+// may contain '/' (IMPORT://utils/strings) to reach a module in a subfolder.
+std::string Interpreter::findModuleFile(const std::string& moduleName, std::string& source, int line) {
+    std::vector<std::string> candidates = {
+        scriptDir + "/" + moduleName + ".ton",
+        scriptDir + "/modules/" + moduleName + ".ton"
+    };
+    for (auto& c : candidates) {
+        std::ifstream file(c);
+        if (file) {
+            std::stringstream ss;
+            ss << file.rdbuf();
+            source = ss.str();
+            return c;
+        }
+    }
+    runtimeError(line, "Module '" + moduleName + "' not found (looked for: " +
+                 candidates[0] + " or " + candidates[1] + ").");
+}
+
+static bool registerBuiltinByName(Interpreter* self, const std::string& builtin,
+                                  const std::function<void(const std::string&)>& reg) {
+    static const char* names[] = {"sys", "os", "requests", "random", "time", "json", "mathutils",
+                                  "strings", "encoding", "regex", "path", "tensor"};
+    for (auto n : names) if (builtin == n) { reg(builtin); return true; }
+    (void)self;
+    return false;
+}
+
 void Interpreter::runImport(const std::string& moduleName, int line) {
     if (importedModules.count(moduleName)) return;
-    importedModules.insert(moduleName);
 
     // "ton.<name>" never refers to a file — it's one of the interpreter's own
     // built-in system modules. Each is only wired into `globals` right here, the
@@ -633,47 +580,32 @@ void Interpreter::runImport(const std::string& moduleName, int line) {
     // without "IMPORT://ton.requests" first fails with "undefined function".
     if (moduleName.rfind("ton.", 0) == 0) {
         std::string builtin = moduleName.substr(4);
-        if (builtin == "sys") { registerBuiltinSys(); return; }
-        if (builtin == "os") { registerBuiltinOs(); return; }
-        if (builtin == "requests") { registerBuiltinRequests(); return; }
-        if (builtin == "random") { registerBuiltinRandom(); return; }
-        if (builtin == "time") { registerBuiltinTime(); return; }
-        if (builtin == "json") { registerBuiltinJson(); return; }
-        if (builtin == "mathutils") { registerBuiltinMathUtils(); return; }
-        if (builtin == "strings") { registerBuiltinStrings(); return; }
-        if (builtin == "encoding") { registerBuiltinEncoding(); return; }
-        if (builtin == "regex") { registerBuiltinRegex(); return; }
-        if (builtin == "path") { registerBuiltinPath(); return; }
-        if (builtin == "tensor") { registerBuiltinTensor(); return; }
-        runtimeError(line, "Unknown built-in module 'ton." + builtin +
-                     "'. Available: ton.sys, ton.os, ton.requests, ton.random, ton.time, ton.json, "
-                     "ton.mathutils, ton.strings, ton.encoding, ton.regex, ton.path, ton.tensor.");
-    }
-
-    std::vector<std::string> candidates = {
-        scriptDir + "/" + moduleName + ".ton",
-        scriptDir + "/modules/" + moduleName + ".ton"
-    };
-
-    std::string path, source;
-    bool found = false;
-    for (auto& c : candidates) {
-        std::ifstream file(c);
-        if (file) {
-            std::stringstream ss;
-            ss << file.rdbuf();
-            source = ss.str();
-            path = c;
-            found = true;
-            break;
+        bool ok = registerBuiltinByName(this, builtin, [&](const std::string& b) {
+            importedModules.insert(moduleName);
+            if (b == "sys") registerBuiltinSys();
+            else if (b == "os") registerBuiltinOs();
+            else if (b == "requests") registerBuiltinRequests();
+            else if (b == "random") registerBuiltinRandom();
+            else if (b == "time") registerBuiltinTime();
+            else if (b == "json") registerBuiltinJson();
+            else if (b == "mathutils") registerBuiltinMathUtils();
+            else if (b == "strings") registerBuiltinStrings();
+            else if (b == "encoding") registerBuiltinEncoding();
+            else if (b == "regex") registerBuiltinRegex();
+            else if (b == "path") registerBuiltinPath();
+            else if (b == "tensor") registerBuiltinTensor();
+        });
+        if (!ok) {
+            runtimeError(line, "Unknown built-in module 'ton." + builtin +
+                         "'. Available: ton.sys, ton.os, ton.requests, ton.random, ton.time, ton.json, "
+                         "ton.mathutils, ton.strings, ton.encoding, ton.regex, ton.path, ton.tensor.");
         }
+        return;
     }
 
-    if (!found) {
-        runtimeError(line, "Module '" + moduleName + "' not found (looked for: " +
-                     candidates[0] + " or " + candidates[1] + ").");
-    }
-
+    importedModules.insert(moduleName);
+    std::string source;
+    findModuleFile(moduleName, source, line);
     try {
         Lexer lexer(source);
         auto tokens = lexer.scanTokens();
@@ -685,123 +617,271 @@ void Interpreter::runImport(const std::string& moduleName, int line) {
     }
 }
 
+// "IMPORT://name as alias": the module's top-level names, gathered into a
+// dict instead of the global scope — alias.fn(...) then calls them. For a
+// built-in module, the "module_" prefix is dropped: IMPORT://ton.strings as s
+// gives s.pad_left(...) for strings_pad_left(...).
+Value Interpreter::importNamespace(const std::string& moduleName, int line) {
+    auto cached = moduleNamespaces.find(moduleName);
+    if (cached != moduleNamespaces.end()) return cached->second;
+
+    std::vector<std::pair<std::string, Value>> entries;
+    if (moduleName.rfind("ton.", 0) == 0) {
+        std::string prefix = moduleName.substr(4) + "_";
+        size_t before = globals->slots.size();
+        bool fresh = !importedModules.count(moduleName);
+        runImport(moduleName, line);
+        if (fresh) {
+            for (size_t i = before; i < globals->slots.size(); i++) {
+                std::string n = Symbols::name(globals->slots[i].id);
+                if (n.rfind(prefix, 0) == 0) n = n.substr(prefix.size());
+                entries.push_back({n, globals->slots[i].value});
+            }
+        } else {
+            for (auto& slot : globals->slots) {
+                const std::string& n = Symbols::name(slot.id);
+                if (n.rfind(prefix, 0) == 0) entries.push_back({n.substr(prefix.size()), slot.value});
+            }
+        }
+    } else {
+        std::string source;
+        findModuleFile(moduleName, source, line);
+        auto moduleEnv = std::make_shared<Environment>(globals);
+        try {
+            Lexer lexer(source);
+            Parser parser(lexer.scanTokens());
+            for (auto& stmt : parser.parse()) execute(stmt, moduleEnv);
+        } catch (std::exception& e) {
+            runtimeError(line, "Error in module '" + moduleName + "': " + e.what());
+        }
+        for (auto& slot : moduleEnv->slots) entries.push_back({Symbols::name(slot.id), slot.value});
+    }
+    Value ns = Value::Dict(entries);
+    moduleNamespaces[moduleName] = ns;
+    return ns;
+}
+
+// ---- Running statements --------------------------------------------------------
+
 void Interpreter::interpret(const std::vector<StmtPtr>& statements) {
-    auto env = globals;
-    for (auto& stmt : statements) execute(stmt, env);
+    for (auto& stmt : statements) {
+        if (execute(stmt, globals) != Signal::NONE) break; // a top-level "return" ends the script
+    }
 }
 
-void Interpreter::executeBlock(const std::vector<StmtPtr>& stmts, std::shared_ptr<Environment> env) {
-    for (auto& s : stmts) execute(s, env);
+Value Interpreter::interpretRepl(const std::vector<StmtPtr>& statements) {
+    Value last = Value::Nil();
+    for (size_t i = 0; i < statements.size(); i++) {
+        auto& stmt = statements[i];
+        if (i + 1 == statements.size() && stmt->type == StmtType::EXPR_STMT) {
+            last = evaluate(stmt->expr, globals);
+            // Don't echo assignments: "x = 5" printing "5" is noise.
+            if (stmt->expr->type == ExprType::ASSIGN || (stmt->expr->value && stmt->expr->type != ExprType::LITERAL))
+                last = Value::Nil();
+        } else if (execute(stmt, globals) != Signal::NONE) {
+            break;
+        }
+    }
+    return last;
 }
 
-void Interpreter::execute(const StmtPtr& stmt, std::shared_ptr<Environment> env) {
-    if (!stmt) return;
-    if (debugger.shouldPause(stmt->line)) debugger.pauseAndPrompt(stmt->line, env);
+Signal Interpreter::executeBlock(const std::vector<StmtPtr>& stmts, const std::shared_ptr<Environment>& env) {
+    for (auto& s : stmts) {
+        Signal sig = execute(s, env);
+        if (sig != Signal::NONE) return sig;
+    }
+    return Signal::NONE;
+}
+
+static int symOf(int& cache, const std::string& name) {
+    if (cache < 0) cache = Symbols::intern(name);
+    return cache;
+}
+
+void Interpreter::defineVariable(const StmtPtr& stmt, const Value& valIn, const std::shared_ptr<Environment>& env) {
+    if (stmt->destructKind == 0) {
+        Value val = valIn;
+        checkType(stmt->declaredType, val, stmt->name, stmt->line, stmt->typeName, env);
+        // Coercion: une string litterale assignee a ton.html devient bien du HTML.
+        if (stmt->declaredType == VarKind::HTML && val.type == ValueType::STRING) val = Value::Html(val.str);
+        env->define(symOf(stmt->sym, stmt->name), val, stmt->isConst);
+        return;
+    }
+    if (stmt->destructKind == 1) {
+        if (valIn.type != ValueType::ARRAY)
+            runtimeError(stmt->line, "Cannot destructure " + valIn.typeName() + " with an array pattern [...]: expected an array.");
+        auto& arr = *valIn.array;
+        size_t n = stmt->destructNames.size();
+        for (size_t i = 0; i < n; i++)
+            env->define(stmt->destructNames[i].second, i < arr.size() ? arr[i] : Value::Nil(), stmt->isConst);
+        if (!stmt->destructRest.empty()) {
+            std::vector<Value> rest;
+            for (size_t i = n; i < arr.size(); i++) rest.push_back(arr[i]);
+            env->define(stmt->destructRest, Value::Array(rest), stmt->isConst);
+        }
+        return;
+    }
+    // {a, b: alias, ...rest} — from a dict or an instance's fields.
+    const std::vector<std::pair<std::string, Value>>* src = nullptr;
+    if (valIn.type == ValueType::DICT) src = valIn.dict.get();
+    else if (valIn.type == ValueType::INSTANCE) src = &valIn.instance->fields;
+    else runtimeError(stmt->line, "Cannot destructure " + valIn.typeName() + " with a dict pattern {...}: expected a dict or an object.");
+    for (auto& [key, var] : stmt->destructNames) {
+        Value v = Value::Nil();
+        for (auto& kv : *src) if (kv.first == key) { v = kv.second; break; }
+        env->define(var, v, stmt->isConst);
+    }
+    if (!stmt->destructRest.empty()) {
+        std::vector<std::pair<std::string, Value>> rest;
+        for (auto& kv : *src) {
+            bool taken = false;
+            for (auto& [key, var] : stmt->destructNames) if (key == kv.first) { taken = true; break; }
+            if (!taken) rest.push_back(kv);
+        }
+        env->define(stmt->destructRest, Value::Dict(rest), stmt->isConst);
+    }
+}
+
+// Runs one loop-body iteration; returns true if the loop must stop.
+#define TON_LOOP_BODY(bodyStmt, envExpr)                                   \
+    {                                                                      \
+        Signal sig_ = execute(bodyStmt, envExpr);                          \
+        if (sig_ == Signal::BREAK) break;                                  \
+        if (sig_ == Signal::RETURN) return Signal::RETURN;                 \
+    }
+
+Signal Interpreter::execute(const StmtPtr& stmt, const std::shared_ptr<Environment>& env) {
+    if (!stmt) return Signal::NONE;
+    if (debugger.enabled && debugger.shouldPause(stmt->line)) debugger.pauseAndPrompt(stmt->line, env);
 
     switch (stmt->type) {
         case StmtType::EXPR_STMT:
             evaluate(stmt->expr, env);
-            break;
+            return Signal::NONE;
 
         case StmtType::VAR_DECL: {
-            Value val = Value::Nil();
-            if (stmt->initializer) val = evaluate(stmt->initializer, env);
-            checkType(stmt->declaredType, val, stmt->name, stmt->line);
-            // Coercion: une string litterale assignee a ton.html devient bien du HTML.
-            if (stmt->declaredType == VarKind::HTML && val.type == ValueType::STRING) {
-                val = Value::Html(val.str);
-            }
-            env->define(stmt->name, val);
-            break;
+            Value val = stmt->initializer ? evaluate(stmt->initializer, env) : Value::Nil();
+            defineVariable(stmt, val, env);
+            return Signal::NONE;
         }
 
         case StmtType::BLOCK: {
+            if (!stmt->needsScope) return executeBlock(stmt->statements, env);
             auto blockEnv = std::make_shared<Environment>(env);
-            executeBlock(stmt->statements, blockEnv);
-            break;
+            return executeBlock(stmt->statements, blockEnv);
         }
 
         case StmtType::IF: {
-            Value cond = evaluate(stmt->condition, env);
-            if (cond.isTruthy()) execute(stmt->thenBranch, env);
-            else if (stmt->elseBranch) execute(stmt->elseBranch, env);
-            break;
+            if (evaluate(stmt->condition, env).isTruthy()) return execute(stmt->thenBranch, env);
+            if (stmt->elseBranch) return execute(stmt->elseBranch, env);
+            return Signal::NONE;
         }
 
         case StmtType::WHILE: {
-            while (evaluate(stmt->condition, env).isTruthy()) {
-                try { execute(stmt->thenBranch, env); }
-                catch (BreakException&) { break; }
-                catch (ContinueException&) { continue; }
-            }
-            break;
+            while (evaluate(stmt->condition, env).isTruthy()) TON_LOOP_BODY(stmt->thenBranch, env)
+            return Signal::NONE;
         }
 
         case StmtType::FOR: {
             auto forEnv = std::make_shared<Environment>(env);
             if (stmt->forInit) execute(stmt->forInit, forEnv);
             while (!stmt->forCondition || evaluate(stmt->forCondition, forEnv).isTruthy()) {
-                try { execute(stmt->forBody, forEnv); }
-                catch (BreakException&) { break; }
-                catch (ContinueException&) {}
+                TON_LOOP_BODY(stmt->forBody, forEnv)
                 if (stmt->forIncrement) evaluate(stmt->forIncrement, forEnv);
             }
-            break;
+            return Signal::NONE;
         }
 
         case StmtType::FOR_IN: {
+            int id1 = symOf(stmt->sym, stmt->name);
+            int id2 = stmt->name2.empty() ? -1 : symOf(stmt->sym2, stmt->name2);
+            // Each iteration gets its own scope, so a closure created in the
+            // body captures that iteration's value (not the last one).
+            auto iterEnv = [&](const Value& a, const Value& b) {
+                auto e = std::make_shared<Environment>(env);
+                if (id2 < 0) e->define(id1, b);
+                else { e->define(id1, a); e->define(id2, b); }
+                return e;
+            };
+            // "for i in a..b" counts lazily — no array is ever built.
+            if (stmt->condition->type == ExprType::RANGE) {
+                Value lo = evaluate(stmt->condition->left, env), hi = evaluate(stmt->condition->right, env);
+                if (lo.type != ValueType::NUMBER || hi.type != ValueType::NUMBER)
+                    runtimeError(stmt->line, "A range needs two numbers (got " + lo.typeName() + " and " + hi.typeName() + ").");
+                double end = stmt->condition->inclusive ? hi.number : hi.number - 1;
+                long long idx = 0;
+                for (double i = lo.number; i <= end; i += 1, idx++)
+                    TON_LOOP_BODY(stmt->thenBranch, iterEnv(Value::Number((double)idx), Value::Number(i)))
+                return Signal::NONE;
+            }
             Value collection = evaluate(stmt->condition, env);
-            auto forEnv = std::make_shared<Environment>(env);
             if (collection.type == ValueType::ARRAY) {
-                for (auto& item : *collection.array) {
-                    forEnv->define(stmt->name, item);
-                    try { execute(stmt->thenBranch, forEnv); }
-                    catch (BreakException&) { break; }
-                    catch (ContinueException&) { continue; }
+                auto arr = collection.array;
+                for (size_t i = 0; i < arr->size(); i++) {
+                    Value item = (*arr)[i];
+                    TON_LOOP_BODY(stmt->thenBranch, iterEnv(Value::Number((double)i), item))
                 }
             } else if (collection.type == ValueType::DICT) {
-                // Iterating a dict walks its keys, as a string, one at a time.
-                for (auto& kv : *collection.dict) {
-                    forEnv->define(stmt->name, Value::String(kv.first));
-                    try { execute(stmt->thenBranch, forEnv); }
-                    catch (BreakException&) { break; }
-                    catch (ContinueException&) { continue; }
+                // A dict walks its keys ("for k in d") or its key/value pairs ("for k, v in d").
+                auto d = collection.dict;
+                for (size_t i = 0; i < d->size(); i++) {
+                    Value key = Value::String((*d)[i].first);
+                    if (id2 < 0) { TON_LOOP_BODY(stmt->thenBranch, iterEnv(Value::Nil(), key)) }
+                    else { Value v = (*d)[i].second; TON_LOOP_BODY(stmt->thenBranch, iterEnv(key, v)) }
                 }
+            } else if (collection.type == ValueType::STRING || collection.type == ValueType::HTML) {
+                std::string text = collection.str;
+                for (size_t i = 0; i < text.size(); i++)
+                    TON_LOOP_BODY(stmt->thenBranch, iterEnv(Value::Number((double)i), Value::String(std::string(1, text[i]))))
             } else {
-                runtimeError(stmt->line, "'for ... in' expects an array or a dict, got " + collection.typeName() + ".");
+                runtimeError(stmt->line, "'for ... in' expects an array, a dict, a string or a range, got " + collection.typeName() + ".");
             }
-            break;
+            return Signal::NONE;
         }
 
         case StmtType::TRY_CATCH: {
             // The optional "finally" block runs exactly once no matter what:
             // the try succeeds, the catch handles an error, the catch block
-            // itself raises, or a break/continue/return unwinds through
-            // either — so it's run both on the normal path below and from the
-            // catch-all rethrow here before letting anything propagate further.
+            // itself raises, or a break/continue/return leaves either block.
+            Signal sig = Signal::NONE;
             try {
                 try {
-                    execute(stmt->thenBranch, env);
-                } catch (BreakException&) { throw; }
-                catch (ContinueException&) { throw; }
-                catch (ReturnException&) { throw; }
-                catch (std::exception& e) {
+                    sig = execute(stmt->thenBranch, env);
+                } catch (std::exception& e) {
                     if (!stmt->elseBranch) throw; // no catch clause: let it propagate (finally still runs, below)
+                    errorTrace.clear();
+                    Value caught;
+                    if (auto* tv = dynamic_cast<ThrownValue*>(&e)) caught = tv->value;
+                    else caught = Value::String(e.what());
                     auto catchEnv = std::make_shared<Environment>(env);
-                    catchEnv->define(stmt->name, Value::String(e.what()));
-                    execute(stmt->elseBranch, catchEnv);
+                    catchEnv->define(stmt->name, caught);
+                    sig = execute(stmt->elseBranch, catchEnv);
                 }
             } catch (...) {
-                if (stmt->finallyBranch) execute(stmt->finallyBranch, env);
+                if (stmt->finallyBranch) {
+                    Value saved = returnValue;
+                    Signal fsig = execute(stmt->finallyBranch, env);
+                    if (fsig != Signal::NONE) return fsig; // a return/break inside finally wins
+                    returnValue = saved;
+                }
                 throw;
             }
-            if (stmt->finallyBranch) execute(stmt->finallyBranch, env);
-            break;
+            if (stmt->finallyBranch) {
+                Value saved = returnValue;
+                Signal fsig = execute(stmt->finallyBranch, env);
+                if (fsig != Signal::NONE) return fsig;
+                returnValue = saved;
+            }
+            return sig;
         }
 
         case StmtType::THROW: {
             Value val = stmt->expr ? evaluate(stmt->expr, env) : Value::Nil();
-            throw std::runtime_error(val.toString());
+            if (errorTrace.empty()) {
+                for (auto& f : debugger.callStack) errorTrace.push_back({f.functionName, f.callLine});
+                errorTrace.push_back({"throw", stmt->line});
+            }
+            throw ThrownValue(val.toString(), val);
         }
 
         case StmtType::FN_DECL: {
@@ -813,59 +893,213 @@ void Interpreter::execute(const StmtPtr& stmt, std::shared_ptr<Environment> env)
             fn->body = stmt->body;
             fn->closure = env;
             Value v; v.type = ValueType::FUNCTION; v.function = fn;
-            env->define(stmt->fnName, v);
-            break;
+            env->define(symOf(stmt->sym, stmt->fnName), v);
+            return Signal::NONE;
         }
 
-        case StmtType::RETURN: {
-            Value val = Value::Nil();
-            if (stmt->expr) val = evaluate(stmt->expr, env);
-            throw ReturnException{val};
+        case StmtType::CLASS_DECL: {
+            auto klass = std::make_shared<ClassObj>();
+            klass->name = stmt->name;
+            klass->closure = env;
+            if (!stmt->superName.empty()) {
+                Value parent;
+                if (!env->get(stmt->superName, parent)) undefinedName(stmt->superName, stmt->line, env);
+                if (parent.type != ValueType::CLASS)
+                    runtimeError(stmt->line, "'" + stmt->superName + "' is not a class (it's a " + parent.typeName() + "), so '" +
+                                 stmt->name + "' can't extend it.");
+                klass->superclass = parent.klass;
+            }
+            for (auto& member : stmt->statements) {
+                if (member->type == StmtType::VAR_DECL) { klass->fieldInits.push_back(member); continue; }
+                auto fn = std::make_shared<FunctionObj>();
+                fn->name = stmt->name + "." + member->fnName;
+                fn->params = member->params;
+                fn->paramDefaults = member->paramDefaults;
+                fn->hasRestParam = member->hasRestParam;
+                fn->body = member->body;
+                fn->closure = env;
+                fn->ownerClass = klass.get();
+                fn->isInitializer = member->fnName == "init";
+                klass->methods.push_back({member->fnName, fn});
+            }
+            Value v; v.type = ValueType::CLASS; v.klass = klass;
+            env->define(symOf(stmt->sym, stmt->name), v);
+            return Signal::NONE;
         }
+
+        case StmtType::RETURN:
+            returnValue = stmt->expr ? evaluate(stmt->expr, env) : Value::Nil();
+            return Signal::RETURN;
 
         case StmtType::PRINT: {
             Value val = evaluate(stmt->expr, env);
-            std::cout << val.toString() << std::endl;
-            break;
+            std::cout << val.toString() << '\n';
+            return Signal::NONE;
         }
 
         case StmtType::IMPORT:
-            runImport(stmt->moduleName, stmt->line);
-            break;
+            if (!stmt->name.empty()) env->define(stmt->name, importNamespace(stmt->moduleName, stmt->line));
+            else runImport(stmt->moduleName, stmt->line);
+            return Signal::NONE;
 
-        case StmtType::BREAK: throw BreakException{};
-        case StmtType::CONTINUE: throw ContinueException{};
+        case StmtType::BREAK: return Signal::BREAK;
+        case StmtType::CONTINUE: return Signal::CONTINUE;
 
         case StmtType::SWITCH: {
             Value subject = evaluate(stmt->condition, env);
-            bool matched = false;
-            try {
-                for (auto& [values, body] : stmt->switchCases) {
-                    bool hit = false;
-                    for (auto& valExpr : values) {
-                        if (valuesEqual(subject, evaluate(valExpr, env))) { hit = true; break; }
-                    }
-                    if (hit) {
-                        auto caseEnv = std::make_shared<Environment>(env);
-                        execute(body, caseEnv);
-                        matched = true;
-                        break;
-                    }
+            StmtPtr chosen = nullptr;
+            for (auto& [values, body] : stmt->switchCases) {
+                for (auto& valExpr : values) {
+                    if (valuesEqual(subject, evaluate(valExpr, env))) { chosen = body; break; }
                 }
-                if (!matched && stmt->elseBranch) {
-                    auto defEnv = std::make_shared<Environment>(env);
-                    execute(stmt->elseBranch, defEnv);
-                }
-            } catch (BreakException&) {
-                // A stray "break;" (habit from other languages) just exits the
-                // switch early — there's no fallthrough to break out of anyway.
+                if (chosen) break;
             }
-            break;
+            if (!chosen) chosen = stmt->elseBranch;
+            if (!chosen) return Signal::NONE;
+            auto caseEnv = std::make_shared<Environment>(env);
+            Signal sig = execute(chosen, caseEnv);
+            // A stray "break;" (habit from other languages) just exits the
+            // switch early — there's no fallthrough to break out of anyway.
+            // "continue" and "return" go on to the enclosing loop/function.
+            return sig == Signal::BREAK ? Signal::NONE : sig;
+        }
+    }
+    return Signal::NONE;
+}
+
+#undef TON_LOOP_BODY
+
+// ---- Evaluating expressions ------------------------------------------------------
+
+static size_t levenshtein(const std::string& a, const std::string& b) {
+    std::vector<size_t> prev(b.size() + 1), cur(b.size() + 1);
+    for (size_t j = 0; j <= b.size(); j++) prev[j] = j;
+    for (size_t i = 1; i <= a.size(); i++) {
+        cur[0] = i;
+        for (size_t j = 1; j <= b.size(); j++)
+            cur[j] = std::min({prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1)});
+        std::swap(prev, cur);
+    }
+    return prev[b.size()];
+}
+
+void Interpreter::undefinedName(const std::string& name, int line, const std::shared_ptr<Environment>& env) {
+    std::string best;
+    size_t bestDist = name.size() <= 3 ? 1 : 2;
+    bool found = false;
+    for (Environment* e = env.get(); e; e = e->parent.get()) {
+        for (auto& slot : e->slots) {
+            const std::string& cand = Symbols::name(slot.id);
+            size_t d = levenshtein(name, cand);
+            if (d <= bestDist && (!found || d < bestDist)) { best = cand; bestDist = d; found = true; }
+        }
+    }
+    std::string msg = "Undefined variable or function 'ton." + name + "'.";
+    if (found) msg += " Did you mean '" + best + "'?";
+    runtimeError(line, msg);
+}
+
+void Interpreter::evaluateArgs(const std::vector<ExprPtr>& argExprs, std::vector<Value>& out,
+                               const std::shared_ptr<Environment>& env) {
+    out.reserve(argExprs.size());
+    for (auto& a : argExprs) {
+        if (a->type == ExprType::SPREAD) {
+            Value spread = evaluate(a->operand, env);
+            if (spread.type != ValueType::ARRAY)
+                runtimeError(a->line, "'...' in a call expects an array (got " + spread.typeName() + ").");
+            for (auto& item : *spread.array) out.push_back(item);
+        } else {
+            out.push_back(evaluate(a, env));
         }
     }
 }
 
-Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> env) {
+// A copy of `method` whose closure has "self" (and its class, for super)
+// bound — what "obj.method" evaluates to when it isn't called right away.
+Value Interpreter::bindMethod(const std::shared_ptr<FunctionObj>& method, const Value& self) {
+    auto bound = std::make_shared<FunctionObj>(*method);
+    auto env = std::make_shared<Environment>(method->closure);
+    env->define("self", self);
+    if (method->ownerClass) {
+        Value owner; owner.type = ValueType::CLASS; owner.klass = method->ownerClass->shared_from_this();
+        env->define("<class>", owner);
+    }
+    bound->closure = env;
+    bound->ownerClass = nullptr; // already bound: callFunction must not re-bind
+    Value v; v.type = ValueType::FUNCTION; v.function = bound;
+    return v;
+}
+
+static std::string normIndexError(long long i, size_t size) {
+    return "Index " + std::to_string(i) + " out of bounds (length " + std::to_string(size) + ").";
+}
+
+// obj.name, read — fields and methods of an instance, keys of a dict.
+Value Interpreter::getProperty(const Value& object, const std::string& name, int line) {
+    switch (object.type) {
+        case ValueType::INSTANCE: {
+            if (Value* f = object.instance->findField(name)) return *f;
+            if (auto m = object.instance->klass->findMethod(name)) return bindMethod(m, object);
+            runtimeError(line, "'" + object.instance->klass->name + "' object has no property '" + name + "'.");
+        }
+        case ValueType::DICT: {
+            Value* f = object.findDictEntry(name);
+            return f ? *f : Value::Nil();
+        }
+        case ValueType::CLASS: {
+            if (name == "name") return Value::String(object.klass->name);
+            if (auto m = object.klass->findMethod(name)) { Value v; v.type = ValueType::FUNCTION; v.function = m; return v; }
+            runtimeError(line, "Class '" + object.klass->name + "' has no method '" + name + "'.");
+        }
+        case ValueType::NIL:
+            runtimeError(line, "Cannot read property '" + name + "' of nil (use '?.' to get nil instead of an error).");
+        default:
+            if (name == "length" && (object.type == ValueType::STRING || object.type == ValueType::HTML))
+                return Value::Number((double)object.str.size());
+            if (name == "length" && object.type == ValueType::ARRAY) return Value::Number((double)object.array->size());
+            runtimeError(line, "Cannot read property '" + name + "' of " + object.typeName() +
+                         " (to call a function on it, write '." + name + "()').");
+    }
+}
+
+// obj.name(args): an instance's method (with self bound), a function stored
+// in a dict (module namespaces: m.add(1, 2)), or — for anything else —
+// "uniform call syntax": x.f(a, b) calls the function f(x, a, b), which is
+// how [3, 1, 2].sort(), "hi".upper() and s.split(",") all work.
+Value Interpreter::callMethod(const ExprPtr& getExpr, std::vector<Value>& args, int line,
+                              const std::shared_ptr<Environment>& env) {
+    Value object = evaluate(getExpr->object, env);
+    const std::string& name = getExpr->name;
+    if (object.type == ValueType::NIL && getExpr->optional) return Value::Nil();
+
+    if (object.type == ValueType::INSTANCE) {
+        if (Value* f = object.instance->findField(name)) return callFunction(*f, args, line);
+        if (auto m = object.instance->klass->findMethod(name)) {
+            Value fv; fv.type = ValueType::FUNCTION; fv.function = m;
+            return callFunction(fv, args, line, &object);
+        }
+    } else if (object.type == ValueType::DICT) {
+        if (Value* f = object.findDictEntry(name)) return callFunction(*f, args, line);
+    } else if (object.type == ValueType::CLASS) {
+        if (auto m = object.klass->findMethod(name)) {
+            Value fv; fv.type = ValueType::FUNCTION; fv.function = m;
+            return callFunction(fv, args, line);
+        }
+        runtimeError(line, "Class '" + object.klass->name + "' has no method '" + name + "'.");
+    } else if (object.type == ValueType::NIL) {
+        runtimeError(line, "Cannot call method '" + name + "' on nil (use '?.' to get nil instead of an error).");
+    }
+
+    Value fn;
+    if (env->get(name, fn) && (fn.type == ValueType::FUNCTION || fn.type == ValueType::NATIVE_FUNCTION)) {
+        args.insert(args.begin(), object);
+        return callFunction(fn, args, line);
+    }
+    std::string owner = object.type == ValueType::INSTANCE ? "'" + object.instance->klass->name + "' object" : object.typeName();
+    runtimeError(line, owner + " has no method '" + name + "' (and there is no function '" + name + "' to call on it).");
+}
+
+Value Interpreter::evaluate(const ExprPtr& expr, const std::shared_ptr<Environment>& env) {
     if (!expr) return Value::Nil();
 
     switch (expr->type) {
@@ -878,18 +1112,19 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
         }
 
         case ExprType::VARIABLE: {
-            Value v;
-            if (!env->get(expr->name, v)) {
-                runtimeError(expr->line, "Undefined variable or function 'ton." + expr->name + "'.");
-            }
-            return v;
+            if (auto* slot = env->lookup(symOf(expr->sym, expr->name))) return slot->value;
+            undefinedName(expr->name, expr->line, env);
         }
 
         case ExprType::ASSIGN: {
             Value val = evaluate(expr->value, env);
-            if (!env->assign(expr->name, val)) {
-                runtimeError(expr->line, "Cannot assign: 'ton." + expr->name +
-                             "' was never declared. Use ton.int/ton.string/ton.bool/ton.float/ton.array/ton.html to declare it first.");
+            switch (env->assign(symOf(expr->sym, expr->name), val)) {
+                case AssignResult::OK: return val;
+                case AssignResult::CONSTANT:
+                    runtimeError(expr->line, "Cannot reassign 'ton." + expr->name + "': it was declared with ton.const.");
+                case AssignResult::UNDEFINED:
+                    runtimeError(expr->line, "Cannot assign: 'ton." + expr->name +
+                                 "' was never declared. Declare it first with ton.let (or ton.int, ton.string, ...).");
             }
             return val;
         }
@@ -900,7 +1135,7 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
         case ExprType::UNARY: {
             Value operand = evaluate(expr->operand, env);
             if (expr->op == TokenType::MINUS) {
-                if (operand.type != ValueType::NUMBER) runtimeError(expr->line, "Operand of '-' must be a number.");
+                if (operand.type != ValueType::NUMBER) runtimeError(expr->line, "Operand of '-' must be a number (got " + operand.typeName() + ").");
                 return Value::Number(-operand.number);
             }
             if (expr->op == TokenType::BANG) return Value::Bool(!operand.isTruthy());
@@ -923,6 +1158,30 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
             Value left = evaluate(expr->left, env);
             Value right = evaluate(expr->right, env);
 
+            // Fast path: the overwhelmingly common number-number case.
+            if (left.type == ValueType::NUMBER && right.type == ValueType::NUMBER) {
+                double a = left.number, b = right.number;
+                switch (expr->op) {
+                    case TokenType::PLUS: return Value::Number(a + b);
+                    case TokenType::MINUS: return Value::Number(a - b);
+                    case TokenType::STAR: return Value::Number(a * b);
+                    case TokenType::SLASH:
+                        if (b == 0) runtimeError(expr->line, "Division by zero.");
+                        return Value::Number(a / b);
+                    case TokenType::PERCENT:
+                        if (b == 0) runtimeError(expr->line, "Division by zero (in '%').");
+                        return Value::Number(std::fmod(a, b));
+                    case TokenType::STAR_STAR: return Value::Number(std::pow(a, b));
+                    case TokenType::LESS: return Value::Bool(a < b);
+                    case TokenType::LESS_EQUAL: return Value::Bool(a <= b);
+                    case TokenType::GREATER: return Value::Bool(a > b);
+                    case TokenType::GREATER_EQUAL: return Value::Bool(a >= b);
+                    case TokenType::EQUAL_EQUAL: return Value::Bool(a == b);
+                    case TokenType::BANG_EQUAL: return Value::Bool(a != b);
+                    default: break;
+                }
+            }
+
             switch (expr->op) {
                 case TokenType::PLUS:
                     if (left.type == ValueType::STRING || right.type == ValueType::STRING ||
@@ -932,27 +1191,29 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
                             return Value::Html(left.toString() + right.toString());
                         return Value::String(left.toString() + right.toString());
                     }
-                    if (left.type == ValueType::NUMBER && right.type == ValueType::NUMBER)
-                        return Value::Number(left.number + right.number);
-                    runtimeError(expr->line, "Invalid operands for '+'.");
-                case TokenType::MINUS:
-                    if (left.type != ValueType::NUMBER || right.type != ValueType::NUMBER)
-                        runtimeError(expr->line, "Invalid operands for '-'.");
-                    return Value::Number(left.number - right.number);
+                    // [1, 2] + [3] -> a new array [1, 2, 3]
+                    if (left.type == ValueType::ARRAY && right.type == ValueType::ARRAY) {
+                        std::vector<Value> out(*left.array);
+                        out.insert(out.end(), right.array->begin(), right.array->end());
+                        return Value::Array(out);
+                    }
+                    runtimeError(expr->line, "Invalid operands for '+': " + left.typeName() + " and " + right.typeName() + ".");
                 case TokenType::STAR:
-                    if (left.type != ValueType::NUMBER || right.type != ValueType::NUMBER)
-                        runtimeError(expr->line, "Invalid operands for '*'.");
-                    return Value::Number(left.number * right.number);
+                    // "ab" * 3 -> "ababab"
+                    if ((left.type == ValueType::STRING || left.type == ValueType::HTML) && right.type == ValueType::NUMBER) {
+                        std::string out;
+                        for (long long i = 0; i < (long long)right.number; i++) out += left.str;
+                        return left.type == ValueType::HTML ? Value::Html(out) : Value::String(out);
+                    }
+                    runtimeError(expr->line, "Invalid operands for '*': " + left.typeName() + " and " + right.typeName() + ".");
+                case TokenType::MINUS:
                 case TokenType::SLASH:
-                    if (left.type != ValueType::NUMBER || right.type != ValueType::NUMBER)
-                        runtimeError(expr->line, "Invalid operands for '/'.");
-                    if (right.number == 0) runtimeError(expr->line, "Division by zero.");
-                    return Value::Number(left.number / right.number);
                 case TokenType::PERCENT:
-                    if (left.type != ValueType::NUMBER || right.type != ValueType::NUMBER)
-                        runtimeError(expr->line, "Invalid operands for '%'.");
-                    if (right.number == 0) runtimeError(expr->line, "Division by zero (in '%').");
-                    return Value::Number(std::fmod(left.number, right.number));
+                case TokenType::STAR_STAR: {
+                    std::string op = expr->op == TokenType::MINUS ? "-" : expr->op == TokenType::SLASH ? "/" :
+                                     expr->op == TokenType::PERCENT ? "%" : "**";
+                    runtimeError(expr->line, "Invalid operands for '" + op + "': " + left.typeName() + " and " + right.typeName() + ".");
+                }
                 // Relational operators: numbers compare numerically, strings/html
                 // compare lexicographically (like sort() already does) — mixing
                 // types, or comparing anything else (arrays, dicts, bools...), is
@@ -961,15 +1222,13 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
                 case TokenType::GREATER_EQUAL:
                 case TokenType::LESS:
                 case TokenType::LESS_EQUAL: {
-                    bool bothNumbers = left.type == ValueType::NUMBER && right.type == ValueType::NUMBER;
                     bool bothTextual = (left.type == ValueType::STRING || left.type == ValueType::HTML) &&
                                        (right.type == ValueType::STRING || right.type == ValueType::HTML);
-                    if (!bothNumbers && !bothTextual) {
+                    if (!bothTextual) {
                         runtimeError(expr->line, "Cannot compare " + left.typeName() + " and " + right.typeName() +
                                      " with a relational operator (<, <=, >, >=): both sides must be numbers, or both strings.");
                     }
-                    int cmp = bothNumbers ? (left.number < right.number ? -1 : (left.number > right.number ? 1 : 0))
-                                          : left.str.compare(right.str);
+                    int cmp = left.str.compare(right.str);
                     switch (expr->op) {
                         case TokenType::GREATER: return Value::Bool(cmp > 0);
                         case TokenType::GREATER_EQUAL: return Value::Bool(cmp >= 0);
@@ -993,6 +1252,9 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
                     }
                     if (right.type == ValueType::STRING || right.type == ValueType::HTML) {
                         return Value::Bool(right.str.find(left.toString()) != std::string::npos);
+                    }
+                    if (right.type == ValueType::INSTANCE) {
+                        return Value::Bool(right.instance->findField(left.toString()) != nullptr);
                     }
                     runtimeError(expr->line, "'in' expects an array, dict, or string on the right-hand side (got " +
                                  right.typeName() + ").");
@@ -1024,14 +1286,49 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
         }
 
         case ExprType::CALL: {
-            Value callee = evaluate(expr->callee, env);
             std::vector<Value> args;
-            for (auto& a : expr->args) args.push_back(evaluate(a, env));
+            if (expr->callee->type == ExprType::GET && !expr->callee->value) {
+                evaluateArgs(expr->args, args, env);
+                return callMethod(expr->callee, args, expr->line, env);
+            }
+            Value callee = evaluate(expr->callee, env);
+            if (expr->optional && callee.type == ValueType::NIL) return Value::Nil();
+            evaluateArgs(expr->args, args, env);
             return callFunction(callee, args, expr->line);
+        }
+
+        case ExprType::GET: {
+            Value object = evaluate(expr->object, env);
+            if (expr->optional && object.type == ValueType::NIL) return Value::Nil();
+            if (!expr->value) return getProperty(object, expr->name, expr->line);
+            Value v = evaluate(expr->value, env);
+            if (object.type == ValueType::INSTANCE) {
+                if (Value* f = object.instance->findField(expr->name)) *f = v;
+                else object.instance->fields.push_back({expr->name, v});
+                return v;
+            }
+            if (object.type == ValueType::DICT) {
+                if (Value* f = object.findDictEntry(expr->name)) *f = v;
+                else object.dict->push_back({expr->name, v});
+                return v;
+            }
+            runtimeError(expr->line, "Cannot set property '" + expr->name + "' on " + object.typeName() + ".");
+        }
+
+        case ExprType::SUPER: {
+            Value self, owner;
+            if (!env->get("self", self) || !env->get("<class>", owner) || owner.type != ValueType::CLASS)
+                runtimeError(expr->line, "'super' can only be used inside a class method.");
+            auto parent = owner.klass->superclass;
+            if (!parent) runtimeError(expr->line, "Class '" + owner.klass->name + "' has no parent class, so 'super' has nothing to call.");
+            auto m = parent->findMethod(expr->name);
+            if (!m) runtimeError(expr->line, "Parent class '" + parent->name + "' has no method '" + expr->name + "'.");
+            return bindMethod(m, self);
         }
 
         case ExprType::ARRAY: {
             std::vector<Value> elems;
+            elems.reserve(expr->elements.size());
             for (auto& e : expr->elements) {
                 if (e->type == ExprType::SPREAD) {
                     Value spread = evaluate(e->operand, env);
@@ -1043,7 +1340,7 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
                     elems.push_back(evaluate(e, env));
                 }
             }
-            return Value::Array(elems);
+            return Value::Array(std::move(elems));
         }
 
         case ExprType::DICT: {
@@ -1057,6 +1354,10 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
             for (auto& [keyExpr, valExpr] : expr->dictEntries) {
                 if (!keyExpr) { // spread entry: {nullptr, spreadNode}
                     Value spread = evaluate(valExpr->operand, env);
+                    if (spread.type == ValueType::INSTANCE) {
+                        for (auto& kv : spread.instance->fields) setOrAppend(kv.first, kv.second);
+                        continue;
+                    }
                     if (spread.type != ValueType::DICT) {
                         runtimeError(valExpr->line, "'...' inside a dict literal expects a dict (got " + spread.typeName() + ").");
                     }
@@ -1065,7 +1366,7 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
                     setOrAppend(keyExpr->litString, evaluate(valExpr, env));
                 }
             }
-            return Value::Dict(entries);
+            return Value::Dict(std::move(entries));
         }
 
         case ExprType::FUNCTION_EXPR: {
@@ -1083,64 +1384,176 @@ Value Interpreter::evaluate(const ExprPtr& expr, std::shared_ptr<Environment> en
         case ExprType::TERNARY:
             return evaluate(expr->condition, env).isTruthy() ? evaluate(expr->left, env) : evaluate(expr->right, env);
 
+        case ExprType::FSTRING: {
+            std::string out;
+            for (auto& part : expr->elements) out += evaluate(part, env).toString();
+            return Value::String(out);
+        }
+
+        case ExprType::RANGE: {
+            Value lo = evaluate(expr->left, env), hi = evaluate(expr->right, env);
+            if (lo.type != ValueType::NUMBER || hi.type != ValueType::NUMBER)
+                runtimeError(expr->line, "A range needs two numbers (got " + lo.typeName() + " and " + hi.typeName() + ").");
+            double end = expr->inclusive ? hi.number : hi.number - 1;
+            if (end - lo.number > 1e8) runtimeError(expr->line, "Range too large to build as an array (use it directly in a for loop instead).");
+            std::vector<Value> out;
+            for (double i = lo.number; i <= end; i += 1) out.push_back(Value::Number(i));
+            return Value::Array(std::move(out));
+        }
+
         // SPREAD only ever appears as an element inside an ARRAY/DICT literal
-        // (see those cases above), which unwrap and evaluate expr->operand
-        // themselves — a SPREAD node is never evaluate()'d directly.
+        // or a call's argument list (see those cases above), which unwrap and
+        // evaluate expr->operand themselves.
         case ExprType::SPREAD:
-            runtimeError(expr->line, "'...' is only valid inside an array or dict literal.");
+            runtimeError(expr->line, "'...' is only valid inside an array or dict literal, or a call's arguments.");
+
+        case ExprType::SLICE: {
+            Value target = evaluate(expr->indexTarget, env);
+            if (expr->optional && target.type == ValueType::NIL) return Value::Nil();
+            bool isText = target.type == ValueType::STRING || target.type == ValueType::HTML;
+            if (!isText && target.type != ValueType::ARRAY)
+                runtimeError(expr->line, "Only arrays and strings can be sliced (got " + target.typeName() + ").");
+            long long n = isText ? (long long)target.str.size() : (long long)target.array->size();
+            auto bound = [&](const ExprPtr& e, long long dflt) {
+                if (!e) return dflt;
+                Value v = evaluate(e, env);
+                if (v.type != ValueType::NUMBER) runtimeError(expr->line, "Slice bounds must be numbers (got " + v.typeName() + ").");
+                long long i = (long long)v.number;
+                if (i < 0) i += n;
+                return std::max(0LL, std::min(i, n));
+            };
+            long long a = bound(expr->sliceStart, 0), b = bound(expr->sliceEnd, n);
+            if (b < a) b = a;
+            if (isText) {
+                std::string sub = target.str.substr((size_t)a, (size_t)(b - a));
+                return target.type == ValueType::HTML ? Value::Html(sub) : Value::String(sub);
+            }
+            return Value::Array(std::vector<Value>(target.array->begin() + a, target.array->begin() + b));
+        }
 
         case ExprType::INDEX: {
             Value target = evaluate(expr->indexTarget, env);
+            if (expr->optional && target.type == ValueType::NIL) return Value::Nil();
 
-            if (target.type == ValueType::DICT) {
+            if (target.type == ValueType::DICT || target.type == ValueType::INSTANCE) {
                 Value keyVal = evaluate(expr->indexValue, env);
                 std::string key = (keyVal.type == ValueType::STRING) ? keyVal.str : keyVal.toString();
+                auto* fields = target.type == ValueType::DICT ? target.dict.get() : &target.instance->fields;
+                Value* found = nullptr;
+                for (auto& kv : *fields) if (kv.first == key) { found = &kv.second; break; }
                 if (expr->value) {
                     Value v = evaluate(expr->value, env);
-                    Value* existing = target.findDictEntry(key);
-                    if (existing) *existing = v;
-                    else target.dict->push_back({key, v});
+                    if (found) *found = v;
+                    else fields->push_back({key, v});
                     return v;
                 }
-                Value* found = target.findDictEntry(key);
                 return found ? *found : Value::Nil();
             }
 
-            // Read-only character indexing: s[0] is a 1-character string.
-            // Strings are immutable in TON618 — build a new one with
-            // replace()/substring()/strings_* instead of assigning into an index.
+            // Read-only character indexing: s[0] is a 1-character string,
+            // s[-1] the last one. Strings are immutable in TON618 — build a
+            // new one with replace()/substring()/slices instead.
             if (target.type == ValueType::STRING || target.type == ValueType::HTML) {
                 if (expr->value) runtimeError(expr->line, "Strings are immutable: cannot assign to a string index. "
                                                             "Use replace()/substring() to build a new string instead.");
                 Value idxVal = evaluate(expr->indexValue, env);
-                int i = (int)idxVal.number;
-                if (i < 0 || i >= (int)target.str.size()) runtimeError(expr->line, "String index out of bounds.");
-                return Value::String(std::string(1, target.str[i]));
+                if (idxVal.type != ValueType::NUMBER) runtimeError(expr->line, "A string index must be a number (got " + idxVal.typeName() + ").");
+                long long i = (long long)idxVal.number, n = (long long)target.str.size();
+                if (i < 0) i += n;
+                if (i < 0 || i >= n) runtimeError(expr->line, "String " + normIndexError((long long)idxVal.number, (size_t)n));
+                return Value::String(std::string(1, target.str[(size_t)i]));
             }
 
             if (target.type != ValueType::ARRAY)
                 runtimeError(expr->line, "Cannot index a value that is not an array, a dict, or a string (got " + target.typeName() + ").");
 
             Value idx = evaluate(expr->indexValue, env);
-            int i = (int)idx.number;
+            if (idx.type != ValueType::NUMBER) runtimeError(expr->line, "An array index must be a number (got " + idx.typeName() + ").");
+            long long i = (long long)idx.number, n = (long long)target.array->size();
+            if (i < 0) i += n; // arr[-1] is the last element
             if (expr->value) {
                 Value v = evaluate(expr->value, env);
-                if (i < 0 || i >= (int)target.array->size()) runtimeError(expr->line, "Index out of bounds.");
-                (*target.array)[i] = v;
+                if (i < 0 || i >= (long long)target.array->size()) runtimeError(expr->line, normIndexError((long long)idx.number, target.array->size()));
+                (*target.array)[(size_t)i] = v;
                 return v;
             }
-            if (i < 0 || i >= (int)target.array->size()) runtimeError(expr->line, "Index out of bounds.");
-            return (*target.array)[i];
+            if (i < 0 || i >= n) runtimeError(expr->line, normIndexError((long long)idx.number, (size_t)n));
+            return (*target.array)[(size_t)i];
         }
     }
     return Value::Nil();
 }
 
-Value Interpreter::callFunction(const Value& callee, std::vector<Value>& args, int line) {
-    if (callee.type == ValueType::NATIVE_FUNCTION) return (*callee.nativeFn)(args);
-    if (callee.type != ValueType::FUNCTION) runtimeError(line, "Only functions can be called.");
+// ---- Calls -------------------------------------------------------------------------
 
-    auto fn = callee.function;
+// Pushes a debugger/traceback frame for the duration of a call, and pops it
+// again however the call ends (normal return or an error unwinding through).
+struct CallGuard {
+    Interpreter& in;
+    CallGuard(Interpreter& i, const std::string& name, int line, const std::shared_ptr<Environment>& env) : in(i) {
+        if (++in.callDepth > in.maxCallDepth) {
+            --in.callDepth;
+            throw LineError("Error at line " + std::to_string(line) + ": Maximum recursion depth (" +
+                            std::to_string(in.maxCallDepth) + ") exceeded in '" + name + "'.");
+        }
+        in.debugger.callStack.push_back({name, line, env});
+    }
+    ~CallGuard() { in.debugger.callStack.pop_back(); --in.callDepth; }
+};
+
+Value Interpreter::instantiate(const Value& klassVal, std::vector<Value>& args, int line) {
+    auto klass = klassVal.klass;
+    auto inst = std::make_shared<InstanceObj>();
+    inst->klass = klass;
+    Value self; self.type = ValueType::INSTANCE; self.instance = inst;
+
+    // Field initializers, parents first, each evaluated with "self" in scope.
+    std::vector<ClassObj*> chain;
+    for (ClassObj* c = klass.get(); c; c = c->superclass.get()) chain.push_back(c);
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        if ((*it)->fieldInits.empty()) continue;
+        auto fieldEnv = std::make_shared<Environment>((*it)->closure);
+        fieldEnv->define("self", self);
+        for (auto& field : (*it)->fieldInits) {
+            Value v = field->initializer ? evaluate(field->initializer, fieldEnv) : Value::Nil();
+            checkType(field->declaredType, v, field->name, field->line, field->typeName, fieldEnv);
+            if (field->declaredType == VarKind::HTML && v.type == ValueType::STRING) v = Value::Html(v.str);
+            if (Value* f = inst->findField(field->name)) *f = v;
+            else inst->fields.push_back({field->name, v});
+        }
+    }
+
+    if (auto init = klass->findMethod("init")) {
+        Value fv; fv.type = ValueType::FUNCTION; fv.function = init;
+        callFunction(fv, args, line, &self);
+    } else if (!args.empty()) {
+        runtimeError(line, "'" + klass->name + "' has no init() method, so it takes no arguments (got " +
+                     std::to_string(args.size()) + ").");
+    }
+    return self;
+}
+
+Value Interpreter::callFunction(const Value& callee, std::vector<Value>& args, int line, const Value* self) {
+    if (callee.type == ValueType::NATIVE_FUNCTION) {
+        // Natives report errors without a line number; add the call site's.
+        try {
+            return (*callee.nativeFn)(args);
+        } catch (LineError&) { throw; }
+        catch (ThrownValue&) { throw; }
+        catch (std::exception& e) {
+            if (line > 0) runtimeError(line, e.what());
+            throw;
+        }
+    }
+    if (callee.type == ValueType::CLASS) return instantiate(callee, args, line);
+    if (callee.type != ValueType::FUNCTION)
+        runtimeError(line, "Only functions and classes can be called (got " + callee.typeName() + ").");
+
+    auto& fn = callee.function;
+    if (fn->paramIds.size() != fn->params.size()) {
+        fn->paramIds.clear();
+        for (auto& p : fn->params) fn->paramIds.push_back(Symbols::intern(p));
+    }
     // The rest parameter (if any) is always last and isn't counted below; a
     // fixed parameter is "required" only if it has no default value.
     size_t fixedCount = fn->hasRestParam ? fn->params.size() - 1 : fn->params.size();
@@ -1157,24 +1570,31 @@ Value Interpreter::callFunction(const Value& callee, std::vector<Value>& args, i
     }
 
     auto callEnv = std::make_shared<Environment>(fn->closure);
+    if (self) {
+        static const int selfId = Symbols::intern("self"), classId = Symbols::intern("<class>");
+        callEnv->define(selfId, *self);
+        if (fn->ownerClass) {
+            Value owner; owner.type = ValueType::CLASS; owner.klass = fn->ownerClass->shared_from_this();
+            callEnv->define(classId, owner);
+        }
+    }
     for (size_t i = 0; i < fixedCount; i++) {
-        Value v = (i < args.size()) ? args[i] : evaluate(fn->paramDefaults[i], callEnv);
-        callEnv->define(fn->params[i], v);
+        if (i < args.size()) callEnv->define(fn->paramIds[i], args[i]);
+        else callEnv->define(fn->paramIds[i], evaluate(fn->paramDefaults[i], callEnv));
     }
     if (fn->hasRestParam) {
         std::vector<Value> rest;
         for (size_t i = fixedCount; i < args.size(); i++) rest.push_back(args[i]);
-        callEnv->define(fn->params.back(), Value::Array(rest));
+        callEnv->define(fn->paramIds.back(), Value::Array(std::move(rest)));
     }
 
-    debugger.callStack.push_back({fn->name, line, callEnv});
+    CallGuard guard(*this, fn->name, line, callEnv);
     Value result = Value::Nil();
-    try {
-        executeBlock(fn->body->statements, callEnv);
-    } catch (ReturnException& r) {
-        result = r.value;
+    if (executeBlock(fn->body->statements, callEnv) == Signal::RETURN) {
+        result = std::move(returnValue);
+        returnValue = Value::Nil();
     }
-    debugger.callStack.pop_back();
+    if (fn->isInitializer && self) return *self;
     return result;
 }
 

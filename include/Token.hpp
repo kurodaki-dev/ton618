@@ -38,6 +38,16 @@ enum class TokenType {
     ELLIPSIS,
     // Bitwise: & | ^ ~ << >> (operate on numbers truncated to a 64-bit integer)
     AMPERSAND, PIPE, CARET, TILDE, LESS_LESS, GREATER_GREATER,
+    // beta-2.0.0 additions:
+    ARROW,                 // =>   arrow function: (a, b) => a + b
+    DOT_DOT,               // ..   exclusive range: 0..10
+    DOT_DOT_EQUAL,         // ..=  inclusive range: 1..=10
+    PIPE_GREATER,          // |>   pipe: x |> f(y)  ==  f(x, y)
+    QUESTION_DOT,          // ?.   optional chaining: user?.address
+    STAR_STAR,             // **   power: 2 ** 10
+    STAR_STAR_EQUAL,       // **=
+    QUESTION_QUESTION_EQUAL, // ??=  assign only if nil
+    FSTRING,               // f"Hello {name}!" — stringValue holds the raw template
 
     // Symboles
     LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET,

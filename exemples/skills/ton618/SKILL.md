@@ -14,6 +14,8 @@ ton618 script.ton                # run it
 ton618 script.ton --debug        # step debugger from line 1
 ton618 script.ton --break=12     # step debugger, breakpoint at line 12
 ton618 --version                 # version, platform, arch
+ton618                           # interactive REPL (2.0+)
+ton618 -e 'print(2 ** 10)'       # one-liner (2.0+)
 ```
 
 ## The one rule that shapes everything: the `ton.` prefix
@@ -21,7 +23,7 @@ ton618 --version                 # version, platform, arch
 - **Declaring** a variable or function always uses `ton.<type> name = value` or `ton.function name(...) { ... }`.
 - **Referring** to something already declared (reading, reassigning, calling, naming a function parameter) accepts *either* `ton.name` or bare `name` — both resolve to the same thing. This reference uses `ton.` for declarations and top-level statements, and bare names for loop counters and function parameters, matching the style of every example below.
 - A bare assignment (`x = 5`) only works if `x` was already declared — it never introduces a new variable. To declare, you always need the full `ton.<type> name = value` form.
-- `ton.` is never a namespace or object access — `ton.foo` is just how the parser spells "the variable/function named foo".
+- `ton.` is never a namespace or object access — `ton.foo` is just how the parser spells "the variable/function named foo". (Real property access uses a dot on a value: `obj.field`, `dict.key`, `"s".upper()` — see "New in beta-2.0.0".)
 
 ## Types
 
@@ -45,18 +47,52 @@ ton618 --version                 # version, platform, arch
    comment */
 ```
 
-## Building strings — no interpolation, use `format()`
+## Building strings — f-strings (2.0+) or `format()`
 
-There is **no** `${...}` or f-string syntax. Build strings with `+` concatenation or, for multiple substitutions, `format(template, ...args)`:
+Since beta-2.0.0, prefix a string with `f` to embed expressions: `f"Hello {name}, you'll be {age + 1}!"` (`{{`/`}}` are literal braces). `format(template, ...args)` still works and fills `{}` placeholders left to right:
 
 ```
 ton.string name = "kuro"
 ton.int age = 5
+print(f"Hello {name}, you'll be {age + 1} next year!")
 print(format("Hello {}, you'll be {} next year!", name, age + 1))
-// Hello kuro, you'll be 6 next year!
 ```
 
-`{}` placeholders are filled left to right; an argument is converted with the same rules as `str()`. Extra `{}` with no argument are left as `{}` literally; extra arguments are ignored.
+Backtick strings are raw and may span lines: `` `C:\temp\n<p>no escapes</p>` ``. Escapes in `"..."`: `\n \t \r \" \\ \0 \u{1F680}`.
+
+## New in beta-2.0.0 — prefer these in new code
+
+```
+ton.let x = 5                     // untyped variable; ton.var is a synonym
+ton.const MAX = 10                // can't be reassigned
+ton.let double = n => n * 2       // arrow functions; (a, b = 1) => a + b; (x) => { ... }
+[3, 1, 2].sorted().map(n => n * 10)   // uniform call syntax: x.f(a) == f(x, a)
+"hello".upper().padStart(8, ".")      // works for every function, built-in or yours
+d.key / d.key = v / d?.a?.b           // dot access on dicts, optional chaining
+for i in 0..10 { }  for i in 1..=10 { }   // ranges (lazy in for loops)
+for k, v in dict { }  for i, x in arr { }  for c in "text" { }
+a[-1]  a[1:3]  a[:2]  s[-3:]          // negative indices, slices (arrays and strings)
+ton.let [first, ...rest] = arr        // destructuring
+ton.let {name, age: years} = dict
+x |> f(y)                             // pipe: f(x, y)
+2 ** 10   x ??= default   f(...args)  // power, assign-if-nil, spread in calls
+throw {code: 404}                     // throw any value; catch receives it as-is
+IMPORT://ton.strings as s             // namespaced import: s.snake_case(...)
+
+ton.class Animal {
+    ton.string sound = "..."          // field with a default, set before init()
+    ton.function init(name) { self.name = name }
+    ton.function speak() { return f"{self.name} says {self.sound}" }
+    ton.function toString() { return "Animal " + self.name }   // used by print/str
+}
+ton.class Dog extends Animal {
+    ton.function init(name) { super.init(name); self.sound = "woof" }
+}
+ton.Dog rex = Dog("Rex")              // typed object variable (class name as type)
+print(rex.speak(), isinstance(rex, Animal), type(rex))   // ... true Dog
+```
+
+New natives: `sum avg range sorted(arr, key) sort(arr, cmp) unique flatten zip enumerate chunk groupBy flatMap count findIndex forEach first last insert removeAt remove clear isEmpty items dict merge padStart padEnd startsWith endsWith repeat chars lines capitalize lastIndexOf ord chr int float bool fixed round(x, n) repr isinstance copy deepcopy clamp sign exit`. `min`/`max` accept one array. Callbacks of `map`/`filter`/`find`/`forEach`/... get `(item, index)` if they declare two parameters. `print(a, b)` prints space-separated.
 
 ## Operators
 
@@ -245,13 +281,13 @@ Handler returning `ton.html` -> `Content-Type: text/html`; anything else -> `tex
 
 ## Gotchas an AI should not trip on
 
-1. **No f-strings/interpolation** — use `format("{} {}", a, b)` or `+`.
+1. **f-strings need the `f` prefix** (`f"{x}"`, 2.0+); a plain `"{x}"` is just text. `${...}` doesn't exist.
 2. **Function arity is enforced** — a parameter is only optional if it has a `= default` or is the `...rest` parameter; never call with fewer required args or more args than a function without `...rest` accepts.
 3. **Comparisons throw on type mismatch** — don't compare a number to a string or an array to anything with `<`/`>`.
 4. **`/` and `%` throw on zero divisor** — wrap in `try`/`catch` if the divisor might be zero and you want to handle it gracefully.
 5. **Strings are immutable** — `s[0] = "x"` is a runtime error; build a new string instead.
 6. **`switch` never falls through** — don't rely on C-style fallthrough; list multiple values in one `case` instead (`case 1, 2:`).
-7. **A bare `name = value` can't declare** — first declaration must be `ton.<type> name = value`.
+7. **A bare `name = value` can't declare** — first declaration must be `ton.<type> name = value` (or `ton.let name = value`).
 8. **Route handlers take exactly one argument** (`req`), even in simple routes that ignore it — a zero-arg handler throws an arity error.
 9. **Dict keys are always strings** — `d[1]` on a dict looks up the *string* `"1"`, not the number `1`.
 10. **`ton.requests` is `http://` only** — it cannot reach an `https://`-only API.

@@ -31,7 +31,6 @@ private:
     std::vector<Token> tokens;
     int current = 0;
 
-    bool isAtEnd() const;
     const Token& peek() const;
     const Token& peekNext() const;
     const Token& previous() const;
@@ -47,6 +46,8 @@ private:
     StmtPtr tonDeclaration();     // gere tout ce qui commence par "ton."
     StmtPtr varDeclFromType(VarKind kind);
     StmtPtr fnDeclaration();
+    StmtPtr classDeclaration();
+    void parseDestructuringPattern(Stmt& s);
     StmtPtr importDeclaration();
     StmtPtr statement();
     StmtPtr ifStatement();
@@ -60,12 +61,16 @@ private:
     StmtPtr block();
     StmtPtr exprStatement();
 
+public:
     // Expressions, from loosest to tightest binding:
-    // expression -> assignment -> ternary -> nilCoalesce -> logicOr -> logicAnd
-    //            -> bitwise -> equality -> comparison -> shift -> term -> factor
-    //            -> unary -> call -> primary
+    // expression -> assignment -> pipe -> ternary -> nilCoalesce -> logicOr
+    //            -> logicAnd -> bitwise -> equality -> comparison -> range
+    //            -> shift -> term -> factor -> unary -> power -> call -> primary
     ExprPtr expression();
+    bool isAtEnd() const;
+private:
     ExprPtr assignment();
+    ExprPtr pipe();       // "x |> f(a)"  ->  f(x, a)
     ExprPtr ternary();
     ExprPtr nilCoalesce(); // "a ?? b"
     ExprPtr logicOr();
@@ -73,12 +78,18 @@ private:
     ExprPtr bitwise(); // "a & b", "a | b", "a ^ b" — all one precedence level, left to right
     ExprPtr equality();
     ExprPtr comparison(); // also handles "a in b" (array/dict/string membership)
+    ExprPtr range(); // "a..b", "a..=b"
     ExprPtr shift(); // "a << b", "a >> b"
     ExprPtr term();
     ExprPtr factor();
     ExprPtr unary(); // also handles "~a" (bitwise not)
+    ExprPtr power(); // "a ** b"
     ExprPtr call();
     ExprPtr finishCall(ExprPtr callee);
+    ExprPtr finishGet(ExprPtr object, bool optional);
+    ExprPtr finishIndex(ExprPtr target, bool optional);
+    ExprPtr fstring(const Token& tok);
+    bool isArrowAhead() const;
     ExprPtr primary();
     ExprPtr tonReference(); // parse "ton.identifiant" en expression (variable ou appel)
     ExprPtr functionExpression(int line); // parse "ton.function(...) { ... }" as an inline value (a callback)
@@ -87,6 +98,7 @@ private:
     // functionExpression(). "..." may only appear on the last parameter.
     struct ParamList { std::vector<std::string> names; std::vector<ExprPtr> defaults; bool hasRest = false; };
     ParamList parseParamList();
+    ExprPtr arrowBody(const ParamList& params, int line);
 
     // Builds the ASSIGN (or INDEX-assign) node used by both "=" and by desugaring
     // compound assignment (+=, -=, ...) and postfix increment/decrement (++, --).

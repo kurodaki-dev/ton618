@@ -97,6 +97,12 @@ void Lexer::string() {
                 case 'r': value += '\r'; break;
                 case '"': value += '"'; break;
                 case '\\': value += '\\'; break;
+                case '0': value += '\0'; break;
+                case 'u': value += unicodeEscape(); break;
+                // In an f-string, "\{" keeps a literal brace; the template
+                // parser (Parser::fstring) sees it as the "{{" escape.
+                case '{': value += fstringMode ? "{{" : "{"; break;
+                case '}': value += fstringMode ? "}}" : "}"; break;
                 default: value += esc; break;
             }
             continue;
@@ -104,21 +110,89 @@ void Lexer::string() {
         if (peek() == '\n') line++;
         value += advance();
     }
-    if (isAtEnd()) throw std::runtime_error("Ligne " + std::to_string(line) + ": chaine non terminee.");
+    if (isAtEnd()) throw std::runtime_error("Line " + std::to_string(line) + ": unterminated string.");
+    advance();
+    addToken(fstringMode ? TokenType::FSTRING : TokenType::STRING, value);
+}
+
+// "\u{1F600}" or "\u00e9" -> the UTF-8 bytes of that code point.
+std::string Lexer::unicodeEscape() {
+    std::string hex;
+    if (match('{')) {
+        while (!isAtEnd() && peek() != '}') hex += advance();
+        if (!match('}')) throw std::runtime_error("Line " + std::to_string(line) + ": unterminated \\u{...} escape.");
+    } else {
+        for (int i = 0; i < 4 && std::isxdigit((unsigned char)peek()); i++) hex += advance();
+    }
+    if (hex.empty()) throw std::runtime_error("Line " + std::to_string(line) + ": invalid \\u escape.");
+    unsigned long cp = std::stoul(hex, nullptr, 16);
+    std::string out;
+    if (cp < 0x80) out += (char)cp;
+    else if (cp < 0x800) { out += (char)(0xC0 | (cp >> 6)); out += (char)(0x80 | (cp & 0x3F)); }
+    else if (cp < 0x10000) {
+        out += (char)(0xE0 | (cp >> 12)); out += (char)(0x80 | ((cp >> 6) & 0x3F)); out += (char)(0x80 | (cp & 0x3F));
+    } else {
+        out += (char)(0xF0 | (cp >> 18)); out += (char)(0x80 | ((cp >> 12) & 0x3F));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F)); out += (char)(0x80 | (cp & 0x3F));
+    }
+    return out;
+}
+
+// `raw multi-line string` — no escape sequences at all, newlines kept as-is.
+// Handy for embedded HTML, regexes and Windows paths.
+void Lexer::rawString() {
+    std::string value;
+    while (peek() != '`' && !isAtEnd()) {
+        if (peek() == '\n') line++;
+        value += advance();
+    }
+    if (isAtEnd()) throw std::runtime_error("Line " + std::to_string(line) + ": unterminated `raw string`.");
     advance();
     addToken(TokenType::STRING, value);
 }
 
+// Numbers: 42, 3.14, 1_000_000, 1e9, 2.5e-3, 0xFF, 0b1010, 0o755.
+// Underscores are digit separators and are ignored.
 void Lexer::number() {
-    while (std::isdigit(peek())) advance();
-    if (peek() == '.' && std::isdigit(peekNext())) {
-        advance();
-        while (std::isdigit(peek())) advance();
+    char first = source[start];
+    if (first == '0' && (peek() == 'x' || peek() == 'X' || peek() == 'b' || peek() == 'B' || peek() == 'o' || peek() == 'O')) {
+        char kind = (char)std::tolower(advance());
+        int base = kind == 'x' ? 16 : kind == 'b' ? 2 : 8;
+        std::string digits;
+        while (std::isxdigit((unsigned char)peek()) || peek() == '_') { char c = advance(); if (c != '_') digits += c; }
+        if (digits.empty()) throw std::runtime_error("Line " + std::to_string(line) + ": malformed number literal.");
+        try {
+            addToken(TokenType::NUMBER, (double)std::stoull(digits, nullptr, base));
+        } catch (...) {
+            throw std::runtime_error("Line " + std::to_string(line) + ": malformed number literal '0" + std::string(1, kind) + digits + "'.");
+        }
+        return;
     }
-    addToken(TokenType::NUMBER, std::stod(source.substr(start, current - start)));
+    std::string text(1, first);
+    auto digitsRun = [&]() { while (std::isdigit((unsigned char)peek()) || (peek() == '_' && std::isdigit((unsigned char)peekNext()))) { char c = advance(); if (c != '_') text += c; } };
+    digitsRun();
+    if (peek() == '.' && std::isdigit((unsigned char)peekNext())) {
+        text += advance();
+        digitsRun();
+    }
+    if ((peek() == 'e' || peek() == 'E') &&
+        (std::isdigit((unsigned char)peekNext()) || ((peekNext() == '+' || peekNext() == '-') && std::isdigit((unsigned char)peekAt(2))))) {
+        text += advance();
+        if (peek() == '+' || peek() == '-') text += advance();
+        digitsRun();
+    }
+    addToken(TokenType::NUMBER, std::stod(text));
 }
 
 void Lexer::identifierOrTon() {
+    // f"..." — an f-string: a template with {expressions} inside.
+    if (source[start] == 'f' && current == start + 1 && peek() == '"') {
+        advance();
+        fstringMode = true;
+        string();
+        fstringMode = false;
+        return;
+    }
     while (std::isalnum(peek()) || peek() == '_') advance();
     std::string text = source.substr(start, current - start);
 
@@ -156,10 +230,15 @@ void Lexer::scanToken() {
         case ';': addToken(TokenType::SEMICOLON); break;
         case '.':
             if (peek() == '.' && peekNext() == '.') { advance(); advance(); addToken(TokenType::ELLIPSIS); }
+            else if (match('.')) addToken(match('=') ? TokenType::DOT_DOT_EQUAL : TokenType::DOT_DOT);
             else addToken(TokenType::DOT);
             break;
         case '?':
-            addToken(match('?') ? TokenType::QUESTION_QUESTION : TokenType::QUESTION);
+            if (match('?')) addToken(match('=') ? TokenType::QUESTION_QUESTION_EQUAL : TokenType::QUESTION_QUESTION);
+            // "?." is optional chaining — but "c ?.5 : 1" (a ternary with a
+            // ".5" literal) is not, hence the digit check.
+            else if (peek() == '.' && !std::isdigit((unsigned char)peekNext())) { advance(); addToken(TokenType::QUESTION_DOT); }
+            else addToken(TokenType::QUESTION);
             break;
         case ':': addToken(TokenType::COLON); break;
         case '+':
@@ -173,7 +252,8 @@ void Lexer::scanToken() {
             else addToken(TokenType::MINUS);
             break;
         case '*':
-            addToken(match('=') ? TokenType::STAR_EQUAL : TokenType::STAR);
+            if (match('*')) addToken(match('=') ? TokenType::STAR_STAR_EQUAL : TokenType::STAR_STAR);
+            else addToken(match('=') ? TokenType::STAR_EQUAL : TokenType::STAR);
             break;
         case '%':
             addToken(match('=') ? TokenType::PERCENT_EQUAL : TokenType::PERCENT);
@@ -185,7 +265,9 @@ void Lexer::scanToken() {
             else addToken(TokenType::SLASH);
             break;
         case '=':
-            addToken(match('=') ? TokenType::EQUAL_EQUAL : TokenType::EQUAL);
+            if (match('=')) addToken(TokenType::EQUAL_EQUAL);
+            else if (match('>')) addToken(TokenType::ARROW);
+            else addToken(TokenType::EQUAL);
             break;
         case '!':
             addToken(match('=') ? TokenType::BANG_EQUAL : TokenType::BANG);
@@ -204,6 +286,7 @@ void Lexer::scanToken() {
             break;
         case '|':
             if (match('|')) addToken(TokenType::OR);
+            else if (match('>')) addToken(TokenType::PIPE_GREATER);
             else addToken(match('=') ? TokenType::PIPE_EQUAL : TokenType::PIPE);
             break;
         case '^':
@@ -219,6 +302,9 @@ void Lexer::scanToken() {
             break;
         case '"':
             string();
+            break;
+        case '`':
+            rawString();
             break;
         default:
             if (std::isdigit(c)) number();

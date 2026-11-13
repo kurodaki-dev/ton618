@@ -4,7 +4,7 @@ CXXFLAGS = -std=c++17 -Wall -O2 -Iinclude
 # harmless to pass on other platforms where it's simply unused.
 LDFLAGS = -pthread
 SRC = src/Lexer.cpp src/Parser.cpp src/Interpreter.cpp src/Debugger.cpp \
-      src/LocalServer.cpp src/HttpClient.cpp src/JsonParser.cpp src/main.cpp
+      src/LocalServer.cpp src/HttpClient.cpp src/JsonParser.cpp src/Stdlib.cpp src/main.cpp
 OUT = ton618
 DIST = dist
 
@@ -70,4 +70,14 @@ distclean: clean
 docs:
 	cat scripts/doc_templates/head.html DOCUMENTATION.md scripts/doc_templates/tail.html > exemples/documentation.html
 
-.PHONY: all linux windows android dist clean distclean docs
+# Builds the documentation website (website/app.py, made with Claide —
+# pip install claide-web) into website/_site/. "python website/app.py"
+# serves it locally with live reload instead.
+site:
+	python3 website/app.py build website/_site
+
+# Runs tests/*.ton and compares each output with its tests/*.expected file.
+test: $(OUT)
+	tests/run.sh ./$(OUT)
+
+.PHONY: all linux windows android dist clean distclean docs test site
