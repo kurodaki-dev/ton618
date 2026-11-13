@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily backup of the TON618 registry
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

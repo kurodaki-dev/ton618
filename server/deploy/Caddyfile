@@ -1,0 +1,19 @@
+# /etc/caddy/Caddyfile — setup.sh replaces YOUR_DOMAIN. Caddy gets and renews the
+# HTTPS certificate by itself (ports 80 and 443 must be open).
+YOUR_DOMAIN {
+	encode gzip
+	request_body {
+		max_size 4MB
+	}
+	reverse_proxy 127.0.0.1:8080
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+	}
+	log {
+		output file /var/log/caddy/ton618-access.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+	}
+}
