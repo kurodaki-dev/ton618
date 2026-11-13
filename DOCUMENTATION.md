@@ -1479,6 +1479,11 @@ One-time setup:
 
 ### Changelog
 
+**beta-2.0.2** — the Android icon, and a new documentation website:
+
+- **Fixed the Android app icon**: Android crops the edges of app icons, so the new logo was shown cut to its centre on a white background. The icon now has the whole logo on black, inside the area Android always shows.
+- **The documentation website is rewritten** with Claide: a full-height side menu with search and collapsible parts, a flat monochrome design in the logo's colours, and no light effect.
+
 **beta-2.0.1** — the new logo:
 
 - **New TON618 logo** everywhere: the website, the playground, the IDE's application icons, the VS Code and Acode icons. It carries its copyright notice (© 2026 kurodaki-dev, see `LOGO-LICENSE.md`).
@@ -3089,6 +3094,11 @@ Configuration unique :
 ---
 
 ### Changelog
+
+**beta-2.0.2** — l'icône Android, et un nouveau site de documentation :
+
+- **Icône de l'application Android corrigée** : Android rogne les bords des icônes, donc le nouveau logo apparaissait coupé à son centre sur fond blanc. L'icône montre maintenant tout le logo sur fond noir, dans la zone qu'Android affiche toujours.
+- **Le site de documentation est réécrit** avec Claide : un menu latéral pleine hauteur avec recherche et parties repliables, un design plat et monochrome aux couleurs du logo, sans effet de lumière.
 
 **beta-2.0.1** — le nouveau logo :
 

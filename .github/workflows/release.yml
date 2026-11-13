@@ -227,7 +227,11 @@ jobs:
           python3 ../scripts/logo.py
           npm ci
           npx tauri android init --ci
-          npx tauri icon ../exemples/logo.svg
+          # Android crops the edges of launcher icons: use the logo on a black
+          # square, inside the zone that's always visible (scripts/app_icon.py).
+          python3 ../scripts/app_icon.py app-icon.svg
+          npx tauri icon app-icon.svg
+          find src-tauri/gen/android -name "ic_launcher_background.xml" -exec sed -i 's/#FFFFFF/#0B0B0B/I' {} +
       - name: Build the APK
         run: npx tauri android build --apk --ci --target aarch64 armv7 --config '{"version":"${{ needs.version.outputs.semver }}"}'
       - name: Sign the APK
