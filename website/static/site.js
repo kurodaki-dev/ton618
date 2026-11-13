@@ -310,23 +310,28 @@
           return mine ? call("DELETE", "/api/keys/" + mine.id, undefined, v.key) : null;
         }).finally(function () { save(null); signedOut(); });
       };
-      root.append(el("p", {}, [L.hello + " ", el("b", { text: v.username }), out]), fresh,
-        el("h2", { text: L.keys }), keysBox,
+      var createRow = el("p"), problem = el("p", { role: "alert" });
+      root.append(el("p", {}, [L.hello + " ", el("b", { text: v.username }), out]),
+        el("h2", { text: L.keys }), keysBox, createRow, problem, fresh,
         el("h2", { text: L.mine }), pkgBox);
 
       var name = el("input", { type: "text", placeholder: L.key_name, style: "margin-right:8px" });
       var create = el("button", { type: "button", text: L.create, style: "font:inherit;padding:8px 14px;cursor:pointer" });
       create.onclick = function () {
+        problem.textContent = "";
         call("POST", "/api/keys", { name: name.value || "key" }, v.key).then(function (r) {
-          if (!r.ok) return;
+          if (r.status === 401) { save(null); return signedOut(); }
+          if (!r.ok) return message(problem, (r.data && r.data.error) || L.error, true);
           fresh.textContent = "";
           fresh.append(el("p", { class: "callout", text: L.shown_once }),
             el("pre", {}, [el("code", { text: r.data.api_key })]),
             el("p", { text: L.use }), el("pre", {}, [el("code", { text: "ton618 login --token " + r.data.api_key })]));
           name.value = "";
           loadKeys();
-        });
+          fresh.scrollIntoView({ block: "center" });
+        }).catch(function () { message(problem, L.error, true); });
       };
+      createRow.append(name, create);
 
       function when(ts) { return ts ? new Date(ts * 1000).toLocaleDateString() : L.never; }
       function loadKeys() {
@@ -338,7 +343,6 @@
             del.onclick = function () { call("DELETE", "/api/keys/" + k.id, undefined, v.key).then(loadKeys); };
             keysBox.append(el("p", { class: "pkg" }, [el("b", { text: k.name }), " · " + L.created + " " + when(k.created_at) + " · " + L.last + " " + when(k.last_used), del]));
           });
-          keysBox.append(el("p", {}, [name, create]));
         }).catch(function () { message(keysBox, L.error, true); });
       }
       function loadPackages() {
