@@ -1479,6 +1479,11 @@ One-time setup:
 
 ### Changelog
 
+**beta-2.0.1** — the new logo:
+
+- **New TON618 logo** everywhere: the website, the playground, the IDE's application icons, the VS Code and Acode icons. It carries its copyright notice (© 2026 kurodaki-dev, see `LOGO-LICENSE.md`).
+- **The colours follow the logo**: the orange accent is replaced by the logo's white and grey (`#595959`) on black — on the website, in code examples, the playground, the IDE and the Acode plugin.
+
 **beta-2.0.0** — a big modernization of the language, and a 6x faster interpreter:
 
 *Objects:*
@@ -3084,6 +3089,11 @@ Configuration unique :
 ---
 
 ### Changelog
+
+**beta-2.0.1** — le nouveau logo :
+
+- **Nouveau logo TON618** partout : le site, le playground, les icônes de l'IDE, les icônes VS Code et Acode. Il porte sa mention de copyright (© 2026 kurodaki-dev, voir `LOGO-LICENSE.md`).
+- **Les couleurs suivent le logo** : l'accent orange est remplacé par le blanc et le gris (`#595959`) du logo sur fond noir — sur le site, dans les exemples de code, le playground, l'IDE et le plugin Acode.
 
 **beta-2.0.0** — une grande modernisation du langage, et un interpréteur 6 fois plus rapide :
 

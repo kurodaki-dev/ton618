@@ -6,13 +6,13 @@
 <title>TON618 — Playground</title>
 <style>
   :root {
-    --bg: #0a0a0d;
-    --bg-raised: #121216;
-    --line: #232329;
+    --bg: #0b0b0b;
+    --bg-raised: #161616;
+    --line: #2b2b2b;
     --text: #d8d8de;
-    --text-dim: #7c7c88;
-    --accent: #ff7a3d;
-    --accent-dim: #7a3d1f;
+    --text-dim: #8f8f8f;
+    --accent: #ffffff;  /* the logo's white strokes */
+    --accent-dim: #595959;  /* the logo's grey */
     --code-bg: #0f0f13;
     --ok: #9ecb8c;
     --err: #ff8a8a;
@@ -39,7 +39,7 @@
     margin: 0 0 0.3rem;
     color: #fff;
   }
-  header h1 .dot { color: var(--accent); }
+  header h1 .dot { color: #9b9b9b; }
   header p {
     color: var(--text-dim);
     font-size: 0.95rem;
@@ -72,7 +72,7 @@
     text-align: left;
   }
   .disclaimer strong { color: var(--text); }
-  .disclaimer code { background: var(--code-bg); padding: 0.05rem 0.4rem; border-radius: 3px; color: #ffb08a; }
+  .disclaimer code { background: var(--code-bg); padding: 0.05rem 0.4rem; border-radius: 3px; color: #d2d2d2; }
 
   main {
     max-width: 1100px;
@@ -105,7 +105,7 @@
     color: #fff;
     font-weight: 600;
   }
-  .toolbar button.run:hover { background: var(--accent); border-color: var(--accent); }
+  .toolbar button.run:hover { background: var(--accent); border-color: var(--accent); color: #0b0b0b; }
   .toolbar select:hover, .toolbar button:not(.run):hover { border-color: var(--accent-dim); color: #fff; }
   .toolbar .hint { color: var(--text-dim); margin-left: auto; font-size: 0.78rem; }
 
@@ -177,6 +177,7 @@
     margin-top: 1rem;
   }
   footer a { color: var(--text-dim); }
+  .disclaimer a { color: var(--accent); text-decoration: underline; text-decoration-color: var(--accent-dim); }
 </style>
 </head>
 <body>

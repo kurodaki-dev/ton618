@@ -6,13 +6,13 @@
 <title>TON618 — Documentation</title>
 <style>
   :root {
-    --bg: #0a0a0d;
-    --bg-raised: #121216;
-    --line: #232329;
+    --bg: #0b0b0b;
+    --bg-raised: #161616;
+    --line: #2b2b2b;
     --text: #d8d8de;
-    --text-dim: #7c7c88;
-    --accent: #ff7a3d;
-    --accent-dim: #7a3d1f;
+    --text-dim: #8f8f8f;
+    --accent: #ffffff;  /* the logo's white strokes */
+    --accent-dim: #595959;  /* the logo's grey */
     --code-bg: #0f0f13;
     --serif: Georgia, "Times New Roman", serif;
     --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -56,7 +56,7 @@
     margin: 0 0 0.5rem;
     color: #fff;
   }
-  .hero h1 .dot { color: var(--accent); }
+  .hero h1 .dot { color: #9b9b9b; }
   .hero p.tagline {
     color: var(--text-dim);
     font-size: 1.05rem;
@@ -161,7 +161,7 @@
     border: 1px solid var(--line);
     border-radius: 3px;
     padding: 0.05rem 0.4rem;
-    color: #ffb08a;
+    color: #d2d2d2;
     font-size: 0.85em;
   }
   .lang-block pre code {
@@ -229,7 +229,7 @@
     font-size: 0.8rem;
     border-top: 1px solid var(--line);
   }
-  footer .dot { color: var(--accent); }
+  footer .dot { color: #9b9b9b; }
   footer a { color: var(--text-dim); }
 
   @media (max-width: 600px) {
@@ -1743,6 +1743,11 @@ One-time setup:
 ---
 
 ### Changelog
+
+**beta-2.0.1** — the new logo:
+
+- **New TON618 logo** everywhere: the website, the playground, the IDE's application icons, the VS Code and Acode icons. It carries its copyright notice (© 2026 kurodaki-dev, see `LOGO-LICENSE.md`).
+- **The colours follow the logo**: the orange accent is replaced by the logo's white and grey (`#595959`) on black — on the website, in code examples, the playground, the IDE and the Acode plugin.
 
 **beta-2.0.0** — a big modernization of the language, and a 6x faster interpreter:
 
@@ -3349,6 +3354,11 @@ Configuration unique :
 ---
 
 ### Changelog
+
+**beta-2.0.1** — le nouveau logo :
+
+- **Nouveau logo TON618** partout : le site, le playground, les icônes de l'IDE, les icônes VS Code et Acode. Il porte sa mention de copyright (© 2026 kurodaki-dev, voir `LOGO-LICENSE.md`).
+- **Les couleurs suivent le logo** : l'accent orange est remplacé par le blanc et le gris (`#595959`) du logo sur fond noir — sur le site, dans les exemples de code, le playground, l'IDE et le plugin Acode.
 
 **beta-2.0.0** — une grande modernisation du langage, et un interpréteur 6 fois plus rapide :
 

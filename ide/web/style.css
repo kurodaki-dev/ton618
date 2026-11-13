@@ -1,6 +1,6 @@
 :root {
-  --bg: #0b0b0e; --panel: #131318; --raised: #1b1b22; --line: #26262e;
-  --text: #dcdce3; --dim: #8b8b97; --accent: #ff7a3d; --err: #ff6b6b; --ok: #6bd88a;
+  --bg: #0b0b0b; --panel: #141414; --raised: #1d1d1d; --line: #2b2b2b;
+  --text: #e8e8e8; --dim: #8f8f8f; --accent: #ffffff; --brand: #595959; --brand-text: #9b9b9b; --err: #ff6b6b; --ok: #6bd88a;
   --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --fs: 14px; --lh: 21px;
   color-scheme: dark;
@@ -23,10 +23,10 @@ select { background: var(--raised); border: 1px solid var(--line); border-radius
 .bar { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 10px; background: var(--panel); border-bottom: 1px solid var(--line); flex: none; }
 .logo { width: 24px; height: 24px; }
 .name { font: 700 16px var(--mono); }
-.name b { color: var(--accent); }
+.name b { color: var(--brand-text); }
 .project { color: var(--dim); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 30vw; }
-.run { background: var(--accent); color: #160800; border-color: var(--accent); font-weight: 700; }
-.run:hover { filter: brightness(1.1); }
+.run { background: var(--accent); color: #0b0b0b; border-color: var(--accent); font-weight: 700; }
+.run:hover { background: #d6d6d6; border-color: #d6d6d6; }
 .stop { color: var(--err); }
 
 .main { flex: 1; display: flex; min-height: 0; }
@@ -37,7 +37,7 @@ select { background: var(--raised); border: 1px solid var(--line); border-radius
 #fileList li { display: flex; align-items: center; border-radius: 6px; }
 #fileList li a { flex: 1; padding: 6px 8px; color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px var(--mono); cursor: pointer; }
 #fileList li.active { background: var(--raised); }
-#fileList li.active a { color: var(--accent); }
+#fileList li.active a { color: #fff; font-weight: 600; }
 #fileList li button { display: none; padding: 2px 6px; }
 #fileList li:hover button, #fileList li.active button { display: inline; }
 .files-foot { padding: 10px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); }
@@ -64,11 +64,12 @@ select { background: var(--raised); border: 1px solid var(--line); border-radius
   background: transparent; color: transparent; caret-color: var(--accent);
 }
 .gutter { will-change: transform; }
-.code textarea::selection { background: rgba(255, 122, 61, .28); color: transparent; }
-.t-kw { color: #ff7a3d; } .t-type { color: #ffb86b; } .t-ton { color: #ff7a3d; opacity: .75; }
-.t-str { color: #a5d6a7; } .t-num { color: #82aaff; } .t-com { color: #5c5c6a; font-style: italic; }
-.t-fn { color: #c792ea; } .t-lit { color: #82aaff; } .t-op { color: #89ddff; } .t-imp { color: #f78c6c; }
-.t-cls { color: #ffcb6b; } .t-self { color: #f07178; } .t-sub { color: var(--text); }
+.code textarea::selection { background: rgba(255, 255, 255, .22); color: transparent; }
+/* Syntax colours in the logo's spirit: white and greys, with a few muted tints for readability. */
+.t-kw { color: #ffffff; font-weight: 600; } .t-type { color: #d2d2d2; } .t-ton { color: #7a7a7a; }
+.t-str { color: #b4c2a6; } .t-num { color: #a9b9cf; } .t-com { color: #5f5f5f; font-style: italic; }
+.t-fn { color: #e0e0e0; } .t-lit { color: #a9b9cf; } .t-op { color: #9b9b9b; } .t-imp { color: #bdbdbd; font-weight: 600; }
+.t-cls { color: #ffffff; } .t-self { color: #c4c4c4; font-style: italic; } .t-sub { color: var(--text); }
 
 .output { flex: none; height: 32%; min-height: 34px; display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--panel); }
 .output.collapsed { height: 34px; }
