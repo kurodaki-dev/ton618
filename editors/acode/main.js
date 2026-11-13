@@ -215,7 +215,7 @@
       // Everything below talks to the editor: each step is guarded, so a different editor
       // (CodeMirror instead of Ace) costs a feature, never the whole plugin.
       this.commands = [
-        { name: "ton618:run", description: "TON618: Run", bindKey: { win: "Ctrl-Enter", mac: "Command-Enter" }, exec: () => this.run() },
+        { name: "ton618:run", description: "TON618: Run", exec: () => this.run() },
         { name: "ton618:stop", description: "TON618: Stop", exec: () => this.stop() },
       ];
       this.commandsAdded = [];

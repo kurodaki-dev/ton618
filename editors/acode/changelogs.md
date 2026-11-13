@@ -2,6 +2,7 @@
 
 ## 2.1.1
 
+- Removed the `Ctrl+Enter` shortcut: on some keyboards the Enter key triggered Run instead of adding a new line.
 - **Run opens a full window** over Acode with the program's output, and Stop / Again / Close buttons.
 - The `.ton` file icon is now a fixed 24 px square (it was drawn too big and overlapped the file name), and the sidebar's own styles no longer apply to Acode's sidebar tab icon.
 - Fixed `editorManager.editor.on is not a function`: newer Acode versions use CodeMirror instead of Ace. The plugin now detects the editor, and every step that touches it is guarded. The sidebar (Run, output, module library) works with any editor; colours and gutter marks need the Ace editor, and syntax errors are also shown in the sidebar.
