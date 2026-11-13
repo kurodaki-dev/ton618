@@ -19,6 +19,7 @@ What it serves (the same layout the ton618 client already reads):
     POST /api/register  {username, password}   -> creates the account and returns a first API key
     POST /api/login     {username, password}   -> returns a new API key
     GET  /api/whoami                           (Authorization: Bearer <key>)
+    GET  /api/me/packages                      the versions you published
     GET  /api/keys  /  POST /api/keys {name}  /  DELETE /api/keys/<id>
     POST /api/publish   body = a .tonpkg       (Authorization: Bearer <key>)
     POST /api/yank/<name>/<version>            (owner or admin) hide a version from the index
@@ -282,10 +283,13 @@ def make_handler(reg: Registry, trust_proxy: bool):
                 self.wfile.write(body)
 
         def read_body(self) -> bytes:
-            n = int(self.headers.get("Content-Length") or 0)
-            if n > MAX_BODY:
-                raise Fail(413, "The request is too large.")
-            return self.rfile.read(n)
+            if getattr(self, "_body", None) is None:   # read once, always: an unread body would corrupt a kept-alive connection
+                n = int(self.headers.get("Content-Length") or 0)
+                if n > MAX_BODY:
+                    self.close_connection = True
+                    raise Fail(413, "The request is too large.")
+                self._body = self.rfile.read(n)
+            return self._body
 
         def json_body(self) -> dict:
             try:
@@ -347,12 +351,19 @@ def make_handler(reg: Registry, trust_proxy: bool):
             if path == "/api/keys":
                 rows = reg.db.conn().execute("SELECT id,name,created_at,last_used FROM api_keys WHERE user_id=?", (self.user()["id"],)).fetchall()
                 return self.send(200, {"keys": [dict(r) for r in rows]})
+            if path == "/api/me/packages":
+                u = self.user()
+                rows = reg.db.conn().execute(
+                    "SELECT v.name, v.version, v.yanked, v.published_at FROM versions v JOIN packages p ON p.name=v.name "
+                    "WHERE p.owner_id=? ORDER BY v.name, v.published_at", (u["id"],)).fetchall()
+                return self.send(200, {"versions": [dict(r) for r in rows]})
             if path == "/healthz":
                 return self.send(200, {"ok": True})
             raise Fail(404, "Not found.")
 
         def do_POST(self):
-            self.guarded(self.post)
+            self._body = None
+            self.guarded(lambda: (self.read_body(), self.post()))
 
         def post(self):
             path = urlparse(self.path).path
@@ -389,7 +400,8 @@ def make_handler(reg: Registry, trust_proxy: bool):
             raise Fail(404, "Not found.")
 
         def do_DELETE(self):
-            self.guarded(self.delete)
+            self._body = None
+            self.guarded(lambda: (self.read_body(), self.delete()))
 
         def delete(self):
             m = re.fullmatch(r"/api/keys/(\d+)", urlparse(self.path).path)

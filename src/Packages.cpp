@@ -475,14 +475,26 @@ bool buildPackage(const fs::path& dir, Built& out, std::string& error, bool quie
 // The registry index and the installed-modules record
 // ---------------------------------------------------------------------------
 
+std::string g_usedBase; // the registry the index really came from (the fallback, maybe)
+
+// The registry that serves the files: the one the index was read from.
+std::string activeBase() { return g_usedBase.empty() ? registryBase() : g_usedBase; }
+
 bool loadIndex(Value& index, std::string& error) {
     std::string base = registryBase();
     bool ok = false;
+    bool isDefault = !std::getenv("TON618_PACKAGES_URL") && base == std::string(TON618_PACKAGE_REGISTRY_URL);
     // A unique query string gets past the CDN's cache: a stale index.json is what
     // made `update` claim "up to date" right after a release.
     std::string url = base + "/index.json";
     if (base.rfind("http", 0) == 0) url += "?t=" + std::to_string((long long)std::time(nullptr));
     std::string body = fetchText(url, ok);
+    if ((!ok || body.empty()) && isDefault) { // the registry server is down: the read-only copy still serves installs
+        std::string fallback = TON618_PACKAGE_REGISTRY_FALLBACK_URL;
+        body = fetchText(fallback + "/index.json?t=" + std::to_string((long long)std::time(nullptr)), ok);
+        if (ok && !body.empty()) { base = fallback; say("(The registry server isn't reachable; using the read-only copy.)"); }
+    }
+    g_usedBase = base;
     if (!ok || body.empty()) { error = "Could not reach the package registry (" + base + ")."; return false; }
     try { index = parseJson(body); }
     catch (std::exception& e) { error = std::string("The registry's index isn't valid JSON: ") + e.what(); return false; }
@@ -643,7 +655,7 @@ struct Installer {
             return false;
         }
 
-        std::string url = registryBase() + "/" + file;
+        std::string url = activeBase() + "/" + file;
         fs::path tmp = fs::temp_directory_path() / ("ton618-" + name + "-" + pick.version + ".tonpkg");
         say("Downloading " + name + " " + pick.version + " ...");
         if (!downloadFile(url, tmp.string())) { error = "Download failed (" + url + ")."; return false; }

@@ -1025,7 +1025,7 @@ ton618 register     # once: username + password, saves an API key on this machin
 ton618 publish      # builds, checks, uploads
 ```
 
-`ton618 login` signs in with an existing account (new key on this machine) and accepts `--token <API key>` if you made one elsewhere; `ton618 whoami` shows who you are, `ton618 logout` forgets the key. The key is stored in `~/.config/ton618/credentials.json` (`%APPDATA%\ton618` on Windows), readable only by you. `register --server https://your-registry.example` / `login --server ...` point every package command at another registry server (the address is saved). `publish --dry-run` only checks.
+The same account works on the website (**Account** in the menu): sign in there to create, list and revoke API keys, and to hide a version you published. Use a key from the site with `ton618 login --token <key>`. `ton618 login` signs in with an existing account (new key on this machine) and accepts `--token <API key>` if you made one elsewhere; `ton618 whoami` shows who you are, `ton618 logout` forgets the key. The key is stored in `~/.config/ton618/credentials.json` (`%APPDATA%\ton618` on Windows), readable only by you. By default everything talks to `https://api-ton.duckdns.org`; `register --server https://your-registry.example` / `login --server ...` point every package command at another registry server (the address is saved). `publish --dry-run` only checks.
 
 - **The server checks every upload**: well-formed package, allowed file types and sizes, existing dependencies, valid syntax, and a name that isn't someone else's. A package belongs to whoever publishes its first version; only that account (or an admin) adds versions or yanks one.
 - **A published version never changes.** To fix something, raise `version` in `tonproject.toml` and publish again.
@@ -1576,6 +1576,7 @@ One-time setup:
 - **New `requests` package** — `ton618 install requests`: `requests.get/post/put/patch/delete` over http **and https**, headers, query parameters, JSON, forms, auth, timeouts, redirects. It is built on the new native `requests_send` of `ton.requests` (through curl).
 - **Fixed: `ton618 update` said "no update" when there was one.** The package index is now fetched past the CDN cache, modules installed by the original installer are tracked and refreshed, and modules that were never recorded are looked up again. `ton618 --update` now compares with the latest release first and says so.
 - **Acode plugin 2.1**: fixed `ace.define is not a function`; the TON618 logo as the `.ton` file icon; a sidebar with a Run button, the output, and the module library (Install / Update / Remove).
+- **The website is connected to the registry's database**: the packages page shows the live list, every package has a live page, and an **Account** page lets you sign in, manage API keys and see your packages. `ton618` uses `https://api-ton.duckdns.org` by default (a read-only copy on the docs site is the fallback for installs).
 - `make test` also runs the `requests` package and the registry server end to end, offline.
 
 **beta-2.1.0** — the package manager:
@@ -2750,7 +2751,7 @@ ton618 register     # une fois : nom + mot de passe, enregistre une clé API sur
 ton618 publish      # construit, vérifie, envoie
 ```
 
-`ton618 login` connecte un compte existant (nouvelle clé sur cette machine) et accepte `--token <clé API>` si tu en as créé une ailleurs ; `ton618 whoami` montre qui tu es, `ton618 logout` oublie la clé. La clé est dans `~/.config/ton618/credentials.json` (`%APPDATA%\ton618` sous Windows), lisible par toi seul. `register --server https://ton-registre.example` / `login --server ...` pointent toutes les commandes de paquets vers un autre serveur (l'adresse est mémorisée). `publish --dry-run` vérifie seulement.
+Le même compte marche sur le site (**Compte** dans le menu) : connecte-toi-y pour créer, lister et révoquer des clés API, et masquer une version que tu as publiée. Utilise une clé du site avec `ton618 login --token <clé>`. `ton618 login` connecte un compte existant (nouvelle clé sur cette machine) et accepte `--token <clé API>` si tu en as créé une ailleurs ; `ton618 whoami` montre qui tu es, `ton618 logout` oublie la clé. La clé est dans `~/.config/ton618/credentials.json` (`%APPDATA%\ton618` sous Windows), lisible par toi seul. Par défaut tout parle à `https://api-ton.duckdns.org` ; `register --server https://ton-registre.example` / `login --server ...` pointent toutes les commandes de paquets vers un autre serveur (l'adresse est mémorisée). `publish --dry-run` vérifie seulement.
 
 - **Le serveur vérifie chaque envoi** : paquet bien formé, types et tailles de fichiers autorisés, dépendances existantes, syntaxe valide, et un nom qui n'est pas à quelqu'un d'autre. Un paquet appartient à celui qui publie sa première version ; seul ce compte (ou un admin) ajoute des versions ou en retire une.
 - **Une version publiée ne change jamais.** Pour corriger quelque chose, augmente `version` dans `tonproject.toml` et publie à nouveau.
@@ -3301,6 +3302,7 @@ Configuration unique :
 - **Nouveau paquet `requests`** — `ton618 install requests` : `requests.get/post/put/patch/delete` en http **et https**, en-têtes, paramètres d'URL, JSON, formulaires, authentification, délais, redirections. Il repose sur le nouveau natif `requests_send` de `ton.requests` (via curl).
 - **Corrigé : `ton618 update` disait « pas de mise à jour » alors qu'il y en avait une.** L'index des paquets est maintenant lu en contournant le cache du CDN, les modules installés par l'ancien installeur sont suivis et rafraîchis, et ceux qui n'avaient jamais été enregistrés sont recherchés à nouveau. `ton618 --update` compare d'abord avec la dernière release et le dit.
 - **Plugin Acode 2.1** : correction de `ace.define is not a function` ; le logo TON618 comme icône des fichiers `.ton` ; une barre latérale avec un bouton Run, la sortie et la bibliothèque de modules (Install / Update / Remove).
+- **Le site est connecté à la base de données du registre** : la page des paquets affiche la liste en direct, chaque paquet a une page en direct, et une page **Compte** permet de se connecter, gérer ses clés API et voir ses paquets. `ton618` utilise `https://api-ton.duckdns.org` par défaut (une copie en lecture seule sur le site de la doc sert de secours pour les installations).
 - `make test` lance aussi le paquet `requests` et le serveur de registre de bout en bout, hors ligne.
 
 **beta-2.1.0** — le gestionnaire de paquets :
