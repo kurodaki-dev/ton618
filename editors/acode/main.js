@@ -180,23 +180,23 @@
       this.style = document.createElement("style");
       this.style.textContent = `
         .file_type_ton618, .icon.file_type_ton618 { background-image: url(${this.baseUrl}icon.png) !important; background-size: contain !important; background-repeat: no-repeat !important; background-position: center !important; }
-        .icon.ton618-side { background-image: url(${this.baseUrl}icon.png) !important; background-size: 70% !important; background-repeat: no-repeat !important; background-position: center !important; }
-        .ton618-side { height: 100%; display: flex; flex-direction: column; color: inherit; font: 14px/1.4 sans-serif; overflow: hidden; }
-        .ton618-side h3 { margin: 0; padding: 10px 12px 6px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; opacity: .7; }
-        .ton618-side .bar { display: flex; gap: 6px; padding: 4px 12px 8px; }
-        .ton618-side button { font: inherit; padding: 7px 12px; border-radius: 6px; border: 1px solid #595959; background: #1b1b1b; color: #fff; }
-        .ton618-side button.go { background: #fff; color: #0b0b0b; font-weight: 600; flex: 1; }
-        .ton618-side button[disabled] { opacity: .45; }
-        .ton618-side .status { padding: 0 12px 6px; font-size: 12px; opacity: .7; min-height: 1.4em; }
-        .ton618-side pre.out { margin: 0 12px 10px; padding: 8px; max-height: 32%; min-height: 3.5em; overflow: auto; white-space: pre-wrap; word-break: break-word; background: #141414; color: #e8e8e8; border: 1px solid #2b2b2b; border-radius: 6px; font: 12px/1.5 monospace; user-select: text; }
-        .ton618-side pre.out .e { color: #ff6b6b; } .ton618-side pre.out .e a { text-decoration: underline; }
-        .ton618-side input { margin: 0 12px 8px; padding: 8px; border-radius: 6px; border: 1px solid #595959; background: #141414; color: #fff; font: inherit; }
-        .ton618-side .lib { flex: 1; overflow: auto; padding: 0 12px 12px; }
-        .ton618-side .row { display: flex; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid #2b2b2b; }
-        .ton618-side .row .info { flex: 1; min-width: 0; } .ton618-side .row b { font-family: monospace; }
-        .ton618-side .row small { display: block; opacity: .65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .ton618-side .row button { padding: 5px 10px; flex: none; } .ton618-side .row .ok { opacity: .8; font-size: 12px; }
-        .ton618-side .note { padding: 8px 0; font-size: 12px; opacity: .7; }`;
+        .icon.ton618-app { background-image: url(${this.baseUrl}icon.png) !important; background-size: 70% !important; background-repeat: no-repeat !important; background-position: center !important; }
+        .ton618-app { height: 100%; display: flex; flex-direction: column; color: inherit; font: 14px/1.4 sans-serif; overflow: hidden; }
+        .ton618-app h3 { margin: 0; padding: 10px 12px 6px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; opacity: .7; }
+        .ton618-app .bar { display: flex; gap: 6px; padding: 4px 12px 8px; }
+        .ton618-app button { font: inherit; padding: 7px 12px; border-radius: 6px; border: 1px solid #595959; background: #1b1b1b; color: #fff; }
+        .ton618-app button.go { background: #fff; color: #0b0b0b; font-weight: 600; flex: 1; }
+        .ton618-app button[disabled] { opacity: .45; }
+        .ton618-app .status { padding: 0 12px 6px; font-size: 12px; opacity: .7; min-height: 1.4em; }
+        .ton618-app pre.out { margin: 0 12px 10px; padding: 8px; max-height: 32%; min-height: 3.5em; overflow: auto; white-space: pre-wrap; word-break: break-word; background: #141414; color: #e8e8e8; border: 1px solid #2b2b2b; border-radius: 6px; font: 12px/1.5 monospace; user-select: text; }
+        .ton618-app pre.out .e { color: #ff6b6b; } .ton618-app pre.out .e a { text-decoration: underline; }
+        .ton618-app input { margin: 0 12px 8px; padding: 8px; border-radius: 6px; border: 1px solid #595959; background: #141414; color: #fff; font: inherit; }
+        .ton618-app .lib { flex: 1; overflow: auto; padding: 0 12px 12px; }
+        .ton618-app .row { display: flex; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid #2b2b2b; }
+        .ton618-app .row .info { flex: 1; min-width: 0; } .ton618-app .row b { font-family: monospace; }
+        .ton618-app .row small { display: block; opacity: .65; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ton618-app .row button { padding: 5px 10px; flex: none; } .ton618-app .row .ok { opacity: .8; font-size: 12px; }
+        .ton618-app .note { padding: 8px 0; font-size: 12px; opacity: .7; }`;
       document.head.appendChild(this.style);
 
       this.state = { index: null, installed: {}, busy: {}, filter: "", message: "" };
@@ -269,7 +269,7 @@
 
     // ---- sidebar ----
     buildSidebar(el) {
-      el.classList.add("ton618-side");
+      el.classList.add("ton618-app");
       el.innerHTML = `
         <h3>TON618</h3>
         <div class="bar"><button class="go" data-a="run">▶ Run</button><button data-a="stop">■</button></div>
