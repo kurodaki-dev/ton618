@@ -1,13 +1,15 @@
-/* TON618 documentation site — dark, with the black hole's orange accretion disk as accent. */
+/* TON618 documentation site — monochrome like the logo: its grey (#595959) and white strokes on black. */
 :root {
-  --bg: #0a0a0d;
-  --bg-raised: #121217;
-  --bg-code: #0e0e12;
-  --line: #24242c;
-  --text: #dcdce3;
-  --text-dim: #8d8d99;
-  --accent: #ff7a3d;
-  --accent-soft: rgba(255, 122, 61, 0.12);
+  --bg: #0b0b0b;
+  --bg-raised: #161616;
+  --bg-code: #101010;
+  --line: #2b2b2b;
+  --text: #e8e8e8;
+  --text-dim: #8f8f8f;
+  --accent: #ffffff;                      /* the logo's white strokes */
+  --accent-soft: rgba(255, 255, 255, 0.07);
+  --brand: #595959;                       /* the logo's grey */
+  --brand-text: #9b9b9b;                  /* that grey, lightened enough to read as text */
   --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
   --radius: 10px;
@@ -24,7 +26,11 @@ body {
   font: 16px/1.65 var(--sans);
   overflow-x: hidden;
 }
-a { color: var(--accent); text-decoration: none; }
+a { color: var(--accent); text-decoration: underline; text-decoration-color: var(--brand); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--accent); }
+/* Interface links (navigation, buttons, menus) aren't underlined; links in text are. */
+.site-header a, .button, .wordmark, .version, .group a, .toc a, .pager a, .new-list a,
+.search-results a, .code-tools a, .anchor, .chapters a, .edit a { text-decoration: none; }
 a:hover { text-decoration: underline; }
 code, pre { font-family: var(--mono); font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 :not(pre) > code {
@@ -37,7 +43,7 @@ code, pre { font-family: var(--mono); font-variant-ligatures: none; font-feature
 }
 .wrap { max-width: 1240px; margin: 0 auto; padding: 0 24px; }
 .narrow { max-width: 680px; }
-.accent { color: var(--accent); }
+.accent { color: var(--brand-text); }
 .muted { color: var(--text-dim); }
 
 /* ---------- Header ---------- */
@@ -69,19 +75,19 @@ code, pre { font-family: var(--mono); font-variant-ligatures: none; font-feature
 
 /* ---------- Buttons ---------- */
 .button {
-  display: inline-block; background: var(--accent); color: #140700;
+  display: inline-block; background: var(--accent); color: #0b0b0b;
   font-weight: 600; padding: 11px 20px; border-radius: 9px;
 }
-.button:hover { text-decoration: none; filter: brightness(1.08); }
+.button:hover { text-decoration: none; background: #d6d6d6; }
 .button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
-.button.ghost:hover { border-color: var(--accent); color: #fff; }
+.button.ghost:hover { border-color: var(--accent); color: #fff; background: transparent; }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
 
 /* ---------- Home ---------- */
 .hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); padding: 72px 0 64px; }
 .hero::before {
   content: ""; position: absolute; width: 760px; height: 760px; left: -220px; top: -340px;
-  background: radial-gradient(circle, rgba(255, 122, 61, 0.22) 0%, rgba(255, 122, 61, 0.05) 38%, transparent 68%);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.13) 0%, rgba(255, 255, 255, 0.03) 38%, transparent 68%);
   pointer-events: none;
 }
 .hero-grid { position: relative; display: grid; grid-template-columns: 1fr 1.05fr; gap: 48px; align-items: center; }
@@ -89,7 +95,7 @@ code, pre { font-family: var(--mono); font-variant-ligatures: none; font-feature
 .eyebrow { margin: 0 0 14px; }
 .pill {
   font: 0.78rem var(--mono); color: var(--accent); background: var(--accent-soft);
-  border: 1px solid rgba(255, 122, 61, 0.35); border-radius: 999px; padding: 3px 11px;
+  border: 1px solid var(--brand); border-radius: 999px; padding: 3px 11px;
 }
 .tagline { font-size: 1.3rem; font-weight: 600; color: #fff; margin: 0 0 12px; line-height: 1.4; }
 .lead { color: var(--text-dim); font-size: 1.06rem; margin: 0; }
@@ -131,7 +137,7 @@ pre:hover .code-tools, pre:focus-within .code-tools { opacity: 1; }
 .code-tools button:hover, .code-tools a:hover { border-color: var(--accent); text-decoration: none; }
 @media (hover: none) { .code-tools { opacity: 1; } }
 /* TON618 highlighting extras (see main.js) */
-.hljs-ton-prefix { color: var(--accent); }
+.hljs-ton-prefix { color: var(--brand-text); }
 
 /* ---------- Docs layout ---------- */
 .docs { display: grid; grid-template-columns: 250px minmax(0, 1fr) 200px; gap: 40px; padding-top: 32px; padding-bottom: 64px; }
@@ -164,7 +170,7 @@ pre:hover .code-tools, pre:focus-within .code-tools { opacity: 1; }
 .doc ul, .doc ol { padding-left: 1.3em; }
 .doc li { margin: 0.3em 0; }
 .doc .lead { margin-bottom: 1.5em; }
-.callout { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 0 0 1.3em; }
+.callout { border-left: 3px solid var(--brand); background: var(--accent-soft); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 0 0 1.3em; }
 .table-wrap { overflow-x: auto; margin: 0 0 1.4em; border: 1px solid var(--line); border-radius: var(--radius); }
 table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
 th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -224,3 +230,17 @@ td code { white-space: nowrap; }
 @media (max-width: 420px) {
   .site-header nav li:nth-child(2) { display: none; } /* "Playground" — a button on every page */
 }
+
+/* Code colours in the logo's spirit (white and greys, a few muted tints) —
+   "body" makes these win over the highlight.js theme, which loads later. */
+body .hljs { color: #e8e8e8; }
+body .hljs-keyword, body .hljs-selector-tag { color: #ffffff; font-weight: 600; }
+body .hljs-type, body .hljs-built_in { color: #d2d2d2; }
+body .hljs-title, body .hljs-title.function_, body .hljs-title.class_ { color: #e6e6e6; }
+body .hljs-string, body .hljs-attr { color: #b4c2a6; }
+body .hljs-number, body .hljs-literal { color: #a9b9cf; }
+body .hljs-comment { color: #5f5f5f; font-style: italic; }
+body .hljs-variable, body .hljs-variable.language_, body .hljs-params { color: #c4c4c4; }
+body .hljs-meta { color: #bdbdbd; font-weight: 600; }
+body .hljs-operator, body .hljs-punctuation { color: #9b9b9b; }
+body .hljs-subst { color: #e8e8e8; }

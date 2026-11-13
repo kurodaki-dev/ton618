@@ -112,12 +112,12 @@
       this.style = document.createElement("style");
       this.style.textContent = `
         .ton618-run { position: fixed; right: 16px; bottom: 76px; z-index: 50; width: 52px; height: 52px; border-radius: 50%;
-          border: 0; background: #ff7a3d; color: #160800; font-size: 22px; box-shadow: 0 4px 14px #0008; }
+          border: 2px solid #595959; background: #ffffff; color: #0b0b0b; font-size: 22px; box-shadow: 0 4px 14px #0008; }
         .ton618-panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; height: 42%; display: flex; flex-direction: column;
-          background: #131318; color: #dcdce3; border-top: 2px solid #ff7a3d; font: 13px/1.5 monospace; }
-        .ton618-panel header { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid #26262e; font: 13px sans-serif; }
-        .ton618-panel header b { color: #ff7a3d; } .ton618-panel header span { flex: 1; color: #8b8b97; }
-        .ton618-panel header button { background: #1b1b22; color: #dcdce3; border: 1px solid #26262e; border-radius: 6px; padding: 4px 10px; }
+          background: #141414; color: #e8e8e8; border-top: 2px solid #595959; font: 13px/1.5 monospace; }
+        .ton618-panel header { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid #2b2b2b; font: 13px sans-serif; }
+        .ton618-panel header b { color: #ffffff; } .ton618-panel header span { flex: 1; color: #8b8b97; }
+        .ton618-panel header button { background: #1d1d1d; color: #e8e8e8; border: 1px solid #2b2b2b; border-radius: 6px; padding: 4px 10px; }
         .ton618-panel pre { flex: 1; margin: 0; padding: 8px 10px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
         .ton618-panel .e { color: #ff6b6b; } .ton618-panel .e a { color: #ff6b6b; text-decoration: underline; }`;
       document.head.appendChild(this.style);
