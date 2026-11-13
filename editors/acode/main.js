@@ -181,6 +181,12 @@
       this.style.textContent = `
         .file_type_ton618, .icon.file_type_ton618 { background-image: url(${this.baseUrl}icon.png) !important; background-size: contain !important; background-repeat: no-repeat !important; background-position: center !important; }
         .icon.ton618-app { background-image: url(${this.baseUrl}icon.png) !important; background-size: 70% !important; background-repeat: no-repeat !important; background-position: center !important; }
+        .ton618-win { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 99999; display: flex; flex-direction: column; background: #0b0b0b; color: #e8e8e8; font: 14px/1.5 sans-serif; }
+        .ton618-win header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #2b2b2b; padding-top: max(10px, env(safe-area-inset-top)); }
+        .ton618-win header b { color: #fff; } .ton618-win header span { flex: 1; color: #8b8b97; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ton618-win header button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid #595959; background: #1b1b1b; color: #fff; }
+        .ton618-win pre { flex: 1; margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 14px/1.55 monospace; user-select: text; }
+        .ton618-win pre .e { color: #ff6b6b; } .ton618-win pre .e a { text-decoration: underline; }
         .ton618-app { height: 100%; display: flex; flex-direction: column; color: inherit; font: 14px/1.4 sans-serif; overflow: hidden; }
         .ton618-app h3 { margin: 0; padding: 10px 12px 6px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; opacity: .7; }
         .ton618-app .bar { display: flex; gap: 6px; padding: 4px 12px 8px; }
@@ -300,10 +306,36 @@
       document.body.appendChild(this.floating);
     }
 
-    setStatus(text) { if (this.statusEl) this.statusEl.textContent = text; }
+    setStatus(text) {
+      if (this.statusEl) this.statusEl.textContent = text;
+      if (this.winStatus && this.winEl && this.winEl.isConnected) this.winStatus.textContent = text;
+    }
+
+    // Run opens a full window over Acode: the program's output, a Stop and a Close button.
+    openWindow() {
+      this.closeWindow();
+      const el = document.createElement("div");
+      el.className = "ton618-win";
+      el.innerHTML = "<header><b>TON618</b><span></span><button data-a=stop>■ Stop</button><button data-a=again>▶ Again</button><button data-a=close>✕ Close</button></header><pre></pre>";
+      el.querySelector("[data-a=stop]").onclick = () => this.stop();
+      el.querySelector("[data-a=again]").onclick = () => this.run();
+      el.querySelector("[data-a=close]").onclick = () => this.closeWindow();
+      document.body.appendChild(el);
+      this.winEl = el;
+      this.winStatus = el.querySelector("span");
+      this.winOut = el.querySelector("pre");
+      this.winStatus.textContent = (this.file && this.file.filename) || "";
+    }
+
+    closeWindow() {
+      this.stop(true);
+      if (this.winEl) this.winEl.remove();
+      this.winEl = this.winOut = this.winStatus = null;
+    }
 
     print(text, isError) {
-      if (!this.outEl) return;
+      const target = this.winOut && this.winEl && this.winEl.isConnected ? this.winOut : this.outEl;
+      if (!target) return;
       const span = document.createElement("span");
       if (isError) {
         span.className = "e";
@@ -317,8 +349,8 @@
           } else span.append(part);
         }
       } else span.textContent = text;
-      this.outEl.append(span, "\n");
-      this.outEl.scrollTop = this.outEl.scrollHeight;
+      target.append(span, "\n");
+      target.scrollTop = target.scrollHeight;
     }
 
     toast(text) { try { window.toast ? window.toast(text, 3000) : acode.alert("TON618", text); } catch (e) { /* ignore */ } }
@@ -352,6 +384,7 @@
       if (!this.outEl) { try { acode.require("sidebarApps").get && acode.require("sidebarApps").get("ton618"); } catch (e) { /* ignore */ } }
       this.stop(true);
       const source = readText(this.file);
+      this.openWindow();
       if (this.outEl) this.outEl.textContent = "";
       this.setStatus("running…");
 
@@ -551,7 +584,7 @@
     }
 
     destroy() {
-      this.stop(true);
+      this.closeWindow();
       clearTimeout(this.timer);
       for (const [target, event, fn] of this.listening || []) safe(() => (target.off || target.removeListener).call(target, event, fn));
       for (const name of this.commandsAdded || []) safe(() => editorOf().commands.removeCommand(name));

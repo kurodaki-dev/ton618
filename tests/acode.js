@@ -57,8 +57,8 @@ w.acode = {
   })[n],
 };
 w.toast = (t) => console.log("   toast:", t);
-w.Worker = undefined;
-w.URL.createObjectURL = () => "blob:x";
+w.Worker = class { postMessage() { setTimeout(() => { this.onmessage({ data: { out: "hello from ton" } }); this.onmessage({ data: { done: true, ok: true, error: null } }); }, 5); } terminate() {} };
+w.URL.createObjectURL = () => "blob:x"; w.URL.revokeObjectURL = () => {};
 w.eval(fs.readFileSync(path.join(root, "editors/acode/main.js"), "utf8"));
 
 const fail = [];
@@ -94,6 +94,15 @@ const tick = () => new Promise((r) => setTimeout(r, 30));
   row().querySelector("button").click();
   await tick(); await tick();
   ok(!disk.has("/proj/modules/stringutils.ton") && row().querySelector("button").textContent === "Install", "remove deletes the files");
+
+  sidebar.querySelector("[data-a=run]").click();
+  await tick(); await tick();
+  const win = w.document.querySelector(".ton618-win");
+  ok(!!win, "Run opens a full window");
+  ok(win && /hello from ton/.test(win.querySelector("pre").textContent), "the program's output is in that window");
+  ok(win && win.querySelector("[data-a=close]") && win.querySelector("[data-a=again]"), "the window has Close and Again buttons");
+  win.querySelector("[data-a=close]").click();
+  ok(!w.document.querySelector(".ton618-win"), "Close removes the window");
 
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(fail.length ? `\n${fail.length} check(s) failed` : "\nacode: all checks passed");
