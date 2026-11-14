@@ -225,7 +225,7 @@
         /* the file icon: drawn like Acode's own font icons (a 1em box in ::before), so it has their size everywhere */
         /* the run button: Acode's play triangle with the TON618 logo as a small badge at its bottom right (like the Python run button) */
         .icon.ton618-play { position: relative; background: none !important; }
-        .icon.ton618-play::after { content: ""; position: absolute; right: -4px; bottom: -4px; width: 0.62em; height: 0.62em; background: url(${this.baseUrl}icon.png) no-repeat center / contain; }
+        .icon.ton618-play::after { content: ""; position: absolute; left: calc(50% + 0.12em); top: calc(50% + 0.1em); width: 0.62em; height: 0.62em; background: url(${this.baseUrl}icon.png) no-repeat center / contain; }
         .file.file_type_ton618::before { content: "" !important; display: inline-block; width: 1em; height: 1em; vertical-align: middle; background: url(${this.baseUrl}icon.png) no-repeat center / contain; }
         .ton618-win { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 99999; display: flex; flex-direction: column; background: #0b0b0b; color: #e8e8e8; font: 14px/1.5 sans-serif; }
         .ton618-win header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #2b2b2b; padding-top: max(10px, env(safe-area-inset-top)); }
@@ -361,6 +361,7 @@
       const header = safe(() => editorManager.header, null);
       if (!header || typeof header.insertBefore !== "function") return this.fallbackButton();
       const btn = document.createElement("span");
+      btn.setAttribute("action", "ton618-run");   // Acode's header ignores clicks on children that have no `action` attribute
       btn.className = "icon play_arrow ton618-play";   // Acode's own play glyph, plus the TON618 logo as a small badge (see the CSS)
       btn.style.fontSize = "1.2em";
       btn.title = "Run with TON618";
@@ -428,7 +429,14 @@
       target.scrollTop = target.scrollHeight;
     }
 
-    toast(text) { try { window.toast ? window.toast(text, 3000) : acode.alert("TON618", text); } catch (e) { /* ignore */ } }
+    // Acode's toast and alert are modules (acode.require), not globals: the old version never showed anything.
+    toast(text) {
+      const toast = safe(() => acode.require("toast"), null);
+      if (typeof toast === "function") return safe(() => toast(String(text), 4000));
+      const alert = safe(() => acode.require("alert"), null);
+      if (typeof alert === "function") return safe(() => alert("TON618", String(text)));
+      safe(() => window.alert(String(text)));
+    }
 
     // ---- running ----
     // Loads the modules a file imports (IMPORT://name, not ton.*), recursively.

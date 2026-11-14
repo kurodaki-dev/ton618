@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.3
+
+- **The top-bar run button now reacts to taps.** Acode's top bar ignores clicks on anything that has no `action` attribute; the button now has one.
+- **Messages are really shown**: they went through a function that doesn't exist in Acode and were swallowed; they now use Acode's toast.
+- The small TON618 logo is placed relative to the centre of the play triangle (it ended up far below it).
+
 ## 2.2.2
 
 - After an update, Acode keeps the old plugin's button and icon styles until it restarts: the old button (wired to the old plugin instance, so it did nothing) and the old logo style (a big logo behind the play triangle) showed next to the new button. The plugin now removes those leftovers when it loads, and shows an error message if the button's action fails.

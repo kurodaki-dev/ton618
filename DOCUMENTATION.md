@@ -1569,6 +1569,10 @@ One-time setup:
 
 ### Changelog
 
+**1.0.6** — Acode:
+
+- **Acode plugin 2.2.3**: the run button in the top bar now reacts to taps (Acode's top bar ignores clicks on elements without an `action` attribute), error messages are really shown (they were swallowed), and the small logo sits on the play triangle.
+
 **1.0.5** — Acode:
 
 - **Acode plugin 2.2.2**: after a plugin update Acode keeps the old button and icon styles until it restarts, which showed a second, non-working button and a big logo behind the play triangle. The plugin now cleans those leftovers when it loads, and reports an error if the run button's action fails.
@@ -3318,6 +3322,10 @@ Configuration unique :
 ---
 
 ### Changelog
+
+**1.0.6** — Acode :
+
+- **Plugin Acode 2.2.3** : le bouton d'exécution de la barre du haut réagit maintenant aux appuis (la barre d'Acode ignore les clics sur les éléments sans attribut `action`), les messages d'erreur s'affichent vraiment (ils étaient avalés), et le petit logo est bien posé sur le triangle play.
 
 **1.0.5** — Acode :
 
