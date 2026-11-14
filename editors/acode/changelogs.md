@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.4
+
+- The plugin page shows the **Open Source** badge linking to the GitHub repository (`repository` in plugin.json), with the MIT license.
+
 ## 2.2.3
 
 - **The top-bar run button now reacts to taps.** Acode's top bar ignores clicks on anything that has no `action` attribute; the button now has one.

@@ -1569,6 +1569,10 @@ One-time setup:
 
 ### Changelog
 
+**1.0.7** — Acode:
+
+- **Acode plugin 2.2.4**: the plugin page shows the **Open Source** badge linking to the GitHub repository, and the MIT license.
+
 **1.0.6** — Acode:
 
 - **Acode plugin 2.2.3**: the run button in the top bar now reacts to taps (Acode's top bar ignores clicks on elements without an `action` attribute), error messages are really shown (they were swallowed), and the small logo sits on the play triangle.
@@ -3322,6 +3326,10 @@ Configuration unique :
 ---
 
 ### Changelog
+
+**1.0.7** — Acode :
+
+- **Plugin Acode 2.2.4** : la page du plugin affiche le badge **Open Source** qui renvoie vers le dépôt GitHub, et la licence MIT.
 
 **1.0.6** — Acode :
 

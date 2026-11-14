@@ -2,14 +2,25 @@
   "id": "dev.kurodaki.ton618",
   "name": "TON618",
   "main": "main.js",
-  "version": "2.2.3",
+  "version": "2.2.4",
   "readme": "readme.md",
   "changelogs": "changelogs.md",
   "icon": "icon.png",
-  "files": ["ton618-lite.js"],
+  "files": [
+    "ton618-lite.js"
+  ],
   "minVersionCode": 290,
   "price": 0,
   "license": "MIT",
-  "keywords": ["ton618", "ton", "language", "run"],
-  "author": { "name": "kurodaki-dev", "github": "kurodaki-dev" }
+  "repository": "https://github.com/kurodaki-dev/ton618",
+  "keywords": [
+    "ton618",
+    "ton",
+    "language",
+    "run"
+  ],
+  "author": {
+    "name": "kurodaki-dev",
+    "github": "kurodaki-dev"
+  }
 }
