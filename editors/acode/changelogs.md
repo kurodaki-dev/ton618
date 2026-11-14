@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.1
+
+- The top-bar run button is now Acode's own play triangle with the TON618 logo as a small badge at its bottom right (like the Python run button), instead of the logo alone.
+
 ## 2.2.0
 
 - **A play button with the TON618 logo in Acode's top bar**, next to Acode's own Run button (shown for `.ton` files). It opens the full-window output.
