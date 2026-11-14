@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.0
+
+- **A play button with the TON618 logo in Acode's top bar**, next to Acode's own Run button (shown for `.ton` files). It opens the full-window output.
+- **The plugin's sidebar page is only the module library** now: no Run button, no output box.
+- **`IMPORT://requests` works**: the JavaScript engine now has `ton.requests` (a synchronous request; the server must allow cross-origin requests, CORS) and `ton.encoding` (base64, hex).
+
 ## 2.1.2
 
 - **Syntax highlighting for current Acode** (CodeMirror): TON618 is registered as a real language (comments, strings and f-strings, numbers, keywords, types, `IMPORT://`, `ton.`).

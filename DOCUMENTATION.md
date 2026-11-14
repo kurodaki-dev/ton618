@@ -1569,6 +1569,12 @@ One-time setup:
 
 ### Changelog
 
+**1.0.3** — Acode and `requests`:
+
+- **Acode plugin 2.2.0**: a play button with the TON618 logo in the top bar (next to Acode's Run button); the plugin's sidebar page is now only the module library.
+- **`IMPORT://requests` works in Acode and in the playground**: the JavaScript engine now has `ton.requests` (through the browser's request, so the server must allow CORS) and `ton.encoding`.
+- **`requests` 1.0.1**: percent-encoding of non-ASCII characters is now right on both engines.
+
 **1.0.2** — fix:
 
 - **Acode plugin 2.1.2**: syntax highlighting for the current Acode (CodeMirror) — TON618 is now a real language there; the `.ton` file icon is drawn like Acode's own icons, so it is no longer huge in the file list and also shows on tabs that were already open. (The icon fix announced in 1.0.1 had not actually been applied.)
@@ -3304,6 +3310,12 @@ Configuration unique :
 ---
 
 ### Changelog
+
+**1.0.3** — Acode et `requests` :
+
+- **Plugin Acode 2.2.0** : un bouton play avec le logo TON618 dans la barre du haut (à côté du bouton Run d'Acode) ; la page latérale du plugin ne contient plus que la bibliothèque de modules.
+- **`IMPORT://requests` marche dans Acode et dans le playground** : le moteur JavaScript a maintenant `ton.requests` (via la requête du navigateur, le serveur doit donc autoriser le CORS) et `ton.encoding`.
+- **`requests` 1.0.1** : l'encodage en pourcentage des caractères non ASCII est maintenant correct sur les deux moteurs.
 
 **1.0.2** — correctif :
 

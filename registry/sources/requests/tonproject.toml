@@ -1,6 +1,6 @@
 [project]
 name = "requests"
-version = "1.0.0"
+version = "1.0.1"
 description = "HTTP for humans: GET/POST/PUT/PATCH/DELETE over http and https, headers, query parameters, JSON, forms, auth and timeouts."
 authors = ["kurodaki-dev"]
 license = "Apache-2.0"

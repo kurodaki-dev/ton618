@@ -216,7 +216,7 @@
       this.ensureMode();
 
       // File icon for .ton, and the sidebar icon.
-      try { acode.addIcon("ton618-side", this.baseUrl + "icon.png"); } catch (e) { /* no addIcon in this version */ }
+      try { acode.addIcon("ton618-side", this.baseUrl + "icon.png"); acode.addIcon("ton618-play", this.baseUrl + "icon.png"); } catch (e) { /* no addIcon in this version */ }
 
       this.style = document.createElement("style");
       this.style.textContent = `
@@ -247,11 +247,8 @@
       document.head.appendChild(this.style);
 
       this.state = { index: null, installed: {}, busy: {}, filter: "", message: "" };
-      try {
-        acode.require("sidebarApps").add("ton618-side", "ton618", "TON618", (el) => this.buildSidebar(el));
-      } catch (e) {
-        this.fallbackButton(); // very old Acode: a floating button instead of the sidebar
-      }
+      try { acode.require("sidebarApps").add("ton618-side", "ton618", "TON618", (el) => this.buildSidebar(el)); } catch (e) { /* no sidebar apps in this Acode */ }
+      this.addToolbarButton();
 
       // Everything below talks to the editor: each step is guarded, so a different editor
       // (CodeMirror instead of Ace) costs a feature, never the whole plugin.
@@ -315,7 +312,9 @@
         const session = this.file.session;
         if (mode) safe(() => { if (session.getMode().$id !== "ace/mode/ton618") session.setMode(mode); });
       }
-      if (this.runButton) this.runButton.disabled = !this.isTon();
+      const ton = this.isTon();
+      if (this.playButton) this.playButton.style.display = ton ? "" : "none";
+      if (this.floating) this.floating.style.display = ton ? "" : "none";
       this.check();
       this.loadInstalled();
     }
@@ -334,25 +333,28 @@
     buildSidebar(el) {
       el.classList.add("ton618-app");
       el.innerHTML = `
-        <h3>TON618</h3>
-        <div class="bar"><button class="go" data-a="run">▶ Run</button><button data-a="stop">■</button></div>
-        <div class="status"></div>
-        <pre class="out"></pre>
         <h3>Modules</h3>
         <input type="search" placeholder="Search the library…" data-a="filter">
         <div class="lib"></div>`;
       this.sidebar = el;
-      this.runButton = el.querySelector("[data-a=run]");
-      this.statusEl = el.querySelector(".status");
-      this.outEl = el.querySelector("pre.out");
       this.libEl = el.querySelector(".lib");
-      this.runButton.onclick = () => this.run();
-      el.querySelector("[data-a=stop]").onclick = () => this.stop();
       el.querySelector("[data-a=filter]").oninput = (e) => { this.state.filter = e.target.value.trim().toLowerCase(); this.renderLibrary(); };
-      this.runButton.disabled = !this.isTon();
       this.renderLibrary();
       this.loadIndex();
       this.loadInstalled();
+    }
+
+    // A play button with the TON618 logo in Acode's top bar, next to its own Run button.
+    addToolbarButton() {
+      const header = safe(() => editorManager.header, null);
+      if (!header || typeof header.insertBefore !== "function") return this.fallbackButton();
+      const btn = document.createElement("span");
+      btn.className = "icon ton618-play";
+      btn.title = "Run with TON618";
+      btn.style.display = "none";
+      btn.onclick = () => this.run();
+      safe(() => header.insertBefore(btn, header.lastChild));
+      this.playButton = btn;
     }
 
     fallbackButton() {
@@ -438,11 +440,9 @@
 
     async run() {
       if (!this.isTon()) { this.toast("Open a .ton file to run it"); return; }
-      if (!this.outEl) { try { acode.require("sidebarApps").get && acode.require("sidebarApps").get("ton618"); } catch (e) { /* ignore */ } }
       this.stop(true);
       const source = readText(this.file);
       this.openWindow();
-      if (this.outEl) this.outEl.textContent = "";
       this.setStatus("running…");
 
       const files = {};
@@ -648,6 +648,7 @@
       safe(() => (this.languages ? this.languages.unregister("ton618") : acode.require("aceModes").removeMode("ton618")));
       try { acode.require("sidebarApps").remove && acode.require("sidebarApps").remove("ton618"); } catch (e) { /* ignore */ }
       this.floating && this.floating.remove();
+      this.playButton && this.playButton.remove();
       this.style && this.style.remove();
     }
   }

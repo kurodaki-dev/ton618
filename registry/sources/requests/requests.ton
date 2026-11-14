@@ -20,7 +20,13 @@ ton.function reqlib_quote(s) {
         if keep.contains(ch) {
             out = out + ch
         } else {
-            out = out + "%" + upper(hex_encode(ch))
+            // one %XX per byte (a character such as é is two bytes: %C3%A9)
+            ton.let hex = upper(hex_encode(ch))
+            ton.let at = 0
+            while at < len(hex) {
+                out = out + "%" + substring(hex, at, at + 2)
+                at = at + 2
+            }
         }
     }
     return out
