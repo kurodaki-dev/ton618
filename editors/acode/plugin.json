@@ -2,7 +2,7 @@
   "id": "dev.kurodaki.ton618",
   "name": "TON618",
   "main": "main.js",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "readme": "readme.md",
   "changelogs": "changelogs.md",
   "icon": "icon.png",

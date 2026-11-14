@@ -216,11 +216,14 @@
       this.ensureMode();
 
       // File icon for .ton, and the sidebar icon.
-      try { acode.addIcon("ton618-side", this.baseUrl + "icon.png"); acode.addIcon("ton618-play", this.baseUrl + "icon.png"); } catch (e) { /* no addIcon in this version */ }
+      try { acode.addIcon("ton618-side", this.baseUrl + "icon.png"); } catch (e) { /* no addIcon in this version */ }
 
       this.style = document.createElement("style");
       this.style.textContent = `
         /* the file icon: drawn like Acode's own font icons (a 1em box in ::before), so it has their size everywhere */
+        /* the run button: Acode's play triangle with the TON618 logo as a small badge at its bottom right (like the Python run button) */
+        .icon.ton618-play { position: relative; }
+        .icon.ton618-play::after { content: ""; position: absolute; right: -4px; bottom: -4px; width: 0.62em; height: 0.62em; background: url(${this.baseUrl}icon.png) no-repeat center / contain; }
         .file.file_type_ton618::before { content: "" !important; display: inline-block; width: 1em; height: 1em; vertical-align: middle; background: url(${this.baseUrl}icon.png) no-repeat center / contain; }
         .ton618-win { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 99999; display: flex; flex-direction: column; background: #0b0b0b; color: #e8e8e8; font: 14px/1.5 sans-serif; }
         .ton618-win header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #2b2b2b; padding-top: max(10px, env(safe-area-inset-top)); }
@@ -349,7 +352,8 @@
       const header = safe(() => editorManager.header, null);
       if (!header || typeof header.insertBefore !== "function") return this.fallbackButton();
       const btn = document.createElement("span");
-      btn.className = "icon ton618-play";
+      btn.className = "icon play_arrow ton618-play";   // Acode's own play glyph, plus the TON618 logo as a small badge (see the CSS)
+      btn.style.fontSize = "1.2em";
       btn.title = "Run with TON618";
       btn.style.display = "none";
       btn.onclick = () => this.run();

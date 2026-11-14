@@ -98,6 +98,7 @@ const tick = () => new Promise((r) => setTimeout(r, 30));
 
   const play = header.querySelector(".ton618-play");
   ok(!!play && header.lastChild !== play && play.style.display !== "none", "a play button with the logo is in the top bar, before the menu button");
+  ok(/play_arrow/.test(play.className) && /\.icon\.ton618-play::after/.test([...w.document.head.querySelectorAll("style")].map((e) => e.textContent).join("")), "it is Acode's own play glyph with the TON618 logo as a small badge");
   play.click();
   await tick(); await tick();
   const win = w.document.querySelector(".ton618-win");

@@ -1569,6 +1569,10 @@ One-time setup:
 
 ### Changelog
 
+**1.0.4** — Acode:
+
+- **Acode plugin 2.2.1**: the run button in the top bar is now Acode's own play triangle with the TON618 logo as a small badge at its bottom right, like the Python run button.
+
 **1.0.3** — Acode and `requests`:
 
 - **Acode plugin 2.2.0**: a play button with the TON618 logo in the top bar (next to Acode's Run button); the plugin's sidebar page is now only the module library.
@@ -3310,6 +3314,10 @@ Configuration unique :
 ---
 
 ### Changelog
+
+**1.0.4** — Acode :
+
+- **Plugin Acode 2.2.1** : le bouton d'exécution de la barre du haut est maintenant le triangle play d'Acode avec le logo TON618 en petit badge en bas à droite, comme le bouton d'exécution de Python.
 
 **1.0.3** — Acode et `requests` :
 
