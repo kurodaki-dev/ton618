@@ -46,7 +46,7 @@ const editor = w.ace.edit("ed");
 const session = editor.getSession();
 session.setValue('// hi\nlet x = 1\nprint(f"x={x}")\nton.sys\n');
 const active = { filename: "a.ton", uri: "/proj/a.ton", session };
-let sidebar, icons = [], init, modes = [];
+let sidebar, icons = [], init, modes = [], toasts = [];
 const header = w.document.createElement("div"); header.append(w.document.createElement("b"), w.document.createElement("i")); w.document.body.appendChild(header);
 // leftovers of an earlier version: an old button and an old icon style (a plugin update without restart)
 const oldBtn = w.document.createElement("span"); oldBtn.className = "icon ton618-play"; header.insertBefore(oldBtn, header.lastChild);
@@ -57,7 +57,7 @@ w.acode = {
   require: (n) => ({
     aceModes: { addMode: (...a) => modes.push(a), removeMode() {} },
     sidebarApps: { add: (icon, id, title, cb) => { sidebar = w.document.createElement("div"); w.document.body.appendChild(sidebar); cb(sidebar); } },
-    fsOperation: fsOp, url: Url,
+    fsOperation: fsOp, url: Url, toast: (t) => { toasts.push(t); },
   })[n],
 };
 w.toast = (t) => console.log("   toast:", t);
@@ -102,6 +102,7 @@ const tick = () => new Promise((r) => setTimeout(r, 30));
   const play = header.querySelector(".ton618-play");
   ok(!!play && header.lastChild !== play && play.style.display !== "none", "a play button with the logo is in the top bar, before the menu button");
   ok(header.querySelectorAll(".ton618-play").length === 1 && !w.document.head.querySelector('style[icon="ton618-play"]'), "leftovers of an earlier version (old button, old icon style) are removed");
+  ok(!!play.getAttribute("action"), "the button has an `action` attribute (Acode's header ignores clicks on elements without one)");
   ok(/play_arrow/.test(play.className) && /\.icon\.ton618-play::after/.test([...w.document.head.querySelectorAll("style")].map((e) => e.textContent).join("")), "it is Acode's own play glyph with the TON618 logo as a small badge");
   play.click();
   await tick(); await tick();
@@ -110,6 +111,9 @@ const tick = () => new Promise((r) => setTimeout(r, 30));
   ok(win && /hello from ton/.test(win.querySelector("pre").textContent), "the program's output is in that window");
   ok(win && win.querySelector("[data-a=close]") && win.querySelector("[data-a=again]"), "the window has Close and Again buttons");
   win.querySelector("[data-a=close]").click();
+  active.filename = "notes.txt"; play.click(); await tick();
+  ok(toasts.some((t) => /\.ton/.test(t)), "a message is really shown through Acode's toast module (here: the file isn't a .ton one): " + JSON.stringify(toasts));
+  active.filename = "a.ton";
   ok(!w.document.querySelector(".ton618-win"), "Close removes the window");
 
   fs.rmSync(tmp, { recursive: true, force: true });
