@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.2.2
+
+- After an update, Acode keeps the old plugin's button and icon styles until it restarts: the old button (wired to the old plugin instance, so it did nothing) and the old logo style (a big logo behind the play triangle) showed next to the new button. The plugin now removes those leftovers when it loads, and shows an error message if the button's action fails.
+
 ## 2.2.1
 
 - The top-bar run button is now Acode's own play triangle with the TON618 logo as a small badge at its bottom right (like the Python run button), instead of the logo alone.

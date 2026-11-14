@@ -48,6 +48,9 @@ session.setValue('// hi\nlet x = 1\nprint(f"x={x}")\nton.sys\n');
 const active = { filename: "a.ton", uri: "/proj/a.ton", session };
 let sidebar, icons = [], init, modes = [];
 const header = w.document.createElement("div"); header.append(w.document.createElement("b"), w.document.createElement("i")); w.document.body.appendChild(header);
+// leftovers of an earlier version: an old button and an old icon style (a plugin update without restart)
+const oldBtn = w.document.createElement("span"); oldBtn.className = "icon ton618-play"; header.insertBefore(oldBtn, header.lastChild);
+const oldStyle = w.document.createElement("style"); oldStyle.setAttribute("icon", "ton618-play"); oldStyle.textContent = ".icon.ton618-play{background:url(old.png) center/24px}"; w.document.head.appendChild(oldStyle);
 w.editorManager = { editor, header, get activeFile() { return active; }, on() {}, off() {} };
 w.acode = {
   setPluginInit: (id, f) => { init = f; }, setPluginUnmount() {}, addIcon: (n) => icons.push(n),
@@ -98,6 +101,7 @@ const tick = () => new Promise((r) => setTimeout(r, 30));
 
   const play = header.querySelector(".ton618-play");
   ok(!!play && header.lastChild !== play && play.style.display !== "none", "a play button with the logo is in the top bar, before the menu button");
+  ok(header.querySelectorAll(".ton618-play").length === 1 && !w.document.head.querySelector('style[icon="ton618-play"]'), "leftovers of an earlier version (old button, old icon style) are removed");
   ok(/play_arrow/.test(play.className) && /\.icon\.ton618-play::after/.test([...w.document.head.querySelectorAll("style")].map((e) => e.textContent).join("")), "it is Acode's own play glyph with the TON618 logo as a small badge");
   play.click();
   await tick(); await tick();

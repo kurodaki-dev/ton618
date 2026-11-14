@@ -209,6 +209,7 @@
       this.engineSource = await fetch(this.baseUrl + "ton618-lite.js").then((r) => r.text());
       new Function(this.engineSource)(); // a copy in the page too, for the instant syntax check
       this.mode = null;
+      this.cleanLeftovers();
 
       // Highlighting. Registered for the extension, and cached under the name
       // Ace asks for, so files opened later get it without any module loading.
@@ -219,10 +220,11 @@
       try { acode.addIcon("ton618-side", this.baseUrl + "icon.png"); } catch (e) { /* no addIcon in this version */ }
 
       this.style = document.createElement("style");
+      this.style.setAttribute("data-ton618-style", "");
       this.style.textContent = `
         /* the file icon: drawn like Acode's own font icons (a 1em box in ::before), so it has their size everywhere */
         /* the run button: Acode's play triangle with the TON618 logo as a small badge at its bottom right (like the Python run button) */
-        .icon.ton618-play { position: relative; }
+        .icon.ton618-play { position: relative; background: none !important; }
         .icon.ton618-play::after { content: ""; position: absolute; right: -4px; bottom: -4px; width: 0.62em; height: 0.62em; background: url(${this.baseUrl}icon.png) no-repeat center / contain; }
         .file.file_type_ton618::before { content: "" !important; display: inline-block; width: 1em; height: 1em; vertical-align: middle; background: url(${this.baseUrl}icon.png) no-repeat center / contain; }
         .ton618-win { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 99999; display: flex; flex-direction: column; background: #0b0b0b; color: #e8e8e8; font: 14px/1.5 sans-serif; }
@@ -273,6 +275,13 @@
       listen(editorManager, "file-content-changed", this.onChange);
       if (isAce()) listen(editorOf(), "change", this.onChange);
       safe(() => this.refresh());
+    }
+
+    // Acode keeps what a plugin added to the page until it restarts: after an update, the old
+    // button (wired to the old instance) and the old icon styles are still there. Remove them.
+    cleanLeftovers() {
+      safe(() => document.querySelectorAll(".ton618-play, .ton618-win, .ton618-run, [data-ton618-style]").forEach((e) => e.remove()));
+      safe(() => document.head.querySelectorAll('style[icon="ton618-play"], style[icon="file_type_ton618"], style[icon="ton618-side"]').forEach((e) => e.remove()));
     }
 
     // ---- highlighting ----
@@ -356,7 +365,10 @@
       btn.style.fontSize = "1.2em";
       btn.title = "Run with TON618";
       btn.style.display = "none";
-      btn.onclick = () => this.run();
+      btn.onclick = (e) => {
+        safe(() => { e.stopPropagation(); e.preventDefault(); });
+        Promise.resolve(this.run()).catch((err) => this.toast("TON618: " + ((err && err.message) || err)));
+      };
       safe(() => header.insertBefore(btn, header.lastChild));
       this.playButton = btn;
     }
