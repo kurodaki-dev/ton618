@@ -1569,6 +1569,10 @@ One-time setup:
 
 ### Changelog
 
+**1.0.5** — Acode:
+
+- **Acode plugin 2.2.2**: after a plugin update Acode keeps the old button and icon styles until it restarts, which showed a second, non-working button and a big logo behind the play triangle. The plugin now cleans those leftovers when it loads, and reports an error if the run button's action fails.
+
 **1.0.4** — Acode:
 
 - **Acode plugin 2.2.1**: the run button in the top bar is now Acode's own play triangle with the TON618 logo as a small badge at its bottom right, like the Python run button.
@@ -3314,6 +3318,10 @@ Configuration unique :
 ---
 
 ### Changelog
+
+**1.0.5** — Acode :
+
+- **Plugin Acode 2.2.2** : après une mise à jour d'un plugin, Acode garde l'ancien bouton et les anciens styles d'icône jusqu'à son redémarrage, ce qui affichait un second bouton qui ne marchait pas et un gros logo derrière le triangle play. Le plugin nettoie maintenant ces restes au chargement et signale une erreur si l'action du bouton échoue.
 
 **1.0.4** — Acode :
 
