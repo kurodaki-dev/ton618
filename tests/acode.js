@@ -47,7 +47,8 @@ const session = editor.getSession();
 session.setValue('// hi\nlet x = 1\nprint(f"x={x}")\nton.sys\n');
 const active = { filename: "a.ton", uri: "/proj/a.ton", session };
 let sidebar, icons = [], init, modes = [];
-w.editorManager = { editor, get activeFile() { return active; }, on() {}, off() {} };
+const header = w.document.createElement("div"); header.append(w.document.createElement("b"), w.document.createElement("i")); w.document.body.appendChild(header);
+w.editorManager = { editor, header, get activeFile() { return active; }, on() {}, off() {} };
 w.acode = {
   setPluginInit: (id, f) => { init = f; }, setPluginUnmount() {}, addIcon: (n) => icons.push(n),
   require: (n) => ({
@@ -80,7 +81,7 @@ const tick = () => new Promise((r) => setTimeout(r, 30));
   await tick();
   ok(other.getMode().$id === "ace/mode/ton618", "a session asking for ace/mode/ton618 gets it without module loading");
 
-  ok(!!sidebar && !!sidebar.querySelector("[data-a=run]"), "sidebar has the Run button");
+  ok(!!sidebar && !sidebar.querySelector("button[data-a=run]") && !sidebar.querySelector("pre.out"), "the sidebar has no Run button and no output: only the module library");
   await tick(); await tick();
   const rows = () => [...sidebar.querySelectorAll(".row")];
   ok(rows().length >= 1 && rows().some((r) => r.querySelector("b").textContent === "stringutils"), "library lists the registry's modules");
@@ -95,7 +96,9 @@ const tick = () => new Promise((r) => setTimeout(r, 30));
   await tick(); await tick();
   ok(!disk.has("/proj/modules/stringutils.ton") && row().querySelector("button").textContent === "Install", "remove deletes the files");
 
-  sidebar.querySelector("[data-a=run]").click();
+  const play = header.querySelector(".ton618-play");
+  ok(!!play && header.lastChild !== play && play.style.display !== "none", "a play button with the logo is in the top bar, before the menu button");
+  play.click();
   await tick(); await tick();
   const win = w.document.querySelector(".ton618-win");
   ok(!!win, "Run opens a full window");

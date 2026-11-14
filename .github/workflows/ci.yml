@@ -28,7 +28,9 @@ jobs:
         run: python3 scripts/registry.py validate --ton618 ./ton618
 
       - name: Check the browser playground engine against the same tests
-        run: node tests/run-lite.js
+        run: |
+          node tests/run-lite.js
+          node tests/requests-lite.js
       - name: Acode plugin (headless Ace)
         run: |
           npm install --no-save --prefix "$RUNNER_TEMP/acode-deps" ace-builds@1.36.5 jsdom@24 @codemirror/language@6 @codemirror/state@6 @codemirror/view@6

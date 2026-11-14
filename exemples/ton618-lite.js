@@ -12,14 +12,15 @@
 // "Architecture") — Lexer -> Parser -> Interpreter, the same grammar
 // (including switch/case), the same native functions — closely enough that
 // ordinary scripts behave identically.
-// ton.random / ton.time / ton.json / ton.mathutils / ton.strings are
-// re-implemented here in full, since none of those need anything a browser
-// can't do.
+// ton.random / ton.time / ton.json / ton.mathutils / ton.strings / ton.encoding
+// are re-implemented here in full, since none of those need anything a browser
+// can't do. ton.requests runs over a synchronous XMLHttpRequest, so the server
+// must allow cross-origin requests (CORS) — that makes the `requests` package work.
 //
 // What it deliberately leaves out:
-//   - ton.sys / ton.os / ton.requests (real process/filesystem/network access
+//   - ton.sys / ton.os (real process/filesystem access
 //     — there's no sandbox equivalent to fall back to)
-//   - ton.encoding / ton.regex / ton.path / ton.tensor (not reimplemented
+//   - ton.regex / ton.path / ton.tensor (not reimplemented
 //     here yet, though nothing stops them from being — see the real
 //     interpreter's registerBuiltinEncoding/Regex/Path/Tensor in
 //     src/Interpreter.cpp)
@@ -1689,10 +1690,12 @@ class Interpreter {
       if (builtin === "json") return this.registerJson();
       if (builtin === "mathutils") return this.registerMathUtils();
       if (builtin === "strings") return this.registerStrings();
-      if (builtin === "sys" || builtin === "os" || builtin === "requests") {
+      if (builtin === "requests") return this.registerRequests();
+      if (builtin === "encoding") return this.registerEncoding();
+      if (builtin === "sys" || builtin === "os") {
         this.error(line, `'ton.${builtin}' needs real process/filesystem/network access, which the browser playground cannot provide. Install the real interpreter (see DOCUMENTATION.md) to use it.`);
       }
-      if (builtin === "encoding" || builtin === "regex" || builtin === "path" || builtin === "tensor") {
+      if (builtin === "regex" || builtin === "path" || builtin === "tensor") {
         this.error(line, `'ton.${builtin}' isn't implemented in the playground yet (it exists in the real interpreter — see DOCUMENTATION.md). Install the real interpreter to use it.`);
       }
       this.error(line, `Unknown built-in module 'ton.${builtin}'.`);
@@ -2012,6 +2015,49 @@ class Interpreter {
     this.def("time_millis", () => Date.now());
     this.def("time_string", (a) => new Date(a[0] !== undefined ? a[0] * 1000 : Date.now()).toString());
     this.def("time_sleep", () => null); // synchronous sleep isn't possible in JS; accepted as a no-op.
+  }
+
+  // ton.encoding: base64 and hex of a string's UTF-8 bytes (the real interpreter works on bytes too).
+  registerEncoding() {
+    const enc = new TextEncoder(), dec = new TextDecoder();
+    const toHex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    this.def("hex_encode", (a) => toHex(enc.encode(toDisplayString(a[0] ?? ""))));
+    this.def("hex_decode", (a) => {
+      const t = toDisplayString(a[0] ?? "");
+      if (t.length % 2 || /[^0-9a-fA-F]/.test(t)) return "";
+      return dec.decode(Uint8Array.from(t.match(/../g) || [], (h) => parseInt(h, 16)));
+    });
+    this.def("base64_encode", (a) => { let bin = ""; for (const b of enc.encode(toDisplayString(a[0] ?? ""))) bin += String.fromCharCode(b); return btoa(bin); });
+    this.def("base64_decode", (a) => {
+      try { const bin = atob(toDisplayString(a[0] ?? "")); return dec.decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))); } catch (e) { return ""; }
+    });
+  }
+
+  // ton.requests over a synchronous XMLHttpRequest (works in a Web Worker). Unlike the real
+  // interpreter this is a browser request: the server must allow cross-origin requests (CORS).
+  registerRequests() {
+    const send = (method, url, headers, body, timeout) => {
+      const out = new Map([["ok", false], ["status", 0], ["body", ""], ["error", ""], ["headers", new Map()], ["url", url]]);
+      if (typeof XMLHttpRequest === "undefined") { out.set("error", "No network access in this environment."); return out; }
+      try {
+        const x = new XMLHttpRequest();
+        x.open(String(method).toUpperCase(), url, false);
+        if (headers instanceof Map) for (const [k, v] of headers) { try { x.setRequestHeader(k, toDisplayString(v)); } catch (e) { /* forbidden header: ignored */ } }
+        if (timeout > 0) { try { x.timeout = timeout * 1000; } catch (e) { /* not allowed here */ } }
+        x.send(body === null || body === undefined ? null : toDisplayString(body));
+        out.set("ok", true); out.set("status", x.status); out.set("body", x.responseText || ""); out.set("url", x.responseURL || url);
+        const hs = new Map();
+        for (const line of (x.getAllResponseHeaders() || "").split(/\r?\n/)) { const i = line.indexOf(":"); if (i > 0) hs.set(line.slice(0, i).trim().toLowerCase(), line.slice(i + 1).trim()); }
+        out.set("headers", hs);
+      } catch (e) {
+        out.set("error", `The request failed (${e.message || e}). From the browser or Acode the server must allow cross-origin requests (CORS).`);
+      }
+      return out;
+    };
+    this.def("requests_get", (a) => send("GET", toDisplayString(a[0]), null, null, 0));
+    this.def("requests_post", (a) => send("POST", toDisplayString(a[0]), null, a[1] ?? null, 0));
+    this.def("requests_request", (a) => send(toDisplayString(a[0]), toDisplayString(a[1]), null, a[2] ?? null, 0));
+    this.def("requests_send", (a) => send(toDisplayString(a[0]), toDisplayString(a[1]), a[2] ?? null, a[3] ?? null, typeof a[4] === "number" ? a[4] : 0));
   }
 
   registerJson() {

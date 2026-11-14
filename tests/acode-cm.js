@@ -33,8 +33,7 @@ w.eval(fs.readFileSync(path.join(root, "editors/acode/main.js"), "utf8"));
   try { await init("http://plugin/"); ok(true, "init doesn't throw when the editor has no on()/getSession()"); }
   catch (e) { ok(false, "init threw: " + e.message); }
   await new Promise((r) => setTimeout(r, 30));
-  ok(!!sidebar && !!sidebar.querySelector("[data-a=run]"), "the sidebar is there");
-  ok(/line 2/.test(sidebar.querySelector(".status").textContent), "the syntax error is shown in the sidebar: " + sidebar.querySelector(".status").textContent);
+  ok(!!sidebar && !!sidebar.querySelector(".lib") && !sidebar.querySelector("button[data-a=run]"), "the sidebar is there: the module library only");
   if (CM) {
     ok(!!registered && registered[0] === "ton618" && registered[1] === "ton", "the language is registered with Acode's editorLanguages");
     const support = registered[3]();
