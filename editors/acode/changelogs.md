@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.0
+
+- **Programs that draw a screen run in the Run window**: a system made with the new built-in `atome` module (`IMPORT://atome`) appears as a desktop you can click, type in and drag windows of; the program keeps running until you tap Stop or Close. `ton.ui` is available too.
+- The engine now has `platform()` and the `atome` module built in: nothing to install.
+
 ## 2.2.4
 
 - The plugin page shows the **Open Source** badge linking to the GitHub repository (`repository` in plugin.json), with the MIT license.

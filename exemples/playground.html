@@ -216,6 +216,8 @@
     <div class="pane">
       <div class="pane-label">Output</div>
       <div id="output"><span class="placeholder">Press "Run" to execute the script.</span></div>
+      <div id="screen" hidden style="position:relative;height:520px;border-radius:6px;overflow:hidden;background:#000"></div>
+      <button id="stopScreen" type="button" hidden style="margin-top:8px">■ Stop the program</button>
     </div>
   </div>
 </main>
@@ -225,6 +227,27 @@
 <script src="ton618-lite.js"></script>
 <script>
 const EXAMPLES = {
+  "Atome: an operating system in TON": `// A whole system in a few lines. Run it, then click, type, drag the windows.
+IMPORT://atome
+
+ton.function hello_init(win) { win["s"]["n"] = 0 }
+ton.function hello_view(win) {
+    return [
+        atome.title("Hello!"),
+        atome.label("You pressed the button " + str(win["s"]["n"]) + " times."),
+        atome.button("Press me", "press"),
+        atome.input("name", "Your name (then Enter)"),
+        atome.label("Hi " + atome.value(win, "name"))
+    ]
+}
+ton.function hello_act(win, action, value) {
+    if action == "press" { win["s"]["n"] += 1 }
+}
+
+atome.boot("MyOS")
+atome.app({"id": "hello", "title": "Hello", "icon": "H", "view": hello_view, "init": hello_init, "act": hello_act})
+atome.open("hello")
+atome.run()`,
   "New in 2.0: classes & objects": `ton.class Animal {
     ton.string sound = "..."
     ton.function init(name) { self.name = name }
@@ -353,10 +376,48 @@ else loadExample(Object.keys(EXAMPLES)[0]);
 
 document.getElementById("loadExample").addEventListener("click", () => loadExample(examplesSelect.value));
 
+// A program that uses ton.ui (a system made with `atome`, for instance) draws a screen under the editor and
+// stays alive: its clicks and typing go back to it until you stop it.
+const screenBox = document.getElementById("screen"), stopButton = document.getElementById("stopScreen");
+let uiScreen = null, uiSession = null;
+function stopScreen() {
+  if (uiSession) { uiSession.stop(); uiSession = null; }
+  if (uiScreen) { uiScreen.destroy(); uiScreen = null; }
+  screenBox.hidden = true; stopButton.hidden = true; output.hidden = false;
+}
+stopButton.addEventListener("click", stopScreen);
+
 function runCode() {
-  const result = Ton618Lite.runTon618(editor.value);
-  output.className = result.ok ? "ok" : "err";
-  output.textContent = result.output || "(no output)";
+  stopScreen();
+  const key = "ton618.ui:playground";
+  let storage = {};
+  try { storage = JSON.parse(localStorage.getItem(key) || "{}"); } catch (e) { /* no storage */ }
+  const result = Ton618Lite.runTon618(editor.value, {
+    storage,
+    onUi: (m) => {
+      if (m.type === "render") {
+        if (!uiScreen) {
+          screenBox.hidden = false; stopButton.hidden = false; output.hidden = true;
+          uiScreen = Ton618Lite.mountUi(screenBox, (ev) => { if (uiSession) uiSession.dispatch(ev); });
+        }
+        uiScreen.render(m.html);
+      } else if (m.type === "storage") {
+        try {
+          const saved = JSON.parse(localStorage.getItem(key) || "{}");
+          if (m.value === null) delete saved[m.key]; else saved[m.key] = m.value;
+          localStorage.setItem(key, JSON.stringify(saved));
+        } catch (e) { /* no storage */ }
+      } else if (m.type === "error") {
+        output.hidden = false; output.className = "err"; output.textContent = m.text;
+      }
+    },
+  });
+  if (result.session) { uiSession = result.session; uiSession.start(); }
+  if (!uiScreen || !result.ok) {
+    output.hidden = false;
+    output.className = result.ok ? "ok" : "err";
+    output.textContent = result.output || "(no output)";
+  }
 }
 
 document.getElementById("run").addEventListener("click", runCode);

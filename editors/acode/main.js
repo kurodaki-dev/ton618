@@ -231,6 +231,7 @@
         .ton618-win header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #2b2b2b; padding-top: max(10px, env(safe-area-inset-top)); }
         .ton618-win header b { color: #fff; } .ton618-win header span { flex: 1; color: #8b8b97; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .ton618-win header button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid #595959; background: #1b1b1b; color: #fff; }
+        .ton618-win .scr { flex: 1; min-height: 0; position: relative; }
         .ton618-win pre { flex: 1; margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 14px/1.55 monospace; user-select: text; }
         .ton618-win pre .e { color: #ff6b6b; } .ton618-win pre .e a { text-decoration: underline; }
         .ton618-app { height: 100%; display: flex; flex-direction: column; color: inherit; font: 14px/1.4 sans-serif; overflow: hidden; }
@@ -392,7 +393,7 @@
       this.closeWindow();
       const el = document.createElement("div");
       el.className = "ton618-win";
-      el.innerHTML = "<header><b>TON618</b><span></span><button data-a=stop>■ Stop</button><button data-a=again>▶ Again</button><button data-a=close>✕ Close</button></header><pre></pre>";
+      el.innerHTML = "<header><b>TON618</b><span></span><button data-a=stop>■ Stop</button><button data-a=again>▶ Again</button><button data-a=close>✕ Close</button></header><div class=scr hidden></div><pre></pre>";
       el.querySelector("[data-a=stop]").onclick = () => this.stop();
       el.querySelector("[data-a=again]").onclick = () => this.run();
       el.querySelector("[data-a=close]").onclick = () => this.closeWindow();
@@ -400,13 +401,39 @@
       this.winEl = el;
       this.winStatus = el.querySelector("span");
       this.winOut = el.querySelector("pre");
+      this.winScr = el.querySelector(".scr");
       this.winStatus.textContent = (this.file && this.file.filename) || "";
     }
 
     closeWindow() {
       this.stop(true);
+      if (this.screen) { safe(() => this.screen.destroy()); this.screen = null; }
       if (this.winEl) this.winEl.remove();
-      this.winEl = this.winOut = this.winStatus = null;
+      this.winEl = this.winOut = this.winStatus = this.winScr = null;
+    }
+
+    // A program that uses ton.ui (the `atome` systems, for example) draws a screen: it replaces the text output.
+    onUi(m, uiKey) {
+      if (!this.winEl || !this.winScr) return;
+      if (m.type === "render") {
+        if (!this.screen && typeof window.Ton618Lite.mountUi === "function") {
+          this.winScr.hidden = false;
+          this.winOut.hidden = true;
+          this.screen = window.Ton618Lite.mountUi(this.winScr, (ev) => { if (this.worker) this.worker.postMessage({ event: ev }); });
+        }
+        if (this.screen) this.screen.render(m.html);
+      } else if (m.type === "storage") {
+        safe(() => {
+          const saved = JSON.parse(localStorage.getItem(uiKey) || "{}");
+          if (m.value === null) delete saved[m.key]; else saved[m.key] = m.value;
+          localStorage.setItem(uiKey, JSON.stringify(saved));
+        });
+      } else if (m.type === "title") {
+        this.uiTitled = true;
+        if (this.winStatus) this.winStatus.textContent = m.text;
+      } else if (m.type === "error") {
+        this.toast("TON618: " + m.text);
+      }
     }
 
     print(text, isError) {
@@ -465,6 +492,7 @@
     async run() {
       if (!this.isTon()) { this.toast("Open a .ton file to run it"); return; }
       this.stop(true);
+      this.uiTitled = false;
       const source = readText(this.file);
       this.openWindow();
       this.setStatus("running…");
@@ -472,25 +500,37 @@
       const files = {};
       await this.collectModules(source, this.fileDir(), files);
 
+      const uiKey = "ton618.ui:" + ((this.file && (this.file.uri || this.file.filename)) || "");
+      let storage = {};
+      safe(() => { storage = JSON.parse(localStorage.getItem(uiKey) || "{}"); });
       const workerCode = this.engineSource + `
+        let session = null;
         self.onmessage = (e) => {
+          if (e.data.event) { if (session) session.dispatch(e.data.event); return; }
           let n = 0;
-          const r = self.Ton618Lite.runTon618(e.data.source, { files: e.data.files, onPrint: (t) => { n++; self.postMessage({ out: t }); } });
+          const r = self.Ton618Lite.runTon618(e.data.source, {
+            files: e.data.files, storage: e.data.storage,
+            onPrint: (t) => { n++; self.postMessage({ out: t }); },
+            onUi: (m) => self.postMessage({ ui: m }),
+          });
           const lines = r.output.split("\\n");
-          self.postMessage({ done: true, ok: r.ok, error: r.ok ? null : lines.slice(n).join("\\n") });
+          if (r.session) { session = r.session; session.start(); }
+          self.postMessage({ done: true, ok: r.ok, error: r.ok ? null : lines.slice(n).join("\\n"), interactive: !!r.session });
         };`;
       const url = URL.createObjectURL(new Blob([workerCode], { type: "text/javascript" }));
       const started = Date.now();
       this.worker = new Worker(url);
       URL.revokeObjectURL(url);
       this.worker.onmessage = (e) => {
+        if (e.data.ui) return this.onUi(e.data.ui, uiKey);
         if (!e.data.done) return this.print(e.data.out);
         if (e.data.error) this.print(e.data.error, true);
+        if (e.data.interactive && e.data.ok) { if (!this.uiTitled) this.setStatus("running - tap Stop or Close to end"); return; }   // the screen stays alive
         this.setStatus(e.data.ok ? `finished in ${Date.now() - started} ms` : "stopped with an error");
         this.worker.terminate();
         this.worker = null;
       };
-      this.worker.postMessage({ source, files });
+      this.worker.postMessage({ source, files, storage });
     }
 
     stop(quiet) {

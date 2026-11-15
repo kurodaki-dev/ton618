@@ -32,11 +32,12 @@
 22. [Local server & routes (API)](#local-server--routes-api)
 23. [The debugger](#the-debugger)
 24. [The IDE & editor extensions](#the-ide--editor-extensions)
-25. [Architecture — how the interpreter works](#architecture--how-the-interpreter-works)
-26. [Extending the interpreter itself](#extending-the-interpreter-itself)
-27. [Publishing the docs to GitHub Pages](#publishing-the-docs-to-github-pages)
-28. [Known limitations](#known-limitations)
-29. [Changelog](#changelog)
+25. [Atome — an operating system in TON (plugin)](#atome--an-operating-system-in-ton-plugin)
+26. [Architecture — how the interpreter works](#architecture--how-the-interpreter-works)
+27. [Extending the interpreter itself](#extending-the-interpreter-itself)
+28. [Publishing the docs to GitHub Pages](#publishing-the-docs-to-github-pages)
+29. [Known limitations](#known-limitations)
+30. [Changelog](#changelog)
 
 ---
 
@@ -1438,6 +1439,166 @@ The apps aren't code-signed: on Windows click *More info → Run anyway* the fir
 
 ---
 
+### Atome — an operating system in TON (plugin)
+
+**Atome** lets you build an operating system whose every visible part — the screen, windows, apps, files, a terminal — is written in TON, with a few lines of code. The same program runs in two places:
+
+- as a **graphical system** (windows you drag, a taskbar, or a phone screen) when you press **Play in Acode, the TON618 IDE or the playground**, or with `atome run` in a browser;
+- as a **real system on a kernel written from scratch** (graphical screen with a mouse, or text mode), which `atome build --target image` turns into a **bootable ISO**.
+
+**You are in control.** Atome imposes no programs and no look: the five ready-made apps are only a starting point, you write your own apps (`init` / `view` / `act` / `tick`), and `atome.style("custom")` removes everything the system adds, so your app *is* the screen. The `"windows"` and `"android"` styles are optional presets to save you work; nothing is mandatory.
+
+| Piece | What it is |
+|---|---|
+| **`IMPORT://atome`** | The module: apps, windows, widgets, a virtual disk and five ready-made apps. Built into the engine of Acode, the IDE and the playground: nothing to install. |
+| **The `atome` command** | `atome new / check / run / build`: web page, kernel, bootable image, or an app project for Android, Windows, Linux and macOS. |
+| **The Atome kernel** | An x86 kernel (C and assembly, no libc) with its own TON interpreter. It boots from GRUB or QEMU and runs your program at startup. |
+| **`ton.ui`** | The screen API the module draws with. You can use it directly. |
+
+It is a real, small system, not a magic one: the kernel is text-mode only (no disk, no network yet) and was tested under QEMU, not on a real computer. Everything you see on the screen is TON.
+
+#### A system in a few lines
+
+```
+IMPORT://atome
+
+ton.function hello_init(win) { win["s"]["n"] = 0 }
+ton.function hello_view(win) {
+    return [
+        atome.title("Hello!"),
+        atome.label("You pressed the button " + str(win["s"]["n"]) + " times."),
+        atome.button("Press me", "press"),
+        atome.input("name", "Your name (then Enter)"),
+        atome.label("Hi " + atome.value(win, "name"))
+    ]
+}
+ton.function hello_act(win, action, value) {
+    if action == "press" { win["s"]["n"] += 1 }
+}
+
+atome.boot("MyOS")
+atome.app({"id": "hello", "title": "Hello", "icon": "H", "view": hello_view, "init": hello_init, "act": hello_act})
+atome.open("hello")
+atome.run()
+```
+
+Press **Play** in Acode or the IDE (or *Run* in the playground, where this is the "Atome" example): the desktop appears with your app open, next to **Notes**, **Calculator**, **Files**, **Terminal** and **Settings**. An app is three functions: `init(win)` once, `view(win)` returning what is on screen, and `act(win, action, value)` for what the buttons do. `win["s"]` is the app's own dict of state.
+
+#### The module
+
+| Call | What it does |
+|---|---|
+| `atome.boot(title)` | starts the system and installs the five apps |
+| `atome.app({...})` | adds an app: `id`, `title`, `icon` (one letter or emoji), `view`, optional `init`, `act`, and `w` / `h` (size in text cells) |
+| `atome.open(id)`, `atome.close(window_id)`, `atome.run()` | open an app, close a window, hand the screen over to the user |
+| `atome.title(t)`, `atome.label(t)` | text |
+| `atome.button(text, action)` | a button: `act` gets `action` |
+| `atome.item(text, action, value)` | a list line: `act` gets `action` and `value` |
+| `atome.input(name, label)` | a text field: Enter calls `act` with `"enter:name"`; read it with `atome.value(win, name)` |
+| `atome.gap()`, `atome.rule()` | space, a line |
+| `atome.read(path)`, `write(path, text)`, `mkdir(path)`, `remove(path)`, `list(dir)`, `exists`, `is_dir`, `join`, `parent` | the virtual disk (kept between runs: in the browser's storage, or on the kernel's hard disk) |
+| `atome.toast(text)` | a short message |
+| `atome.style(name)` | `"windows"` (desktop, taskbar, Start menu), `"android"` (home screen, status and navigation bars), `"custom"` (nothing added: your app fills the screen) or `"auto"` (Android on a narrow screen, Windows on a wide one) |
+| `atome.terminal(name)` | the Terminal app speaks `"windows"` (cmd: `dir`, `cd`, `type`, `copy`, `del`, `md`, `cls`, `echo`, `ver`) or `"unix"` (`ls`, `cd`, `cat`, `mkdir`, `rm`, `pwd`...) |
+| `tick(win)` in an app | called about once a second for **every** open window, focused or not: apps keep working in the background (cooperative multitasking: a stopwatch, a download, a game) |
+
+**Graphical screen:** click or tap, drag a window by its title bar, type in fields. **Settings** switches between the desktop and the phone screen (a status bar, a home screen of apps, back / home / recents) and changes the colours; `atome.style("auto")` makes the shape follow the width of the screen (`"desktop"` and `"phone"` force one). **On the kernel with a screen** (the default for the ISO): the very same windows are drawn with pixels at 1024 × 768 — click buttons, items and fields, drag windows by their title bar, close them with the red cross, open apps from the Start button (Windows style) or the icons of the home screen (Android style, a phone-shaped column with back / home buttons). The keyboard works too. **Kernel in text mode** (`atome build --target image --text`, or a machine without a graphical mode): **Esc** opens the menu of apps, **Tab** changes window, **Up / Down** choose, **Enter** presses, typing fills the selected field.
+
+**Files that survive:** on the kernel, the virtual disk is saved on the machine's hard disk (`atome run --target image` gives it a disk image, `dist/disk.img`; on a real or virtual machine, attach a hard disk) and loaded again at the next boot. Without a disk it lives in memory; in the browser it is kept in the page's storage.
+
+#### The `atome` command
+
+Download `atome-cli-<version>.zip` from the [releases](https://github.com/kurodaki-dev/ton618/releases), unzip it, and run `python3 atome.py` (or `./atome`, `atome.bat`). It needs Python 3.8 or newer and nothing else for the web target.
+
+| Command | What it does | Needs |
+|---|---|---|
+| `atome new myos` | a project: `atome.toml` + `main.ton` (the example above) | — |
+| `atome check` | syntax-checks the project (with `ton618` if installed) | — |
+| `atome run` | builds the web page, serves it and opens the browser | a browser |
+| `atome build` | `dist/web/index.html`: the whole system as **one self-contained page** (host it anywhere, open it from a phone) | — |
+| `atome build --target kernel` | `dist/kernel/atome.elf` + `program.ton` | gcc, nasm, ld, make |
+| `atome run --target kernel` | boots them in QEMU | + qemu-system-i386 |
+| `atome build --target image` | **`dist/myos.iso`**: GRUB + the Atome kernel + your program, bootable (graphical screen by default; `--text` boots in text mode) | + grub-mkrescue, xorriso |
+| `atome run --target image` | boots the ISO in QEMU with a hard disk image (`--disk MB`) so your files are kept | + qemu-system-i386 |
+| `atome build --target app` | `dist/app`: a Tauri project, and `.github/workflows/atome-build.yml` that builds the **Android, Windows, Linux and macOS apps** in GitHub Actions | to build locally: Node and Rust |
+| `atome doctor` | what this computer can build | — |
+
+What was tested: the web page (in a real browser, with clicks and typing), the kernel and the ISO (booted under QEMU, then driven with simulated keys, and for the graphical screen with a simulated mouse — clicks, a window drag — reading the pixels of screenshots; files kept across two boots). The `app` target generates a project and a workflow modelled on the TON618 IDE's own release; they were checked as files but **not built** by the author, so run the workflow once and read its log. A bootable ISO has not been tried on a real computer.
+
+For the kernel, `IMPORT://` lines are resolved when you build (the module and your own modules are put in front of your program), because the kernel has no files.
+
+#### The kernel
+
+The kernel lives in the repository's `atome/kernel/` folder. To use it without the `atome` command you need `gcc` able to build 32-bit code, `nasm`, `ld` and QEMU:
+
+```bash
+cd atome/kernel
+make                                   # -> atome.elf
+qemu-system-i386 -kernel atome.elf -initrd my_os.ton -serial stdio
+```
+
+`-initrd` gives the kernel the TON program to run at startup (without it you get the kernel's own shell). The kernel:
+
+- boots through **Multiboot 1** (GRUB or QEMU's `-kernel`), in 32-bit protected mode;
+- draws on the **VGA text screen** (80 × 25, 16 colours) and mirrors everything to the **serial port**, which is also a way to type into it (that is how the tests drive it);
+- when GRUB gives it one (`atome-gfx.elf` asks for 1024 × 768), draws a **32-bit graphical screen** with a bitmap font and a **mouse pointer**, through a back buffer, and reads the **PS/2 mouse**;
+- reads the **PS/2 keyboard** (US layout, shift, arrows);
+- reads and writes a **hard disk** (ATA, by polling) to keep your files between boots;
+- has a **clock** (it counts processor cycles against the timer chip) and uses all the memory it is given;
+- starts the TON program, then its shell: `help`, `clear`, `echo`, `mem`, `uptime`, `ver`, `run`, `colors`, `reboot`, `poweroff`.
+
+#### TON on the kernel
+
+The kernel has its own TON interpreter (`atome/kernel/tonvm.c`, no libc). It runs the same syntax as the desktop interpreter for the core of the language:
+
+| Works | Not yet |
+|---|---|
+| `ton.let` / `ton.int` / `ton.string` / `ton.bool` / `ton.array` / `ton.dict` (types are not checked) | decimal numbers (integers only: `7 / 2` is `3` there) |
+| `ton.function` and `function`, recursion, functions as values (`{"view": my_view}`) | classes, arrow functions and closures |
+| `if` / `else if` / `else`, `while`, `for x in ...`, `break`, `continue`, `return` | `try` / `catch`, `IMPORT://` (the `atome` command inlines imports) |
+| strings (`"..."`, `` `raw` ``, `f"..{expr}.."`), arrays, dicts, `a[i]`, slices `a[1:3]`, `d.key`, `?:`, `and` / `or` / `!` | the `\|>` operator, a garbage collector (memory is freed when the program ends) |
+| method syntax: `"ab".upper()`, `items.push(3)` | files and network (the kernel has no disk or network driver yet) |
+
+Functions every program has: `print`, `len`, `str`, `num`, `type`, `platform` (`"kernel"` here, `"web"` in Acode, the IDE and the playground), `push`, `pop`, `keys`, `has`, `remove`, `range`, `upper`, `lower`, `trim`, `substring`, `contains`, `replace`, `split`, `join`, `abs`, `min`, `max`, `rand`, `char`, `ord`, and the machine:
+
+| Function | What it does |
+|---|---|
+| `put(x, y, text, color)` | draws text at a cell of the screen |
+| `fill(x, y, w, h, "c", color)` | fills a rectangle with a character |
+| `color(foreground, background)` | a colour number (0-15 foreground, 0-7 background) for `put` and `fill` |
+| `clear()`, `cursor(x, y)`, `width()`, `height()` | the screen |
+| `key()` | waits for a key and returns it: `"a"`, `"enter"`, `"up"`, `"down"`, `"left"`, `"right"`, `"esc"`, `"tab"`, `"backspace"` |
+| `input(prompt)` | reads a line |
+| `sleep(ms)`, `uptime()` | time in milliseconds |
+| `reboot()`, `poweroff()` | the machine |
+| `gfx_ok()`, `gfx_w()`, `gfx_h()` | is there a graphical screen, and how big |
+| `rgb(r, g, b)` | a colour number for the `gfx_` functions |
+| `gfx_clear(c)`, `gfx_rect(x, y, w, h, c)`, `gfx_text(x, y, text, c, [scale])` | draw into the back buffer |
+| `gfx_flip()` | show it (and the pointer) on the screen |
+| `mouse()` | `[x, y, buttons, moved]`: buttons is 1 left, 2 right, 4 middle |
+| `poll()` | a key if one is waiting, else `""` (no waiting) |
+| `disk_size()`, `disk_save(text)`, `disk_load()` | one blob on the hard disk |
+
+#### `ton.ui`: a screen for Acode, the IDE and the playground
+
+`IMPORT://ton.ui` lets a TON program draw an interactive screen. The program sends HTML and answers events; the host (Acode's Run window, the IDE's output pane, the playground) shows the HTML in a sandboxed frame and sends clicks, typing, drags and the screen size back. The `atome` module is built on it.
+
+| Function | What it does |
+|---|---|
+| `ui_render(html)` | shows this HTML as the screen |
+| `ui_on(type, handler)` | calls `handler(event)` for events of that type (`"click"`, `"input"`, `"key"`, `"move"`, `"size"`); `ui_on("event", ...)` receives all of them |
+| `ui_every(ms, handler)` | calls `handler()` every `ms` milliseconds (a clock, an animation) |
+| `ui_title(text)`, `ui_clock()` | the title, and the device's local time (`{hour, minute, ...}`) |
+| `ui_storage_get(key, default)`, `ui_storage_set(key, value)`, `ui_storage_remove(key)` | a small store that survives restarts |
+| `ui_escape(text)` | escapes text for HTML |
+
+In the HTML, `data-do="name"` makes an element send a click event (with `data-value` and `data-win` if you set them), `data-bind="name"` on a field sends its text as you type, `data-key="name"` also reports the Enter key, and `data-drag="id"` on a title bar lets the user drag the `data-winbox` window it belongs to. `ton.ui` needs a screen, so the command-line interpreter answers with a clear message instead.
+
+#### What is not there yet
+
+- Inside the kernel: the network, USB (keyboard, mouse and disk are the old PS/2 and IDE kinds, which QEMU and many PCs emulate), screen modes other than the 1024 × 768 GRUB sets, and a real file system (the disk holds one blob: the system's virtual disk). Not tried on real hardware.
+- Floats, classes and closures in the kernel's TON.
+
 ### Architecture — how the interpreter works
 
 TON618 is a classic **tree-walking interpreter**, made of three stages that run in a straight pipeline:
@@ -1568,6 +1729,17 @@ One-time setup:
 ---
 
 ### Changelog
+
+**1.0.8** — Atome, an operating system in TON:
+
+- **A real system you control**: windows / android / custom styles, a cmd-style terminal, cooperative multitasking (`tick`), files kept on a hard disk, and on the kernel a **graphical screen with a mouse** (pixels, clicks, window drag), not just text.
+
+- **`IMPORT://atome`** (built into the engine of Acode, the IDE and the playground): windows, apps, widgets, a virtual disk and five apps (Notes, Calculator, Files, Terminal, Settings), as a desktop or a phone screen. Press Play and the system appears and answers clicks, typing and window drags.
+- **`ton.ui`**: a screen API for TON programs (`ui_render`, `ui_on`, `ui_every`, `ui_storage_*`...), shown by Acode's Run window, the IDE's output pane and the playground.
+- **The `atome` command** (`atome-cli-<version>.zip` in the releases): `new`, `check`, `run`, `build` for the web (one self-contained page), the kernel, a **bootable ISO**, and an app project (Android, Windows, Linux, macOS built in GitHub Actions).
+- **The Atome kernel** (`atome/kernel`): an x86 kernel written from scratch, with its own TON interpreter; the same program that runs in the browser boots on it, in text mode. Tested under QEMU.
+- New functions: `platform()` (`"web"` or `"kernel"`); the kernel's TON also has slices.
+- **Acode plugin 2.3.0**: the Run window shows the screen of programs that use `ton.ui`.
 
 **1.0.7** — Acode:
 
@@ -1790,11 +1962,12 @@ One-time setup:
 22. [Serveur local & routes (API)](#serveur-local--routes-api)
 23. [Le débogueur](#le-débogueur)
 24. [L'IDE & les extensions d'éditeur](#lide--les-extensions-déditeur)
-25. [Architecture — comment fonctionne l'interpréteur](#architecture--comment-fonctionne-linterpréteur)
-26. [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même)
-27. [Publier la doc sur GitHub Pages](#publier-la-doc-sur-github-pages)
-28. [Limitations connues](#limitations-connues)
-29. [Changelog](#changelog-1)
+25. [Atome — un système d'exploitation en TON (plugin)](#atome--un-système-dexploitation-en-ton-plugin)
+26. [Architecture — comment fonctionne l'interpréteur](#architecture--comment-fonctionne-linterpréteur)
+27. [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même)
+28. [Publier la doc sur GitHub Pages](#publier-la-doc-sur-github-pages)
+29. [Limitations connues](#limitations-connues)
+30. [Changelog](#changelog-1)
 
 ---
 
@@ -3196,6 +3369,165 @@ Les applications ne sont pas signées : sur Windows clique *Informations complé
 
 ---
 
+### Atome — un système d'exploitation en TON (plugin)
+
+**Atome** te laisse fabriquer, en quelques lignes, un système d'exploitation dont toutes les parties visibles — l'écran, les fenêtres, les applis, les fichiers, un terminal — sont écrites en TON. Le même programme tourne à deux endroits :
+
+- en **système graphique** (fenêtres qu'on déplace, barre des tâches, ou écran de téléphone) quand tu appuies sur **Play dans Acode, l'IDE TON618 ou le playground**, ou avec `atome run` dans un navigateur ;
+- en **vrai système sur un noyau écrit de zéro** (écran graphique avec souris, ou mode texte), que `atome build --target image` transforme en **ISO bootable**.
+
+**Tu gardes le contrôle.** Atome n'impose ni programmes ni apparence : les cinq applis toutes faites ne sont qu'un point de départ, tu écris tes propres applis (`init` / `view` / `act` / `tick`), et `atome.style("custom")` retire tout ce que le système ajoute : ton appli *est* l'écran. Les styles `"windows"` et `"android"` sont des préréglages facultatifs pour t'éviter du travail ; rien n'est obligatoire.
+
+| Morceau | Ce que c'est |
+|---|---|
+| **`IMPORT://atome`** | Le module : applis, fenêtres, widgets, un disque virtuel et cinq applis toutes faites. Intégré au moteur d'Acode, de l'IDE et du playground : rien à installer. |
+| **La commande `atome`** | `atome new / check / run / build` : page web, noyau, image bootable, ou projet d'appli pour Android, Windows, Linux et macOS. |
+| **Le noyau Atome** | Un noyau x86 (C et assembleur, sans libc) avec son propre interpréteur TON. Il démarre depuis GRUB ou QEMU et lance ton programme au démarrage. |
+| **`ton.ui`** | L'API d'écran avec laquelle le module dessine. Tu peux l'utiliser directement. |
+
+C'est un vrai petit système, pas un système magique : le noyau est en mode texte seulement (pas encore de disque ni de réseau) et testé sous QEMU, pas sur un vrai ordinateur. Tout ce que tu vois à l'écran est du TON.
+
+#### Un système en quelques lignes
+
+```
+IMPORT://atome
+
+ton.function hello_init(win) { win["s"]["n"] = 0 }
+ton.function hello_view(win) {
+    return [
+        atome.title("Salut !"),
+        atome.label("Tu as appuyé " + str(win["s"]["n"]) + " fois."),
+        atome.button("Appuie", "press"),
+        atome.input("name", "Ton nom (puis Entrée)"),
+        atome.label("Salut " + atome.value(win, "name"))
+    ]
+}
+ton.function hello_act(win, action, value) {
+    if action == "press" { win["s"]["n"] += 1 }
+}
+
+atome.boot("MonOS")
+atome.app({"id": "hello", "title": "Salut", "icon": "S", "view": hello_view, "init": hello_init, "act": hello_act})
+atome.open("hello")
+atome.run()
+```
+
+Appuie sur **Play** dans Acode ou l'IDE (ou *Run* dans le playground, où c'est l'exemple « Atome ») : le bureau apparaît avec ton appli ouverte, à côté de **Notes**, **Calculatrice**, **Fichiers**, **Terminal** et **Réglages**. Une appli, ce sont trois fonctions : `init(win)` une fois, `view(win)` qui renvoie ce qui est à l'écran, et `act(win, action, value)` pour ce que font les boutons. `win["s"]` est le dict d'état propre à l'appli.
+
+#### Le module
+
+| Appel | Ce qu'il fait |
+|---|---|
+| `atome.boot(titre)` | démarre le système et installe les cinq applis |
+| `atome.app({...})` | ajoute une appli : `id`, `title`, `icon` (une lettre ou un emoji), `view`, et en option `init`, `act`, `w` / `h` (taille en cases de texte) |
+| `atome.open(id)`, `atome.close(id_fenetre)`, `atome.run()` | ouvre une appli, ferme une fenêtre, rend l'écran à l'utilisateur |
+| `atome.title(t)`, `atome.label(t)` | du texte |
+| `atome.button(texte, action)` | un bouton : `act` reçoit `action` |
+| `atome.item(texte, action, valeur)` | une ligne de liste : `act` reçoit `action` et `value` |
+| `atome.input(nom, libelle)` | un champ : Entrée appelle `act` avec `"enter:nom"` ; on le lit avec `atome.value(win, nom)` |
+| `atome.gap()`, `atome.rule()` | un espace, un trait |
+| `atome.read(chemin)`, `write(chemin, texte)`, `mkdir(chemin)`, `remove(chemin)`, `list(dossier)`, `exists`, `is_dir`, `join`, `parent` | le disque virtuel (gardé d'une exécution à l'autre : dans le stockage du navigateur, ou sur le disque dur du noyau) |
+| `atome.toast(texte)` | un court message |
+| `atome.style(nom)` | `"windows"` (bureau, barre des tâches, menu Démarrer), `"android"` (écran d'accueil, barres d'état et de navigation), `"custom"` (rien n'est ajouté : ton appli remplit l'écran) ou `"auto"` (Android sur un écran étroit, Windows sur un écran large) |
+| `atome.terminal(nom)` | l'appli Terminal parle `"windows"` (cmd : `dir`, `cd`, `type`, `copy`, `del`, `md`, `cls`, `echo`, `ver`) ou `"unix"` (`ls`, `cd`, `cat`, `mkdir`, `rm`, `pwd`...) |
+| `tick(win)` dans une appli | appelée environ une fois par seconde pour **chaque** fenêtre ouverte, active ou non : les applis continuent de travailler en arrière-plan (multitâche coopératif : chronomètre, téléchargement, jeu) |
+
+**Écran graphique :** clique ou touche, déplace une fenêtre par sa barre de titre, écris dans les champs. **Réglages** bascule entre l'écran de bureau et l'écran de téléphone (barre d'état, écran d'accueil des applis, retour / accueil / récents) et change les couleurs ; `atome.style("auto")` fait suivre la forme par la largeur de l'écran (`"desktop"` et `"phone"` en imposent une). **Noyau avec un écran** (par défaut pour l'ISO) : les mêmes fenêtres sont dessinées en pixels à 1024 × 768 — clique sur les boutons, les éléments et les champs, déplace les fenêtres par leur barre de titre, ferme-les avec la croix rouge, ouvre les applis avec le bouton Démarrer (style Windows) ou les icônes de l'écran d'accueil (style Android, une colonne en forme de téléphone avec retour / accueil). Le clavier marche aussi. **Noyau en mode texte** (`atome build --target image --text`, ou machine sans mode graphique) : **Échap** ouvre le menu des applis, **Tab** change de fenêtre, **Haut / Bas** choisissent, **Entrée** appuie, taper remplit le champ choisi.
+
+**Des fichiers qui restent :** sur le noyau, le disque virtuel est enregistré sur le disque dur de la machine (`atome run --target image` lui donne une image de disque, `dist/disk.img` ; sur une machine réelle ou virtuelle, branche un disque dur) et rechargé au démarrage suivant. Sans disque il vit en mémoire ; dans le navigateur il est gardé dans le stockage de la page.
+
+#### La commande `atome`
+
+Télécharge `atome-cli-<version>.zip` depuis les [releases](https://github.com/kurodaki-dev/ton618/releases), décompresse-le et lance `python3 atome.py` (ou `./atome`, `atome.bat`). Il faut Python 3.8 ou plus récent, et rien d'autre pour la cible web.
+
+| Commande | Ce qu'elle fait | Demande |
+|---|---|---|
+| `atome new monos` | un projet : `atome.toml` + `main.ton` (l'exemple ci-dessus) | — |
+| `atome check` | vérifie la syntaxe du projet (avec `ton618` s'il est installé) | — |
+| `atome run` | construit la page web, la sert et ouvre le navigateur | un navigateur |
+| `atome build` | `dist/web/index.html` : tout le système en **une seule page autonome** (à héberger n'importe où, à ouvrir depuis un téléphone) | — |
+| `atome build --target kernel` | `dist/kernel/atome.elf` + `program.ton` | gcc, nasm, ld, make |
+| `atome run --target kernel` | les démarre dans QEMU | + qemu-system-i386 |
+| `atome build --target image` | **`dist/monos.iso`** : GRUB + le noyau Atome + ton programme, bootable | + grub-mkrescue, xorriso |
+| `atome build --target app` | `dist/app` : un projet Tauri, et `.github/workflows/atome-build.yml` qui construit les **applis Android, Windows, Linux et macOS** dans GitHub Actions | pour construire en local : Node et Rust |
+| `atome doctor` | ce que cet ordinateur sait construire | — |
+
+Ce qui a été testé : la page web (dans un vrai navigateur, avec clics et frappe), le noyau et l'ISO (démarrés sous QEMU, puis pilotés avec des touches simulées et, pour l'écran graphique, une souris simulée — clics, déplacement de fenêtre — en lisant les pixels de captures d'écran ; fichiers conservés entre deux démarrages). La cible `app` génère un projet et un workflow calqués sur la release de l'IDE TON618 ; ils ont été vérifiés comme fichiers mais **pas construits** par l'auteur : lance le workflow une fois et lis son journal. Une ISO bootable n'a pas été essayée sur un vrai ordinateur.
+
+Pour le noyau, les lignes `IMPORT://` sont résolues à la construction (le module et tes propres modules sont placés devant ton programme), parce que le noyau n'a pas de fichiers.
+
+#### Le noyau
+
+Le noyau est dans le dossier `atome/kernel/` du dépôt. Pour l'utiliser sans la commande `atome`, il faut `gcc` capable de compiler du 32 bits, `nasm`, `ld` et QEMU :
+
+```bash
+cd atome/kernel
+make                                   # -> atome.elf
+qemu-system-i386 -kernel atome.elf -initrd mon_os.ton -serial stdio
+```
+
+`-initrd` donne au noyau le programme TON à exécuter au démarrage (sans lui, tu obtiens le shell du noyau). Le noyau :
+
+- démarre par **Multiboot 1** (GRUB ou le `-kernel` de QEMU), en mode protégé 32 bits ;
+- dessine sur l'**écran texte VGA** (80 × 25, 16 couleurs) et recopie tout sur le **port série**, qui sert aussi à y taper (c'est ainsi que les tests le pilotent) ;
+- quand GRUB lui en donne un (`atome-gfx.elf` demande 1024 × 768), dessine un **écran graphique 32 bits** avec une police bitmap et un **pointeur de souris**, via un tampon arrière, et lit la **souris PS/2** ;
+- lit le **clavier PS/2** (disposition US, majuscules, flèches) ;
+- lit et écrit un **disque dur** (ATA, par scrutation) pour garder tes fichiers entre deux démarrages ;
+- a une **horloge** (il compte les cycles du processeur contre la puce de minuterie) et utilise toute la mémoire qu'on lui donne ;
+- lance le programme TON, puis son shell : `help`, `clear`, `echo`, `mem`, `uptime`, `ver`, `run`, `colors`, `reboot`, `poweroff`.
+
+#### Le TON du noyau
+
+Le noyau a son propre interpréteur TON (`atome/kernel/tonvm.c`, sans libc). Il exécute la même syntaxe que l'interpréteur de bureau pour le cœur du langage :
+
+| Fonctionne | Pas encore |
+|---|---|
+| `ton.let` / `ton.int` / `ton.string` / `ton.bool` / `ton.array` / `ton.dict` (les types ne sont pas vérifiés) | les nombres décimaux (entiers seulement : `7 / 2` vaut `3` là-bas) |
+| `ton.function` et `function`, la récursion, les fonctions comme valeurs (`{"view": ma_vue}`) | les classes, les fonctions fléchées et les fermetures |
+| `if` / `else if` / `else`, `while`, `for x in ...`, `break`, `continue`, `return` | `try` / `catch`, `IMPORT://` (la commande `atome` inline les imports) |
+| chaînes (`"..."`, `` `brutes` ``, `f"..{expr}.."`), tableaux, dicts, `a[i]`, tranches `a[1:3]`, `d.cle`, `?:`, `and` / `or` / `!` | l'opérateur `\|>`, un ramasse-miettes (la mémoire est libérée à la fin du programme) |
+| syntaxe méthode : `"ab".upper()`, `items.push(3)` | fichiers et réseau (le noyau n'a pas encore de pilote de disque ni de réseau) |
+
+Fonctions que tout programme a : `print`, `len`, `str`, `num`, `type`, `platform` (`"kernel"` ici, `"web"` dans Acode, l'IDE et le playground), `push`, `pop`, `keys`, `has`, `remove`, `range`, `upper`, `lower`, `trim`, `substring`, `contains`, `replace`, `split`, `join`, `abs`, `min`, `max`, `rand`, `char`, `ord`, et la machine :
+
+| Fonction | Ce qu'elle fait |
+|---|---|
+| `put(x, y, texte, couleur)` | dessine du texte dans une case de l'écran |
+| `fill(x, y, l, h, "c", couleur)` | remplit un rectangle avec un caractère |
+| `color(avant_plan, fond)` | un numéro de couleur (0-15 avant-plan, 0-7 fond) pour `put` et `fill` |
+| `clear()`, `cursor(x, y)`, `width()`, `height()` | l'écran |
+| `key()` | attend une touche et la renvoie : `"a"`, `"enter"`, `"up"`, `"down"`, `"left"`, `"right"`, `"esc"`, `"tab"`, `"backspace"` |
+| `input(invite)` | lit une ligne |
+| `sleep(ms)`, `uptime()` | le temps en millisecondes |
+| `reboot()`, `poweroff()` | la machine |
+| `gfx_ok()`, `gfx_w()`, `gfx_h()` | y a-t-il un écran graphique, et sa taille |
+| `rgb(r, g, b)` | un numéro de couleur pour les fonctions `gfx_` |
+| `gfx_clear(c)`, `gfx_rect(x, y, w, h, c)`, `gfx_text(x, y, texte, c, [échelle])` | dessinent dans le tampon arrière |
+| `gfx_flip()` | l'affiche (avec le pointeur) à l'écran |
+| `mouse()` | `[x, y, boutons, bougé]` : boutons vaut 1 gauche, 2 droit, 4 milieu |
+| `poll()` | une touche si elle attend, sinon `""` (sans attendre) |
+| `disk_size()`, `disk_save(texte)`, `disk_load()` | un bloc de données sur le disque dur |
+
+#### `ton.ui` : un écran pour Acode, l'IDE et le playground
+
+`IMPORT://ton.ui` permet à un programme TON de dessiner un écran interactif. Le programme envoie du HTML et répond aux événements ; l'hôte (la fenêtre Run d'Acode, le panneau de sortie de l'IDE, le playground) affiche le HTML dans un cadre isolé et renvoie les clics, la frappe, les déplacements et la taille de l'écran. Le module `atome` est construit dessus.
+
+| Fonction | Ce qu'elle fait |
+|---|---|
+| `ui_render(html)` | affiche ce HTML comme écran |
+| `ui_on(type, gestionnaire)` | appelle `gestionnaire(evenement)` pour les événements de ce type (`"click"`, `"input"`, `"key"`, `"move"`, `"size"`) ; `ui_on("event", ...)` les reçoit tous |
+| `ui_every(ms, gestionnaire)` | appelle `gestionnaire()` toutes les `ms` millisecondes (une horloge, une animation) |
+| `ui_title(texte)`, `ui_clock()` | le titre, et l'heure locale de l'appareil (`{hour, minute, ...}`) |
+| `ui_storage_get(cle, defaut)`, `ui_storage_set(cle, valeur)`, `ui_storage_remove(cle)` | un petit stockage qui survit aux redémarrages |
+| `ui_escape(texte)` | échappe du texte pour le HTML |
+
+Dans le HTML, `data-do="nom"` fait envoyer un événement de clic à un élément (avec `data-value` et `data-win` si tu les mets), `data-bind="nom"` sur un champ envoie son texte pendant la frappe, `data-key="nom"` signale aussi la touche Entrée, et `data-drag="id"` sur une barre de titre laisse l'utilisateur déplacer la fenêtre `data-winbox` à laquelle elle appartient. `ton.ui` a besoin d'un écran : l'interpréteur en ligne de commande répond donc par un message clair.
+
+#### Ce qui n'existe pas encore
+
+- Dans le noyau : le réseau, l'USB (clavier, souris et disque sont les anciens types PS/2 et IDE, émulés par QEMU et beaucoup de PC), d'autres modes d'écran que le 1024 × 768 demandé à GRUB, et un vrai système de fichiers (le disque contient un seul bloc : le disque virtuel du système). Pas essayé sur du vrai matériel.
+- Les décimaux, les classes et les fermetures dans le TON du noyau.
+
 ### Architecture — comment fonctionne l'interpréteur
 
 TON618 est un **interpréteur à parcours d'arbre** classique, composé de trois étapes formant un pipeline direct :
@@ -3326,6 +3658,17 @@ Configuration unique :
 ---
 
 ### Changelog
+
+**1.0.8** — Atome, un système d'exploitation en TON :
+
+- **Un vrai système que tu contrôles** : styles windows / android / custom, un terminal façon cmd, multitâche coopératif (`tick`), fichiers gardés sur un disque dur, et sur le noyau un **écran graphique avec souris** (pixels, clics, déplacement de fenêtres), pas seulement du texte.
+
+- **`IMPORT://atome`** (intégré au moteur d'Acode, de l'IDE et du playground) : fenêtres, applis, widgets, un disque virtuel et cinq applis (Notes, Calculatrice, Fichiers, Terminal, Réglages), en bureau ou en écran de téléphone. Appuie sur Play : le système apparaît et répond aux clics, à la frappe et aux déplacements de fenêtres.
+- **`ton.ui`** : une API d'écran pour les programmes TON (`ui_render`, `ui_on`, `ui_every`, `ui_storage_*`...), affichée par la fenêtre Run d'Acode, le panneau de sortie de l'IDE et le playground.
+- **La commande `atome`** (`atome-cli-<version>.zip` dans les releases) : `new`, `check`, `run`, `build` pour le web (une seule page autonome), le noyau, une **ISO bootable**, et un projet d'appli (Android, Windows, Linux, macOS construits dans GitHub Actions).
+- **Le noyau Atome** (`atome/kernel`) : un noyau x86 écrit de zéro, avec son propre interpréteur TON ; le même programme qui tourne dans le navigateur démarre dessus, en mode texte. Testé sous QEMU.
+- Nouvelles fonctions : `platform()` (`"web"` ou `"kernel"`) ; le TON du noyau a aussi les tranches.
+- **Plugin Acode 2.3.0** : la fenêtre Run affiche l'écran des programmes qui utilisent `ton.ui`.
 
 **1.0.7** — Acode :
 

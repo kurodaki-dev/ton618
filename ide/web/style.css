@@ -73,6 +73,9 @@ select { background: var(--raised); border: 1px solid var(--line); border-radius
 
 .output { flex: none; height: 32%; min-height: 34px; display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--panel); }
 .output.collapsed { height: 34px; }
+.output.live { height: 72%; }            /* a program with a screen (ton.ui, the atome systems) */
+.screen { flex: 1; min-height: 0; position: relative; background: #000; }
+.screen[hidden] { display: none; }
 .output-head { display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px 12px; color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
 .status { text-transform: none; letter-spacing: 0; }
 .status.ok { color: var(--ok); } .status.err { color: var(--err); }

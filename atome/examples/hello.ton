@@ -1,0 +1,22 @@
+// a first TON program running on the Atome kernel
+ton.let name = "Atome"
+ton.function fib(n) {
+    if n < 2 { return n }
+    return fib(n - 1) + fib(n - 2)
+}
+print(f"Hello from {name}! fib(15) = {fib(15)}")
+ton.let items = ["pomme", "poire", "kiwi"]
+for i in range(len(items)) { print(i, items[i].upper()) }
+ton.dict d = {"os": "Atome", "bits": 32}
+d["ok"] = true
+print(d, d.os, len(d), has(d, "bits"))
+ton.let total = 0
+for n in range(1, 11) { total += n }
+print("sum 1..10 =", total, "|", "ab" * 3, "|", "a,b,c".split(","), join([1, 2, 3], "-"))
+ton.let k = 0
+while true { k += 1
+  if k == 3 { continue }
+  if k > 5 { break } }
+print("k =", k, k % 2 == 0 ? "even" : "odd", 7 / 2, -7 % 3)
+fill(0, 20, 80, 1, "=", color(14, 1))
+put(2, 20, " Atome ", color(0, 14))

@@ -581,6 +581,11 @@ void Interpreter::runImport(const std::string& moduleName, int line) {
     // without "IMPORT://ton.requests" first fails with "undefined function".
     if (moduleName.rfind("ton.", 0) == 0) {
         std::string builtin = moduleName.substr(4);
+        if (builtin == "ui") {
+            runtimeError(line, "'ton.ui' draws an interactive screen, which the command-line interpreter can't show. "
+                               "Run this program with the Play button of Acode, the TON618 IDE or the online playground "
+                               "(they show the screen and send it clicks).");
+        }
         bool ok = registerBuiltinByName(this, builtin, [&](const std::string& b) {
             importedModules.insert(moduleName);
             if (b == "sys") registerBuiltinSys();
@@ -599,7 +604,7 @@ void Interpreter::runImport(const std::string& moduleName, int line) {
         if (!ok) {
             runtimeError(line, "Unknown built-in module 'ton." + builtin +
                          "'. Available: ton.sys, ton.os, ton.requests, ton.random, ton.time, ton.json, "
-                         "ton.mathutils, ton.strings, ton.encoding, ton.regex, ton.path, ton.tensor.");
+                         "ton.mathutils, ton.strings, ton.encoding, ton.regex, ton.path, ton.tensor, ton.ui (Acode, IDE and playground only).");
         }
         return;
     }

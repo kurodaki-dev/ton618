@@ -30,6 +30,7 @@ on:
       - "src/**"
       - "include/**"
       - "ide/**"
+      - "atome/**"
       - "editors/**"
       - "exemples/ton618-lite.js"
       - "exemples/logo.svg"
@@ -316,10 +317,36 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: acode, path: editors/acode/*.zip, if-no-files-found: error }
 
+  # ---------------------------------------------------------------- the atome command
+  atome-cli:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package the atome command
+        run: |
+          V=${{ needs.version.outputs.semver }}
+          D=atome-cli-$V
+          python3 scripts/embed_atome.py --check
+          mkdir -p "$D/res/kernel"
+          cp atome/cli/atome.py "$D/atome.py"
+          sed -i "s/^VERSION = .*/VERSION = \"$V\"/" "$D/atome.py"
+          cp atome/kernel/Makefile atome/kernel/boot.asm atome/kernel/linker.ld atome/kernel/kernel.h atome/kernel/libk.c atome/kernel/console.c atome/kernel/input.c atome/kernel/time.c atome/kernel/kmain.c atome/kernel/tonvm.c atome/kernel/disk.c atome/kernel/gfx.c atome/kernel/font8x16.h "$D/res/kernel/"
+          cp atome/module/atome.ton "$D/res/atome.ton"
+          cp exemples/ton618-lite.js "$D/res/ton618-lite.js"
+          printf '#!/bin/sh\nexec python3 "$(dirname "$0")/atome.py" "$@"\n' > "$D/atome"
+          chmod +x "$D/atome"
+          printf '@echo off\r\npython "%%~dp0atome.py" %%*\r\n' > "$D/atome.bat"
+          printf 'atome %s: build an operating system in TON.\n\nNeeds Python 3.8+. Unzip, then run:  python3 atome.py new myos   (or ./atome new myos)\nTargets: web (no extra tools), kernel / image (gcc, nasm, ld, make; image also grub-mkrescue, xorriso), app (generates a Tauri project).\nSee: https://c-ton618.duckdns.org/docs/\n' "$V" > "$D/README.txt"
+          zip -9 -r "atome-cli-$V.zip" "$D"
+      - uses: actions/upload-artifact@v4
+        with: { name: atome-cli, path: "atome-cli-*.zip", if-no-files-found: error }
+
   # ---------------------------------------------------------------- the release
   release:
     needs: [version, interpreter-linux, interpreter-windows, interpreter-macos, interpreter-android,
-            ide-desktop, ide-android, vscode, acode]
+            ide-desktop, ide-android, vscode, acode, atome-cli]
     # Publish whatever was built, even if one platform failed (the others
     # are still useful); never when the version was already released.
     if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.version.outputs.release == 'true' && needs.interpreter-linux.result == 'success' }}

@@ -93,5 +93,6 @@ test: $(OUT)
 	tests/requests.sh ./$(OUT)
 	tests/server.sh ./$(OUT)
 	tests/oauth.sh ./$(OUT)
+	tests/atome-apps.sh
 
 .PHONY: all linux windows android macos dist clean distclean docs test site

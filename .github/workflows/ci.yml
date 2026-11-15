@@ -31,11 +31,21 @@ jobs:
         run: |
           node tests/run-lite.js
           node tests/requests-lite.js
+          node tests/ui-lite.js
+          node tests/atome-lite.js
       - name: Acode plugin (headless Ace)
         run: |
           npm install --no-save --prefix "$RUNNER_TEMP/acode-deps" ace-builds@1.36.5 jsdom@24 @codemirror/language@6 @codemirror/state@6 @codemirror/view@6
           ACE_MODULES="$RUNNER_TEMP/acode-deps" node tests/acode.js
           ACE_MODULES="$RUNNER_TEMP/acode-deps" node tests/acode-cm.js
+
+      - name: Atome kernel (boots under QEMU)
+        run: |
+          sudo apt-get update && sudo apt-get install -y nasm qemu-system-x86 grub-pc-bin grub-common xorriso mtools
+          python3 scripts/embed_atome.py --check
+          tests/atome-kernel.sh
+          tests/atome-cli.sh
+          tests/atome-gfx.sh
 
       - name: Run example scripts (smoke test)
         run: |
