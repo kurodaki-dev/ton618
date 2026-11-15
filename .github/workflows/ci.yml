@@ -32,6 +32,7 @@ jobs:
           node tests/run-lite.js
           node tests/requests-lite.js
           node tests/ui-lite.js
+          node tests/atome-lite.js
       - name: Acode plugin (headless Ace)
         run: |
           npm install --no-save --prefix "$RUNNER_TEMP/acode-deps" ace-builds@1.36.5 jsdom@24 @codemirror/language@6 @codemirror/state@6 @codemirror/view@6

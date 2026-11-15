@@ -885,6 +885,19 @@ static const Str *need_str(Value v, int line, const char *what) {
 }
 #define ARGC(n) do { if (argc < (n)) fail(line, name, " needs more arguments"); } while (0)
 
+static Value key_value(int c) {
+    if (c == KEY_UP) return mk_str("up", 2);
+    if (c == KEY_DOWN) return mk_str("down", 4);
+    if (c == KEY_LEFT) return mk_str("left", 4);
+    if (c == KEY_RIGHT) return mk_str("right", 5);
+    if (c == '\n') return mk_str("enter", 5);
+    if (c == 8) return mk_str("backspace", 9);
+    if (c == KEY_ESC) return mk_str("esc", 3);
+    if (c == '\t') return mk_str("tab", 3);
+    char ch = (char)c;
+    return mk_str(&ch, 1);
+}
+
 static Value call_native(const char *name, Value *args, int argc, int line, int *found) {
     *found = 1;
     if (strcmp(name, "print") == 0) {
@@ -1037,21 +1050,10 @@ static Value call_native(const char *name, Value *args, int argc, int line, int 
         return NIL;
     }
     if (strcmp(name, "cursor") == 0) { ARGC(2); console_cursor(need_int(args[0], line, "x"), need_int(args[1], line, "y")); return NIL; }
-    if (strcmp(name, "key") == 0) {     // waits for a key; arrows come back as "up", "down", "left", "right"
-        int c = input_wait();
-        if (c == KEY_UP) return mk_str("up", 2);
-        if (c == KEY_DOWN) return mk_str("down", 4);
-        if (c == KEY_LEFT) return mk_str("left", 4);
-        if (c == KEY_RIGHT) return mk_str("right", 5);
-        if (c == '\n') return mk_str("enter", 5);
-        if (c == 8) return mk_str("backspace", 9);
-        if (c == KEY_ESC) return mk_str("esc", 3);
-        if (c == '\t') return mk_str("tab", 3);
-        char ch = (char)c; return mk_str(&ch, 1);
-    }
+    if (strcmp(name, "key") == 0) return key_value(input_wait());     // waits for a key; arrows are "up", "down", "left", "right"
     if (strcmp(name, "poll") == 0) {    // like key(), but returns "" at once when nothing was pressed
-        if (input_poll() < 0) return mk_str("", 0);
-        return mk_str("", 0);
+        int c = input_poll();
+        return c < 0 ? mk_str("", 0) : key_value(c);
     }
     if (strcmp(name, "input") == 0) {
         if (argc >= 1) { Buf b = { 0, 0, 0 }; buf_add(&b, "", 0); val_text(&b, args[0], 0); console_puts(b.d); }

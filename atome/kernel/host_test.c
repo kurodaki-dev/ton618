@@ -22,7 +22,12 @@ void console_put_at(int x, int y, const char *s, u8 a) { for (; *s && x < VGA_W;
 void console_fill(int x, int y, int w, int h, char ch, u8 a) { for (int j = y; j < y + h; j++) for (int i = x; i < x + w; i++) if (i >= 0 && i < VGA_W && j >= 0 && j < VGA_H) { screen[j][i] = ch; attrs[j][i] = a; } }
 void console_cursor(int x, int y) { cx_ = x; cy_ = y; }
 void serial_putc(char c) { (void)c; }
-int input_poll(void) { return -1; }
+static int ticks_left = 4;   // when the keys run out, a few idle polls are answered (so ticks can be tested) before the program is stopped
+int input_poll(void) {
+    if (keys && keys[key_pos]) return input_wait();
+    if (ticks_left-- > 0) return -1;
+    exit(0);
+}
 int input_wait(void) {
     if (!keys || !keys[key_pos]) { fprintf(stderr, "[host] no more keys\n"); exit(0); }
     if (keys[key_pos] == '<') {
