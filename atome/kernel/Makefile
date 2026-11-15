@@ -2,7 +2,7 @@
 CC      ?= gcc
 CFLAGS  = -m32 -std=gnu11 -O2 -Wall -Wextra -ffreestanding -fno-pic -fno-pie -fno-stack-protector \
           -fno-builtin -fno-asynchronous-unwind-tables -mno-sse -mno-mmx -nostdlib -static
-OBJS    = boot.o kmain.o libk.o console.o input.o time.o tonvm.o
+OBJS    = boot.o kmain.o libk.o console.o input.o time.o disk.o tonvm.o
 
 all: atome.elf
 

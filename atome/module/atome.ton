@@ -81,16 +81,44 @@ ton.function atome_base(path) {
     return substring(path, i + 1)
 }
 ton.function atome_join(dir, name) { return dir == "/" ? "/" + name : dir + "/" + name }
+// the disk as text: one line per folder ("D<TAB>path") or file ("F<TAB>path<TAB>content"), with %, newlines and tabs escaped
+ton.function atome_esc(t) { return replace(replace(replace(t, "%", "%p"), "\n", "%n"), "\t", "%t") }
+ton.function atome_unesc(t) { return replace(replace(replace(t, "%t", "\t"), "%n", "\n"), "%p", "%") }
+ton.function atome_serialize() {
+    ton.let lines = []
+    for p in keys(atome_dirs) { push(lines, "D\t" + atome_esc(p)) }
+    for p in keys(atome_files) { push(lines, "F\t" + atome_esc(p) + "\t" + atome_esc(atome_files[p])) }
+    return join(lines, "\n")
+}
+ton.function atome_deserialize(text) {
+    ton.let dirs = {}
+    ton.let files = {}
+    for line in split(text, "\n") {
+        ton.let parts = split(line, "\t")
+        if len(parts) >= 2 and parts[0] == "D" { dirs[atome_unesc(parts[1])] = true }
+        else if len(parts) >= 3 and parts[0] == "F" { files[atome_unesc(parts[1])] = atome_unesc(parts[2]) }
+    }
+    if dirs.has("/") { atome_dirs = dirs
+        atome_files = files
+        return true }
+    return false
+}
+// saved in the browser's storage on the web, on the hard disk on the kernel (if the machine has one)
 ton.function atome_save() {
     if atome_platform == "web" { ui_storage_set("atome.disk", json_stringify({"d": atome_dirs, "f": atome_files})) }
+    else if disk_size() > 0 { disk_save(atome_serialize()) }
 }
 ton.function atome_load() {
-    if atome_platform != "web" { return nil }
-    ton.let saved = ui_storage_get("atome.disk", nil)
-    if saved == nil { return nil }
-    ton.let d = json_parse(saved)
-    if d != nil { atome_dirs = d["d"]
-        atome_files = d["f"] }
+    if atome_platform == "web" {
+        ton.let saved = ui_storage_get("atome.disk", nil)
+        if saved == nil { return nil }
+        ton.let d = json_parse(saved)
+        if d != nil { atome_dirs = d["d"]
+            atome_files = d["f"] }
+    } else if disk_size() > 0 {
+        ton.let blob = disk_load()
+        if blob != "" { atome_deserialize(blob) }
+    }
 }
 ton.function atome_exists(path) { return atome_dirs.has(path) or atome_files.has(path) }
 ton.function atome_is_dir(path) { return atome_dirs.has(path) }
@@ -1074,7 +1102,7 @@ ton.function atome_boot(title) {
     atome_install_defaults()
     return nil
 }
-ton.let atome = {"terminal": atome_terminal, "style": atome_style, "boot": atome_boot, "run": atome_run, "app": atome_app, "open": atome_open, "close": atome_close, "toast": atome_toast,
+ton.let atome = {"serialize": atome_serialize, "deserialize": atome_deserialize, "terminal": atome_terminal, "style": atome_style, "boot": atome_boot, "run": atome_run, "app": atome_app, "open": atome_open, "close": atome_close, "toast": atome_toast,
     "label": atome_label, "title": atome_title, "button": atome_button, "item": atome_item, "input": atome_input, "gap": atome_gap, "rule": atome_rule,
     "value": atome_in, "set_value": atome_set_in, "read": atome_read, "write": atome_write, "mkdir": atome_mkdir, "remove": atome_remove,
     "list": atome_list, "exists": atome_exists, "is_dir": atome_is_dir, "join": atome_join, "parent": atome_parent}

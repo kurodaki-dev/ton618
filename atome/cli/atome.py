@@ -4,7 +4,7 @@
     atome new myos            a new project (atome.toml + main.ton)
     atome check               syntax-check the project
     atome run                 open it in the browser (a graphical desktop)
-    atome run --target kernel boot it on the Atome kernel in QEMU
+    atome run --target kernel boot it on the Atome kernel in QEMU (with a hard disk image: dist/disk.img keeps your files)
     atome build               dist/web/index.html: the system as one web page / app shell
     atome build --target kernel   dist/kernel/atome.elf + program.ton
     atome build --target image    dist/<name>.iso: a bootable image (GRUB + the Atome kernel + your program)
@@ -474,6 +474,15 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
+def disk_image(out: Path, mb: int) -> Path:
+    """The hard disk of the virtual machine: what the system saves (files, notes) lives here between runs."""
+    img = out / "disk.img"
+    if not img.exists():
+        with open(img, "wb") as f:
+            f.truncate(mb * 1024 * 1024)
+    return img
+
+
 def cmd_run(args):
     p, res = Project(Path(args.path)), find_resources()
     out = Path(args.path) / "dist"
@@ -492,14 +501,14 @@ def cmd_run(args):
     elif args.target == "kernel":
         need("qemu-system-i386")
         elf, prog = build_kernel(p, res, out)
-        cmd = ["qemu-system-i386", "-kernel", str(elf), "-initrd", str(prog)] + (["-display", "none", "-serial", "stdio"] if args.nographic else [])
+        cmd = ["qemu-system-i386", "-kernel", str(elf), "-initrd", str(prog), "-hda", str(disk_image(out, args.disk))] + (["-display", "none", "-serial", "stdio"] if args.nographic else [])
         print("Booting " + p.title + " (close the QEMU window or press Ctrl+C to stop)")
         subprocess.call(cmd)
     elif args.target == "image":
         need("qemu-system-i386")
         iso = build_image(p, res, out)
         print("Booting " + str(iso))
-        subprocess.call(["qemu-system-i386", "-cdrom", str(iso)] + (["-display", "none", "-serial", "stdio"] if args.nographic else []))
+        subprocess.call(["qemu-system-i386", "-cdrom", str(iso), "-hda", str(disk_image(out, args.disk))] + (["-display", "none", "-serial", "stdio"] if args.nographic else []))
     else:
         sys.exit("atome: run supports --target web, kernel and image")
 
@@ -554,6 +563,7 @@ def main() -> int:
     s = sub.add_parser("run"); s.add_argument("path", nargs="?", default=".")
     s.add_argument("--target", default="web", choices=["web", "kernel", "image"])
     s.add_argument("--port", type=int, default=0); s.add_argument("--no-open", action="store_true"); s.add_argument("--nographic", action="store_true")
+    s.add_argument("--disk", type=int, default=8, help="size in MB of the virtual hard disk dist/disk.img (default 8)")
     s.set_defaults(fn=cmd_run)
     s = sub.add_parser("build"); s.add_argument("path", nargs="?", default=".")
     s.add_argument("--target", default="web", choices=["web", "kernel", "image", "app"])

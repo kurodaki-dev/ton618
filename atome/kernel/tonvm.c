@@ -13,7 +13,7 @@
 
 // ------------------------------------------------------------------ values
 enum { V_NIL, V_BOOL, V_INT, V_STR, V_ARR, V_DICT, V_FUNC };
-typedef struct Str { u32 len; char d[4]; } Str;
+typedef struct Str { u32 len; char d[]; } Str;
 struct Arr; struct Dict; struct Node;
 typedef struct Value {
     u8 t;
@@ -40,7 +40,7 @@ static void fail(int line, const char *a, const char *b) {
 
 // ------------------------------------------------------------------ strings and containers
 static Str *str_new(const char *s, u32 n) {
-    Str *r = kalloc(sizeof(Str) + n);
+    Str *r = kalloc(sizeof(Str) + n + 1);
     if (!r) fail(0, "out of memory", NULL);
     r->len = n;
     memcpy(r->d, s, n);
@@ -1031,6 +1031,42 @@ static Value call_native(const char *name, Value *args, int argc, int line, int 
     // ---- the machine
     if (strcmp(name, "sleep") == 0) { ARGC(1); sleep_ms((u32)need_int(args[0], line, "the delay")); return NIL; }
     if (strcmp(name, "platform") == 0) return mk_str("kernel", 6);
+    // ---- the disk: one blob of text, kept in the sectors after the first one ("ATOMEFS1", then its length)
+    if (strcmp(name, "disk_size") == 0) return mk_int((i32)disk_sectors());
+    if (strcmp(name, "disk_save") == 0) {
+        ARGC(1);
+        const Str *t = need_str(args[0], line, "disk_save()'s argument");
+        u32 sectors = (t->len + 511) / 512;
+        if (disk_sectors() < sectors + 2) return mk_bool(0);
+        u8 sector[512];
+        for (u32 i = 0; i < sectors; i++) {
+            memset(sector, 0, 512);
+            u32 n = t->len - i * 512 > 512 ? 512 : t->len - i * 512;
+            memcpy(sector, t->d + i * 512, n);
+            if (!disk_write(1 + i, sector)) return mk_bool(0);
+        }
+        memset(sector, 0, 512);
+        memcpy(sector, "ATOMEFS1", 8);
+        sector[8] = (u8)t->len; sector[9] = (u8)(t->len >> 8); sector[10] = (u8)(t->len >> 16); sector[11] = (u8)(t->len >> 24);
+        return mk_bool(disk_write(0, sector));
+    }
+    if (strcmp(name, "disk_load") == 0) {
+        u8 sector[512];
+        if (!disk_sectors() || !disk_read(0, sector) || memcmp(sector, "ATOMEFS1", 8) != 0) return mk_str("", 0);
+        u32 len = (u32)sector[8] | ((u32)sector[9] << 8) | ((u32)sector[10] << 16) | ((u32)sector[11] << 24);
+        if (len > (disk_sectors() - 1) * 512u || len > 64u * 1024 * 1024) return mk_str("", 0);
+        Str *r = kalloc(sizeof(Str) + len + 1);
+        if (!r) fail(line, "out of memory", NULL);
+        r->len = len;
+        for (u32 i = 0; i * 512 < len; i++) {
+            if (!disk_read(1 + i, sector)) return mk_str("", 0);
+            u32 n = len - i * 512 > 512 ? 512 : len - i * 512;
+            memcpy(r->d + i * 512, sector, n);
+        }
+        r->d[len] = 0;
+        Value v; v.t = V_STR; v.u.s = r;
+        return v;
+    }
     if (strcmp(name, "uptime") == 0) return mk_int((i32)uptime_ms());
     if (strcmp(name, "clear") == 0) { console_clear(); return NIL; }
     if (strcmp(name, "width") == 0) return mk_int(VGA_W);

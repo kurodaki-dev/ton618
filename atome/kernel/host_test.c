@@ -41,6 +41,11 @@ void sleep_ms(u32 ms) { (void)ms; }
 u32 uptime_ms(void) { static u32 t; return t += 1000; }
 void reboot(void) { printf("[reboot]\n"); exit(0); }
 void power_off(void) { printf("[poweroff]\n"); exit(0); }
+static FILE *disk_f; static u32 disk_n;
+int disk_init(void) { const char *p = getenv("ATOME_DISK"); if (!p || !(disk_f = fopen(p, "r+b"))) return 0; fseek(disk_f, 0, SEEK_END); disk_n = (u32)(ftell(disk_f) / 512); return disk_n > 0; }
+u32 disk_sectors(void) { if (!disk_f) disk_init(); return disk_n; }
+int disk_read(u32 lba, void *buf) { if (!disk_f || lba >= disk_n) return 0; fseek(disk_f, (long)lba * 512, SEEK_SET); return fread(buf, 512, 1, disk_f) == 1; }
+int disk_write(u32 lba, const void *buf) { if (!disk_f || lba >= disk_n) return 0; fseek(disk_f, (long)lba * 512, SEEK_SET); int ok = fwrite(buf, 512, 1, disk_f) == 1; fflush(disk_f); return ok; }
 void panic(const char *m) { fprintf(stderr, "panic: %s\n", m); exit(1); }
 
 static void dump(void) {

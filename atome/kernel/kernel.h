@@ -21,6 +21,8 @@ typedef u32                size_t;
 // ---- io ports ----
 static inline void outb(u16 port, u8 v) { __asm__ volatile("outb %0, %1" : : "a"(v), "Nd"(port)); }
 static inline u8   inb(u16 port) { u8 v; __asm__ volatile("inb %1, %0" : "=a"(v) : "Nd"(port)); return v; }
+static inline u16  inw(u16 port) { u16 v; __asm__ volatile("inw %1, %0" : "=a"(v) : "Nd"(port)); return v; }
+static inline void outw(u16 port, u16 v) { __asm__ volatile("outw %0, %1" : : "a"(v), "Nd"(port)); }
 #endif
 
 // ---- libk.c: the few library functions we need ----
@@ -68,6 +70,12 @@ int  input_readline(char *buf, int max);   // echoes, handles backspace; returns
 void  time_init(void);
 void  sleep_ms(u32 ms);
 u32   uptime_ms(void);
+
+// ---- disk.c: a hard disk through the ATA interface (the legacy IDE ports, PIO mode) ----
+int   disk_init(void);                               // 1 if a disk answers on the primary bus, else 0
+u32   disk_sectors(void);                            // its size in 512-byte sectors
+int   disk_read(u32 lba, void *buf);                 // one sector; 1 on success
+int   disk_write(u32 lba, const void *buf);
 
 // ---- kmain.c ----
 void  panic(const char *msg);

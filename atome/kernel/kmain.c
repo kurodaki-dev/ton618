@@ -10,7 +10,6 @@ struct mb_info {
 static const char *program;        // the TON program that came with the image (a Multiboot module)
 static size_t program_len;
 
-static inline void outw(u16 port, u16 v) { __asm__ volatile("outw %0, %1" : : "a"(v), "Nd"(port)); }
 
 void power_off(void) {
     console_puts("Powering off...\n");
@@ -96,6 +95,8 @@ void kmain(u32 magic, struct mb_info *mbi) {
     if (mbi->flags & 1) { console_print_int((i32)((mbi->mem_lower + mbi->mem_upper) / 1024 + 1)); console_puts(" MB\n"); }
     else console_puts("unknown\n");
     console_puts("[boot] clock calibrated, keyboard and serial ready\n");
+    if (disk_init()) { console_puts("[boot] disk: "); console_print_int((i32)(disk_sectors() / 2048)); console_puts(" MB\n"); }
+    else console_puts("[boot] no disk (what you save is lost when the machine stops)\n");
 
     if ((mbi->flags & (1u << 3)) && mbi->mods_count > 0) {
         struct mb_module *m = (struct mb_module *)mbi->mods_addr;

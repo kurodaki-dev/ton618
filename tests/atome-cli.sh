@@ -75,6 +75,32 @@ PY
   has "Enter on the button runs the app's action" "$SCREEN" "You pressed the button 1 times."
   has "typing fills the input field" "$SCREEN" "Your name (then Enter): bob_"
   has "and the app answers" "$SCREEN" "Hi bob"
+
+  # the disk: a file saved in one boot is still there in the next one (the ISO plus a hard disk image)
+  dd if=/dev/zero of="$T/disk.img" bs=1M count=4 2>/dev/null
+  boot_and_type() {   # boot_and_type <keys...>: boots the ISO with the disk, types the keys, prints the screen
+    rm -f "$T/qm2.sock"
+    qemu-system-i386 -cdrom dist/demo.iso -hda "$T/disk.img" -display none -serial null -monitor unix:"$T/qm2.sock",server,nowait -no-reboot >/dev/null 2>&1 &
+    QPID=$!
+    sleep 9
+    python3 - "$T/qm2.sock" "$ROOT/tests/vga_dump.py" "$@" <<'PY'
+import sys, socket, time, importlib.util
+spec = importlib.util.spec_from_file_location("vga_dump", sys.argv[2]); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); time.sleep(0.3); s.recv(4096)
+for k in sys.argv[3:]:
+    s.send(("sendkey %s\n" % k).encode()); time.sleep(0.25)
+time.sleep(0.8)
+print("\n".join(m.screen(s)))
+s.send(b"quit\n")
+PY
+    kill $QPID 2>/dev/null; wait $QPID 2>/dev/null; QPID=""
+  }
+  OPEN_TERM="esc down down down ret"
+  OUT1="$(boot_and_type $OPEN_TERM m d spc s a v e d ret d i r ret)"
+  has "the Windows-style terminal runs on the kernel (dir, md)" "$OUT1" "C:\\home>"
+  has "a folder made in the first boot shows in dir" "$OUT1" "<DIR>          saved"
+  OUT2="$(boot_and_type $OPEN_TERM d i r ret)"
+  has "after a reboot, the folder is still on the disk" "$OUT2" "<DIR>          saved"
 else skip "the bootable image (needs gcc, nasm, grub-mkrescue, xorriso, qemu-system-i386)"; fi
 
 echo; echo "$pass passed, $fail failed, $skipped skipped"
