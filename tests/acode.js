@@ -18,7 +18,10 @@ const regDir = path.join(tmp, "registry");
 const dom = new JSDOM('<!doctype html><div id="ed"></div>', { runScripts: "outside-only", pretendToBeVisual: true });
 const w = dom.window;
 w.eval(aceSrc);
+let fetches = 0;
+const fetchCount = () => fetches;
 w.fetch = async (url) => {
+  fetches++;
   url = String(url).replace(/\?.*$/, "");
   let file = url.startsWith("https://c-ton618.duckdns.org/registry/") ? path.join(regDir, url.split("/registry/")[1])
     : url.endsWith("ton618-lite.js") ? path.join(root, "exemples/ton618-lite.js") : null;
@@ -89,6 +92,11 @@ const tick = () => new Promise((r) => setTimeout(r, 30));
   const rows = () => [...sidebar.querySelectorAll(".row")];
   ok(rows().length >= 1 && rows().some((r) => r.querySelector("b").textContent === "stringutils"), "library lists the registry's modules");
   const row = () => rows().find((r) => r.querySelector("b").textContent === "stringutils");
+  ok(!!sidebar.querySelector("button[data-a=reload]"), "the Modules panel has a Reload button");
+  const before = fetchCount();
+  sidebar.querySelector("button[data-a=reload]").click();
+  await tick(); await tick(); await tick();
+  ok(fetchCount() > before, "Reload asks the registry for its list again");
   ok(row().querySelector("button").textContent === "Install", "Install button shown");
   row().querySelector("button").click();
   await tick(); await tick(); await tick();

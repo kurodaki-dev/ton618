@@ -235,6 +235,8 @@
         .ton618-win pre { flex: 1; margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 14px/1.55 monospace; user-select: text; }
         .ton618-win pre .e { color: #ff6b6b; } .ton618-win pre .e a { text-decoration: underline; }
         .ton618-app { height: 100%; display: flex; flex-direction: column; color: inherit; font: 14px/1.4 sans-serif; overflow: hidden; }
+        .ton618-app .head { display: flex; align-items: center; justify-content: space-between; padding-right: 12px; }
+        .ton618-app .head button { padding: 3px 10px; font-size: 12px; }
         .ton618-app h3 { margin: 0; padding: 10px 12px 6px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; opacity: .7; }
         .ton618-app .bar { display: flex; gap: 6px; padding: 4px 12px 8px; }
         .ton618-app button { font: inherit; padding: 7px 12px; border-radius: 6px; border: 1px solid #595959; background: #1b1b1b; color: #fff; }
@@ -346,11 +348,16 @@
     buildSidebar(el) {
       el.classList.add("ton618-app");
       el.innerHTML = `
-        <h3>Modules</h3>
+        <div class="head"><h3>Modules</h3><button data-a="reload" title="Reload the list">↻ Reload</button></div>
         <input type="search" placeholder="Search the library…" data-a="filter">
         <div class="lib"></div>`;
       this.sidebar = el;
       this.libEl = el.querySelector(".lib");
+      el.querySelector("[data-a=reload]").onclick = async () => {   // fetch the registry's list again, and re-read what is installed
+        await this.loadIndex();
+        await this.loadInstalled();
+        this.toast("Modules reloaded");
+      };
       el.querySelector("[data-a=filter]").oninput = (e) => { this.state.filter = e.target.value.trim().toLowerCase(); this.renderLibrary(); };
       this.renderLibrary();
       this.loadIndex();

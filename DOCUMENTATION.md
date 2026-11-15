@@ -1739,7 +1739,7 @@ One-time setup:
 - **The `atome` command** (`atome-cli-<version>.zip` in the releases): `new`, `check`, `run`, `build` for the web (one self-contained page), the kernel, a **bootable ISO**, and an app project (Android, Windows, Linux, macOS built in GitHub Actions).
 - **The Atome kernel** (`atome/kernel`): an x86 kernel written from scratch, with its own TON interpreter; the same program that runs in the browser boots on it, in text mode. Tested under QEMU.
 - New functions: `platform()` (`"web"` or `"kernel"`); the kernel's TON also has slices.
-- **Acode plugin 2.3.0**: the Run window shows the screen of programs that use `ton.ui`.
+- **Acode plugin 2.3.1**: the Run window shows the screen of programs that use `ton.ui`; the Modules panel has a **Reload** button.
 
 **1.0.7** — Acode:
 
@@ -3668,7 +3668,7 @@ Configuration unique :
 - **La commande `atome`** (`atome-cli-<version>.zip` dans les releases) : `new`, `check`, `run`, `build` pour le web (une seule page autonome), le noyau, une **ISO bootable**, et un projet d'appli (Android, Windows, Linux, macOS construits dans GitHub Actions).
 - **Le noyau Atome** (`atome/kernel`) : un noyau x86 écrit de zéro, avec son propre interpréteur TON ; le même programme qui tourne dans le navigateur démarre dessus, en mode texte. Testé sous QEMU.
 - Nouvelles fonctions : `platform()` (`"web"` ou `"kernel"`) ; le TON du noyau a aussi les tranches.
-- **Plugin Acode 2.3.0** : la fenêtre Run affiche l'écran des programmes qui utilisent `ton.ui`.
+- **Plugin Acode 2.3.1** : la fenêtre Run affiche l'écran des programmes qui utilisent `ton.ui` ; le panneau Modules a un bouton **Recharger**.
 
 **1.0.7** — Acode :
 
