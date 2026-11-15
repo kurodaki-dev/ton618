@@ -50,7 +50,7 @@ if command -v gcc >/dev/null && command -v nasm >/dev/null && command -v ld >/de
 else skip "the kernel (needs gcc, nasm, ld)"; fi
 
 if command -v gcc >/dev/null && command -v nasm >/dev/null && command -v grub-mkrescue >/dev/null && command -v xorriso >/dev/null && command -v qemu-system-i386 >/dev/null; then
-  out="$($ATOME build --target image 2>&1)"; has "atome build --target image" "$out" "demo.iso"
+  out="$($ATOME build --target image --text 2>&1)"; has "atome build --target image" "$out" "demo.iso"
   [ -s dist/demo.iso ] && ok "the ISO exists" || bad "no ISO"
   rm -f "$T/qm.sock"
   qemu-system-i386 -cdrom dist/demo.iso -display none -serial null -monitor unix:"$T/qm.sock",server,nowait -no-reboot >/dev/null 2>&1 &

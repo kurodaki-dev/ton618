@@ -37,6 +37,17 @@ int input_wait(void) {
     return (unsigned char)keys[key_pos++];
 }
 int input_readline(char *buf, int max) { int n = 0, c; while ((c = input_wait()) != '\n' && n < max - 1) buf[n++] = (char)c; buf[n] = 0; return n; }
+// no screen and no mouse in the hosted tests: the system runs in text mode
+int gfx_ok(void) { return 0; }
+u32 gfx_w(void) { return 0; }
+u32 gfx_h(void) { return 0; }
+void gfx_clear(u32 c) { (void)c; }
+void gfx_rect(int x, int y, int w, int h, u32 c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
+void gfx_text(int x, int y, const char *s, u32 c, int k) { (void)x; (void)y; (void)s; (void)c; (void)k; }
+void gfx_flip(void) {}
+void gfx_cursor(int x, int y, int v) { (void)x; (void)y; (void)v; }
+int mouse_get(int *x, int *y, int *b) { *x = *y = *b = 0; return 0; }
+void mouse_init(int w, int h) { (void)w; (void)h; }
 void sleep_ms(u32 ms) { (void)ms; }
 u32 uptime_ms(void) { static u32 t; return t += 1000; }
 void reboot(void) { printf("[reboot]\n"); exit(0); }

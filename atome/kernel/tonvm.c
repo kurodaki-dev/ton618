@@ -1067,6 +1067,31 @@ static Value call_native(const char *name, Value *args, int argc, int line, int 
         Value v; v.t = V_STR; v.u.s = r;
         return v;
     }
+    // ---- the graphical screen and the mouse (gfx_ok() is false on a machine that stayed in text mode)
+    if (strcmp(name, "gfx_ok") == 0) return mk_bool(gfx_ok());
+    if (strcmp(name, "gfx_w") == 0) return mk_int((i32)gfx_w());
+    if (strcmp(name, "gfx_h") == 0) return mk_int((i32)gfx_h());
+    if (strcmp(name, "rgb") == 0) { ARGC(3); return mk_int(((need_int(args[0], line, "red") & 255) << 16) | ((need_int(args[1], line, "green") & 255) << 8) | (need_int(args[2], line, "blue") & 255)); }
+    if (strcmp(name, "gfx_clear") == 0) { ARGC(1); gfx_clear((u32)need_int(args[0], line, "the colour")); return NIL; }
+    if (strcmp(name, "gfx_rect") == 0) {
+        ARGC(5);
+        gfx_rect(need_int(args[0], line, "x"), need_int(args[1], line, "y"), need_int(args[2], line, "the width"), need_int(args[3], line, "the height"), (u32)need_int(args[4], line, "the colour"));
+        return NIL;
+    }
+    if (strcmp(name, "gfx_text") == 0) {
+        ARGC(4);
+        Buf b = { 0, 0, 0 }; buf_add(&b, "", 0); val_text(&b, args[2], 0);
+        gfx_text(need_int(args[0], line, "x"), need_int(args[1], line, "y"), b.d, (u32)need_int(args[3], line, "the colour"), argc >= 5 ? need_int(args[4], line, "the scale") : 1);
+        return NIL;
+    }
+    if (strcmp(name, "gfx_flip") == 0) { gfx_flip(); return NIL; }
+    if (strcmp(name, "mouse") == 0) {    // [x, y, buttons, changed]: buttons is 1 for left, 2 for right, 4 for middle
+        int x, y, b, c = mouse_get(&x, &y, &b);
+        gfx_cursor(x, y, 1);
+        Value a = mk_arr(4);
+        arr_push(a.u.a, mk_int(x)); arr_push(a.u.a, mk_int(y)); arr_push(a.u.a, mk_int(b)); arr_push(a.u.a, mk_int(c));
+        return a;
+    }
     if (strcmp(name, "uptime") == 0) return mk_int((i32)uptime_ms());
     if (strcmp(name, "clear") == 0) { console_clear(); return NIL; }
     if (strcmp(name, "width") == 0) return mk_int(VGA_W);

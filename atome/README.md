@@ -1,7 +1,7 @@
 # Atome
 
 Build an operating system in a few lines of TON. One program, two screens: a graphical system in Acode, the TON618 IDE, the playground
-or a browser; a text-mode system on a kernel written from scratch, as a bootable ISO.
+or a browser; a real system on a kernel written from scratch (graphical screen with a mouse, or text mode), as a bootable ISO. You write the apps; the Windows / Android looks are optional presets, `atome.style("custom")` imposes nothing.
 
 | Folder | What |
 |---|---|

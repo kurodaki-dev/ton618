@@ -662,6 +662,320 @@ ton.function atome_k_run() {
     }
 }
 
+// ------------------------------------------------------------------ the graphical system on the Atome kernel (a real screen and a mouse)
+// Same apps, same windows, drawn with pixels: click buttons and fields, drag windows by their title bar, open the
+// menu with the Start button (Windows style) or tap icons on the home screen (Android style). The keyboard still works.
+ton.let atome_g = {"hits": [], "drag": "", "ox": 0, "oy": 0, "c": {}, "w": 1024, "h": 768}
+ton.function atome_g_hit(x, y, w, h, kind, win, wd, idx) {
+    push(atome_g["hits"], {"x": x, "y": y, "w": w, "h": h, "kind": kind, "win": win, "wd": wd, "idx": idx})
+}
+ton.function atome_g_theme() {
+    atome_g["w"] = gfx_w()
+    atome_g["h"] = gfx_h()
+    atome_g["c"] = {"bar": rgb(22, 24, 34), "win": rgb(28, 30, 40), "title": rgb(46, 50, 68), "ftitle": rgb(0, 95, 184), "text": rgb(236, 238, 244),
+        "dim": rgb(150, 156, 176), "btn": rgb(60, 66, 90), "sel": rgb(0, 120, 215), "close": rgb(214, 60, 60), "line": rgb(76, 82, 104),
+        "field": rgb(12, 13, 19), "white": rgb(255, 255, 255), "menu": rgb(30, 32, 44)}
+}
+ton.let ATOME_WALLS = [[30, 60, 114, 109, 213, 237], [15, 32, 39, 44, 83, 100], [66, 39, 90, 115, 75, 109], [19, 78, 94, 113, 178, 128], [35, 37, 38, 65, 67, 69], [255, 126, 95, 254, 180, 123]]
+ton.function atome_g_wall(x, y, w, h) {
+    ton.let p = ATOME_WALLS[atome_os["wall"] % 6]
+    ton.let n = 16
+    ton.let i = 0
+    while i < n {
+        ton.let y0 = y + h * i / n
+        ton.let y1 = y + h * (i + 1) / n
+        gfx_rect(x, y0, w, y1 - y0 + 1, rgb(p[0] + (p[3] - p[0]) * i / n, p[1] + (p[4] - p[1]) * i / n, p[2] + (p[5] - p[2]) * i / n))
+        i = i + 1
+    }
+}
+// the widgets of a window, inside the rectangle (x, y, w, h)
+ton.function atome_g_body(win, x, y, w, h, focused) {
+    ton.let c = atome_g["c"]
+    ton.let widgets = atome_k_widgets(win)
+    ton.let foc = atome_k_focusables(widgets)
+    if win["sel"] >= len(foc) { win["sel"] = len(foc) - 1 }
+    if win["sel"] < 0 { win["sel"] = 0 }
+    ton.let selw = len(foc) > 0 ? foc[win["sel"]] : nil
+    ton.let cols = (w - 20) / 8
+    // 1. lay the rows out
+    ton.let rows = []
+    ton.let cy = 0
+    ton.let selrow = 0
+    ton.let fi = 0
+    for wd in widgets {
+        ton.let t = wd["t"]
+        ton.let rh = 20
+        ton.let idx = -1
+        ton.let lines = []
+        if t == "label" { lines = split(wd["text"], "\n")
+            rh = 20 * len(lines) }
+        else if t == "title" { rh = 40 }
+        else if t == "gap" { rh = 8 }
+        else if t == "rule" { rh = 12 }
+        else if t == "button" { rh = 34 }
+        else if t == "item" { rh = 26 }
+        else if t == "input" { rh = 46 }
+        if t == "button" or t == "item" or t == "input" { idx = fi
+            fi = fi + 1 }
+        if wd == selw { selrow = len(rows) }
+        push(rows, {"wd": wd, "y": cy, "h": rh, "idx": idx, "lines": lines})
+        cy = cy + rh
+    }
+    ton.let scroll = 0
+    if len(rows) > 0 {
+        ton.let r = rows[selrow]
+        if r["y"] + r["h"] > h - 12 { scroll = r["y"] + r["h"] - (h - 12) }
+    }
+    // 2. draw them
+    for r in rows {
+        ton.let wd = r["wd"]
+        ton.let t = wd["t"]
+        ton.let ry = y + 8 + r["y"] - scroll
+        if ry >= y and ry + r["h"] <= y + h {
+            ton.let issel = focused and wd == selw
+            if t == "label" {
+                ton.let n = 0
+                for line in r["lines"] { gfx_text(x + 10, ry + n * 20 + 2, atome_clip(line, cols), c["text"])
+                    n = n + 1 }
+            }
+            else if t == "title" { gfx_text(x + 10, ry + 2, atome_clip(wd["text"], cols / 2), c["white"], 2) }
+            else if t == "rule" { gfx_rect(x + 10, ry + 5, w - 20, 1, c["line"]) }
+            else if t == "button" {
+                ton.let bw = len(wd["text"]) * 8 + 28
+                gfx_rect(x + 10, ry, bw, 28, issel ? c["sel"] : c["btn"])
+                gfx_text(x + 24, ry + 6, wd["text"], c["white"])
+                atome_g_hit(x + 10, ry, bw, 28, "widget", win, wd, r["idx"])
+            }
+            else if t == "item" {
+                if issel { gfx_rect(x + 6, ry, w - 12, 24, c["sel"]) }
+                gfx_text(x + 14, ry + 4, atome_clip(wd["text"], cols - 1), c["text"])
+                atome_g_hit(x + 6, ry, w - 12, 24, "widget", win, wd, r["idx"])
+            }
+            else if t == "input" {
+                gfx_text(x + 10, ry, atome_clip(wd["text"], cols), c["dim"])
+                gfx_rect(x + 10, ry + 18, w - 20, 24, issel ? c["sel"] : c["line"])
+                gfx_rect(x + 11, ry + 19, w - 22, 22, c["field"])
+                gfx_text(x + 16, ry + 22, atome_clip(atome_in(win, wd["name"]) + (issel ? "_" : ""), cols - 2), c["text"])
+                atome_g_hit(x + 10, ry + 18, w - 20, 24, "widget", win, wd, r["idx"])
+            }
+        }
+    }
+}
+ton.function atome_g_icon(x, y, app_id, size) {
+    ton.let c = atome_g["c"]
+    ton.let def = atome_os["apps"][app_id]
+    ton.let k = len(app_id) * 37 + ord(substring(app_id, 0, 1)) * 11
+    gfx_rect(x, y, size, size, rgb(60 + k % 140, 70 + (k * 7) % 130, 90 + (k * 13) % 120))
+    gfx_text(x + size / 2 - 12, y + size / 2 - 16, upper(def["icon"]), c["white"], 3)
+}
+ton.function atome_g_window(win) {
+    ton.let c = atome_g["c"]
+    ton.let focused = win["id"] == atome_os["focus"]
+    ton.let w = win["w"] * 8 + 28
+    ton.let h = win["h"] * 20 + 34
+    if w > atome_g["w"] - 8 { w = atome_g["w"] - 8 }
+    if h > atome_g["h"] - 66 { h = atome_g["h"] - 66 }
+    ton.let x = win["px"] * 2 - 90
+    ton.let y = win["py"] * 2 - 70
+    if x < 0 { x = 0 }
+    if y < 0 { y = 0 }
+    if x + w > atome_g["w"] { x = atome_g["w"] - w }
+    if y + h > atome_g["h"] - 32 { y = atome_g["h"] - 32 - h }
+    win["gx"] = x
+    win["gy"] = y
+    gfx_rect(x - 1, y - 1, w + 2, h + 2, focused ? c["ftitle"] : c["line"])
+    gfx_rect(x, y, w, h, c["win"])
+    gfx_rect(x, y, w, 26, focused ? c["ftitle"] : c["title"])
+    gfx_text(x + 10, y + 5, atome_clip(win["icon"] + "  " + win["title"], (w - 50) / 8), c["white"])
+    gfx_rect(x + w - 34, y, 34, 26, c["close"])
+    gfx_text(x + w - 25, y + 5, "x", c["white"])
+    atome_g_hit(x, y, w, h, "raise", win, nil, 0)
+    atome_g_hit(x, y, w - 34, 26, "title", win, nil, 0)
+    atome_g_hit(x + w - 34, y, 34, 26, "close", win, nil, 0)
+    atome_g_body(win, x, y + 26, w, h - 26, focused)
+}
+ton.function atome_g_draw() {
+    ton.let c = atome_g["c"]
+    ton.let W = atome_g["w"]
+    ton.let H = atome_g["h"]
+    ton.let style = atome_os["style"]
+    atome_g["hits"] = []
+    if style == "custom" {
+        ton.let win = atome_k_current()
+        gfx_clear(c["win"])
+        if win != nil { atome_g_body(win, 0, 0, W, H, true) }
+    } else if style == "phone" {
+        ton.let pw = W > 600 ? 440 : W
+        ton.let px = (W - pw) / 2
+        atome_g_wall(0, 0, W, H)
+        gfx_rect(px, 0, pw, H, c["win"])
+        atome_g_wall(px, 0, pw, H)
+        gfx_rect(px, 0, pw, 26, c["bar"])
+        gfx_text(px + 10, 5, atome_os["title"], c["white"])
+        gfx_text(px + pw - 50, 5, atome_time(), c["white"])
+        ton.let win = atome_find(atome_os["focus"])
+        if atome_os["home"] or win == nil {
+            ton.let i = 0
+            for id in atome_os["order"] {
+                ton.let col = i % 4
+                ton.let row = i / 4
+                ton.let ix = px + 18 + col * 102
+                ton.let iy = 50 + row * 118
+                atome_g_icon(ix + 10, iy, id, 64)
+                ton.let label = atome_clip(atome_os["apps"][id]["title"], 10)
+                gfx_text(ix + 42 - len(label) * 4, iy + 72, label, c["white"])
+                atome_g_hit(ix, iy, 84, 100, "app", nil, id, i)
+                i = i + 1
+            }
+        } else {
+            gfx_rect(px, 26, pw, H - 26 - 48, c["win"])
+            gfx_text(px + 10, 36, win["title"], c["white"], 2)
+            atome_g_body(win, px, 62, pw, H - 62 - 48, true)
+        }
+        gfx_rect(px, H - 48, pw, 48, c["bar"])
+        gfx_text(px + pw / 4 - 8, H - 32, "<", c["white"], 2)
+        gfx_text(px + pw / 2 - 8, H - 32, "O", c["white"], 2)
+        gfx_text(px + pw * 3 / 4 - 8, H - 32, "=", c["white"], 2)
+        atome_g_hit(px, H - 48, pw / 3, 48, "back", nil, nil, 0)
+        atome_g_hit(px + pw / 3, H - 48, pw / 3, 48, "home", nil, nil, 0)
+        atome_g_hit(px + pw * 2 / 3, H - 48, pw / 3, 48, "tasks", nil, nil, 0)
+    } else {
+        atome_g_wall(0, 0, W, H)
+        atome_g_hit(0, 0, W, H, "desk", nil, nil, 0)
+        ton.let i = 0
+        for id in atome_os["order"] {
+            ton.let ix = 14 + (i / 7) * 96
+            ton.let iy = 14 + (i % 7) * 100
+            atome_g_icon(ix + 14, iy, id, 52)
+            ton.let label = atome_clip(atome_os["apps"][id]["title"], 10)
+            gfx_text(ix + 40 - len(label) * 4, iy + 58, label, c["white"])
+            atome_g_hit(ix, iy, 80, 84, "app", nil, id, i)
+            i = i + 1
+        }
+        for win in atome_ordered() { atome_g_window(win) }
+        gfx_rect(0, H - 32, W, 32, c["bar"])
+        gfx_rect(4, H - 28, 72, 24, atome_os["menu"] ? c["sel"] : c["btn"])
+        gfx_text(16, H - 24, "Start", c["white"])
+        atome_g_hit(4, H - 28, 72, 24, "start", nil, nil, 0)
+        ton.let tx = 84
+        for win in atome_os["wins"] {
+            gfx_rect(tx, H - 28, 140, 24, win["id"] == atome_os["focus"] ? c["sel"] : c["btn"])
+            gfx_text(tx + 8, H - 24, atome_clip(win["title"], 15), c["white"])
+            atome_g_hit(tx, H - 28, 140, 24, "task", win, nil, 0)
+            tx = tx + 146
+        }
+        gfx_text(W - 48, H - 24, atome_time(), c["white"])
+        if atome_os["menu"] {
+            ton.let n = len(atome_os["order"]) + 2
+            ton.let mh = n * 28 + 12
+            gfx_rect(3, H - 32 - mh - 1, 232, mh + 2, c["line"])
+            gfx_rect(4, H - 32 - mh, 230, mh, c["menu"])
+            ton.let k = 0
+            while k < n {
+                ton.let label = ""
+                if k < len(atome_os["order"]) { label = atome_os["apps"][atome_os["order"][k]]["title"] }
+                else if k == len(atome_os["order"]) { label = "Power off" }
+                else { label = "Reboot" }
+                ton.let my = H - 32 - mh + 6 + k * 28
+                if k == atome_os["msel"] { gfx_rect(8, my, 222, 26, c["sel"]) }
+                gfx_text(18, my + 5, label, c["white"])
+                atome_g_hit(8, my, 222, 26, "menu", nil, nil, k)
+                k = k + 1
+            }
+        }
+    }
+    if atome_os["ttl"] > 0 {
+        ton.let tw = len(atome_os["toast"]) * 8 + 24
+        gfx_rect((W - tw) / 2, 40, tw, 30, c["line"])
+        gfx_rect((W - tw) / 2 + 1, 41, tw - 2, 28, c["menu"])
+        gfx_text((W - tw) / 2 + 12, 47, atome_os["toast"], c["white"])
+    }
+    gfx_flip()
+}
+ton.function atome_g_press(win, wd) {
+    if wd["act"] == "os:close" { atome_close(win["id"]) }
+    else { atome_act(win, wd["act"], wd["value"]) }
+}
+ton.function atome_g_menu_pick(i) {
+    if i < len(atome_os["order"]) { atome_open(atome_os["order"][i]) }
+    else if i == len(atome_os["order"]) { poweroff() }
+    else { reboot() }
+}
+ton.function atome_g_click(mx, my) {
+    ton.let hits = atome_g["hits"]
+    ton.let i = len(hits) - 1
+    while i >= 0 {
+        ton.let h = hits[i]
+        if mx >= h["x"] and mx < h["x"] + h["w"] and my >= h["y"] and my < h["y"] + h["h"] {
+            ton.let kind = h["kind"]
+            if kind == "raise" { atome_raise(h["win"])
+                atome_os["menu"] = false }
+            else if kind == "title" { atome_raise(h["win"])
+                atome_os["menu"] = false
+                atome_g["drag"] = h["win"]["id"]
+                atome_g["ox"] = mx - h["win"]["gx"]
+                atome_g["oy"] = my - h["win"]["gy"] }
+            else if kind == "close" { atome_close(h["win"]["id"]) }
+            else if kind == "widget" {
+                atome_raise(h["win"])
+                atome_os["menu"] = false
+                h["win"]["sel"] = h["idx"]
+                if h["wd"]["t"] != "input" { atome_g_press(h["win"], h["wd"]) }
+            }
+            else if kind == "app" { atome_open(h["wd"]) }
+            else if kind == "start" { atome_os["menu"] = !atome_os["menu"]
+                atome_os["msel"] = 0 }
+            else if kind == "menu" { atome_g_menu_pick(h["idx"]) }
+            else if kind == "task" { atome_raise(h["win"])
+                atome_os["menu"] = false }
+            else if kind == "desk" { atome_os["menu"] = false }
+            else if kind == "back" or kind == "home" or kind == "tasks" { atome_os["home"] = true }
+            return nil
+        }
+        i = i - 1
+    }
+}
+ton.function atome_g_drag(mx, my) {
+    ton.let win = atome_find(atome_g["drag"])
+    if win == nil { atome_g["drag"] = ""
+        return nil }
+    // px/py are stored in the "web" scale; window drawing turns them into pixels
+    win["px"] = (mx - atome_g["ox"] + 90) / 2
+    win["py"] = (my - atome_g["oy"] + 70) / 2
+}
+ton.function atome_g_run() {
+    atome_g_theme()
+    atome_g_draw()
+    ton.let last = atome_now()
+    ton.let was = false
+    while true {
+        ton.let m = mouse()
+        ton.let k = poll()
+        ton.let redraw = false
+        ton.let down = m[2] % 2 == 1
+        if down and !was { atome_g_click(m[0], m[1])
+            redraw = true }
+        else if down and atome_g["drag"] != "" and m[3] == 1 { atome_g_drag(m[0], m[1])
+            redraw = true }
+        if !down { atome_g["drag"] = "" }
+        was = down
+        if k != "" { atome_k_key(k)
+            redraw = true }
+        if atome_now() - last >= 1000 {
+            last = atome_now()
+            if atome_tick_all() { redraw = true }
+            if atome_os["ttl"] > 0 { atome_os["ttl"] = atome_os["ttl"] - 1
+                redraw = true }
+            ton.let t = atome_time()
+            if t != atome_os["clk"] { atome_os["clk"] = t
+                redraw = true }
+        }
+        if redraw { atome_g_draw() }
+        else if m[3] == 1 { gfx_flip() }
+        sleep(8)
+    }
+}
+
 // ------------------------------------------------------------------ the apps every system starts with
 // ---- Notes: a list of short notes, saved in /home/notes.txt
 ton.function atome_notes_save(win) { atome_write("/home/notes.txt", join(win["s"]["notes"], "\n")) }
@@ -1092,6 +1406,8 @@ ton.function atome_run() {
         ui_on("event", atome_web_event)
         ui_every(1000, atome_web_tick)
         atome_web_draw()
+    } else if gfx_ok() {
+        atome_g_run()
     } else {
         atome_k_run()
     }

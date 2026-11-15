@@ -332,7 +332,7 @@ jobs:
           mkdir -p "$D/res/kernel"
           cp atome/cli/atome.py "$D/atome.py"
           sed -i "s/^VERSION = .*/VERSION = \"$V\"/" "$D/atome.py"
-          cp atome/kernel/Makefile atome/kernel/boot.asm atome/kernel/linker.ld atome/kernel/kernel.h atome/kernel/libk.c atome/kernel/console.c atome/kernel/input.c atome/kernel/time.c atome/kernel/kmain.c atome/kernel/tonvm.c "$D/res/kernel/"
+          cp atome/kernel/Makefile atome/kernel/boot.asm atome/kernel/linker.ld atome/kernel/kernel.h atome/kernel/libk.c atome/kernel/console.c atome/kernel/input.c atome/kernel/time.c atome/kernel/kmain.c atome/kernel/tonvm.c atome/kernel/disk.c atome/kernel/gfx.c atome/kernel/font8x16.h "$D/res/kernel/"
           cp atome/module/atome.ton "$D/res/atome.ton"
           cp exemples/ton618-lite.js "$D/res/ton618-lite.js"
           printf '#!/bin/sh\nexec python3 "$(dirname "$0")/atome.py" "$@"\n' > "$D/atome"

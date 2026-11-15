@@ -77,6 +77,20 @@ u32   disk_sectors(void);                            // its size in 512-byte sec
 int   disk_read(u32 lba, void *buf);                 // one sector; 1 on success
 int   disk_write(u32 lba, const void *buf);
 
+// ---- gfx.c: a graphical screen (a linear framebuffer given by GRUB), a bitmap font and a mouse pointer ----
+void  gfx_init(void *fb, u32 pitch, u32 w, u32 h, u32 bpp);   // call once the heap exists; does nothing unless bpp == 32
+int   gfx_ok(void);
+u32   gfx_w(void);
+u32   gfx_h(void);
+void  gfx_clear(u32 rgb);                                      // all drawing goes to a back buffer ...
+void  gfx_rect(int x, int y, int w, int h, u32 rgb);
+void  gfx_text(int x, int y, const char *s, u32 rgb, int scale);
+void  gfx_flip(void);                                          // ... and this copies it to the screen and draws the pointer
+void  gfx_cursor(int x, int y, int visible);
+// ---- input.c: the PS/2 mouse ----
+void  mouse_init(int w, int h);
+int   mouse_get(int *x, int *y, int *buttons);                 // reads what the mouse did; 1 if anything changed
+
 // ---- kmain.c ----
 void  panic(const char *msg);
 void  power_off(void);

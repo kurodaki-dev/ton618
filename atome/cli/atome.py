@@ -217,14 +217,23 @@ def build_kernel(project: Project, res: dict, out: Path) -> tuple[Path, Path]:
     target = out / "kernel"
     target.mkdir(parents=True, exist_ok=True)
     shutil.copy(work / "atome.elf", target / "atome.elf")
+    shutil.copy(work / "atome-gfx.elf", target / "atome-gfx.elf")
     (target / "program.ton").write_text(bundle(project, res), encoding="utf-8")
     shutil.rmtree(work, ignore_errors=True)
     return target / "atome.elf", target / "program.ton"
 
 
 GRUB_CFG = """set timeout=0
-set default=0
+set default=%d
+insmod all_video
+set gfxmode=1024x768x32,auto
+set gfxpayload=keep
 menuentry "%s" {
+    multiboot /boot/atome-gfx.elf
+    module /boot/program.ton program
+    boot
+}
+menuentry "%s (text mode)" {
     multiboot /boot/atome.elf
     module /boot/program.ton program
     boot
@@ -232,7 +241,7 @@ menuentry "%s" {
 """
 
 
-def build_image(project: Project, res: dict, out: Path) -> Path:
+def build_image(project: Project, res: dict, out: Path, text: bool = False) -> Path:
     need("grub-mkrescue", "xorriso")
     elf, prog = build_kernel(project, res, out)
     iso_root = out / ".iso"
@@ -240,8 +249,9 @@ def build_image(project: Project, res: dict, out: Path) -> Path:
         shutil.rmtree(iso_root)
     (iso_root / "boot" / "grub").mkdir(parents=True)
     shutil.copy(elf, iso_root / "boot" / "atome.elf")
+    shutil.copy(elf.parent / "atome-gfx.elf", iso_root / "boot" / "atome-gfx.elf")
     shutil.copy(prog, iso_root / "boot" / "program.ton")
-    (iso_root / "boot" / "grub" / "grub.cfg").write_text(GRUB_CFG % project.title.replace('"', ""), encoding="utf-8")
+    (iso_root / "boot" / "grub" / "grub.cfg").write_text(GRUB_CFG % ((1 if text else 0,) + (project.title.replace('"', ""),) * 2), encoding="utf-8")
     iso = out / f"{project.name}.iso"
     r = subprocess.run(["grub-mkrescue", "-o", str(iso), str(iso_root)], capture_output=True, text=True)
     shutil.rmtree(iso_root, ignore_errors=True)
@@ -506,7 +516,7 @@ def cmd_run(args):
         subprocess.call(cmd)
     elif args.target == "image":
         need("qemu-system-i386")
-        iso = build_image(p, res, out)
+        iso = build_image(p, res, out, args.text)
         print("Booting " + str(iso))
         subprocess.call(["qemu-system-i386", "-cdrom", str(iso), "-hda", str(disk_image(out, args.disk))] + (["-display", "none", "-serial", "stdio"] if args.nographic else []))
     else:
@@ -525,7 +535,7 @@ def cmd_build(args):
         elf, prog = build_kernel(p, res, out)
         print(f"Built {elf} and {prog}\n  qemu-system-i386 -kernel {elf} -initrd {prog}")
     elif args.target == "image":
-        iso = build_image(p, res, out)
+        iso = build_image(p, res, out, args.text)
         print(f"Built {iso}  ({iso.stat().st_size // 1024} KB)\n  qemu-system-i386 -cdrom {iso}   (or write it to a USB stick / attach it to a VM)")
     elif args.target == "app":
         app = build_app(p, res, out)
@@ -563,10 +573,12 @@ def main() -> int:
     s = sub.add_parser("run"); s.add_argument("path", nargs="?", default=".")
     s.add_argument("--target", default="web", choices=["web", "kernel", "image"])
     s.add_argument("--port", type=int, default=0); s.add_argument("--no-open", action="store_true"); s.add_argument("--nographic", action="store_true")
+    s.add_argument("--text", action="store_true", help="image target: boot in text mode instead of the graphical screen")
     s.add_argument("--disk", type=int, default=8, help="size in MB of the virtual hard disk dist/disk.img (default 8)")
     s.set_defaults(fn=cmd_run)
     s = sub.add_parser("build"); s.add_argument("path", nargs="?", default=".")
     s.add_argument("--target", default="web", choices=["web", "kernel", "image", "app"])
+    s.add_argument("--text", action="store_true", help="image target: boot in text mode instead of the graphical screen")
     s.set_defaults(fn=cmd_build)
     s = sub.add_parser("doctor"); s.set_defaults(fn=cmd_doctor)
     args = ap.parse_args()

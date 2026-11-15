@@ -5,6 +5,9 @@
 struct mb_module { u32 start, end, string, reserved; };
 struct mb_info {
     u32 flags, mem_lower, mem_upper, boot_device, cmdline, mods_count, mods_addr;
+    u32 syms[4], mmap_length, mmap_addr, drives_length, drives_addr, config_table, boot_loader_name, apm_table;
+    u32 vbe_control_info, vbe_mode_info; u16 vbe_mode, vbe_seg, vbe_off, vbe_len;
+    u32 fb_addr_lo, fb_addr_hi, fb_pitch, fb_width, fb_height; u8 fb_bpp, fb_type;
 };
 
 static const char *program;        // the TON program that came with the image (a Multiboot module)
@@ -95,6 +98,10 @@ void kmain(u32 magic, struct mb_info *mbi) {
     if (mbi->flags & 1) { console_print_int((i32)((mbi->mem_lower + mbi->mem_upper) / 1024 + 1)); console_puts(" MB\n"); }
     else console_puts("unknown\n");
     console_puts("[boot] clock calibrated, keyboard and serial ready\n");
+    if ((mbi->flags & (1u << 12)) && mbi->fb_type == 1 && mbi->fb_addr_hi == 0) {      // a linear RGB framebuffer
+        gfx_init((void *)mbi->fb_addr_lo, mbi->fb_pitch, mbi->fb_width, mbi->fb_height, mbi->fb_bpp);
+        if (gfx_ok()) { mouse_init((int)mbi->fb_width, (int)mbi->fb_height); console_puts("[boot] graphical screen\n"); }
+    }
     if (disk_init()) { console_puts("[boot] disk: "); console_print_int((i32)(disk_sectors() / 2048)); console_puts(" MB\n"); }
     else console_puts("[boot] no disk (what you save is lost when the machine stops)\n");
 
