@@ -1,13 +1,16 @@
 // The atome module on the JavaScript engine (what Acode, the IDE and the playground run): the three styles,
 // the Windows-style terminal and the background tick. No DOM needed: it reads the HTML the system draws.
 const path = require("path");
+const fs = require("fs");
 require(path.join(__dirname, "..", "exemples", "ton618-lite.js"));
 const lite = globalThis.Ton618Lite;
+// IMPORT://atome comes from the registry package, as in Acode: here from the package's source file
+const ATOME = fs.readFileSync(path.join(__dirname, "..", "registry", "sources", "atome", "atome.ton"), "utf8");
 let failed = 0;
 const ok = (c, m) => { console.log((c ? "ok   " : "FAIL ") + m); if (!c) failed++; };
 function boot(setup) {
   const out = [];
-  const r = lite.runTon618(`IMPORT://atome\natome.boot("WebOS")\n${setup}\natome.run()`, { onUi: (m) => out.push(m) });
+  const r = lite.runTon618(`IMPORT://atome\natome.boot("WebOS")\n${setup}\natome.run()`, { files: { "modules/atome.ton": ATOME }, onUi: (m) => out.push(m) });
   if (!r.ok) throw new Error(r.output);
   const html = () => out.filter((m) => m.type === "render").pop().html;
   const click = (id, win = "", value = "") => r.session.dispatch({ type: "click", id, win, value });
@@ -48,4 +51,28 @@ const cw = o.winId();
 o.click("a:toggle", cw); ok(o.html().includes("Pause"), "Clock: the stopwatch starts");
 o.click("os:launch", "", "notes"); ok(o.html().includes("Notes") && o.html().includes("Pause"), "other apps open while it keeps running (it is still in its window)");
 o.r.session.stop();
-process.exit(failed ? 1 : 0);
+// the engine no longer carries the module: without the package, IMPORT://atome says so
+const none = lite.runTon618("IMPORT://atome");
+ok(!none.ok && /atome/.test(none.output), "the engine has no built-in atome: " + none.output.split("\n").pop());
+// fetchRegistryModules downloads the package (a fake registry here) and only what is missing
+(async () => {
+  const pkgText = fs.readFileSync(path.join(__dirname, "..", "registry", "packages", "atome-1.0.0.tonpkg"), "utf8");
+  const sha = require("crypto").createHash("sha256").update(pkgText).digest("hex");
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes("index.json")) return { ok: true, json: async () => ({ packages: { atome: { versions: { "1.0.0": { file: "packages/atome-1.0.0.tonpkg", sha256: sha } } } } }) };
+    return { ok: true, text: async () => pkgText };
+  };
+  const files = await lite.fetchRegistryModules("IMPORT://atome\natome.boot(\"x\")");
+  ok(files["modules/atome.ton"] === ATOME, "fetchRegistryModules installs atome from the registry");
+  const again = await lite.fetchRegistryModules("IMPORT://atome", files);
+  ok(calls.length === 2 && again["modules/atome.ton"] === ATOME, "nothing is fetched when the module is already there");
+  globalThis.fetch = async () => ({ ok: true, text: async () => "tampered", json: async () => ({ packages: { atome: { versions: { "1.0.0": { file: "packages/atome-1.0.0.tonpkg", sha256: sha } } } } }) });
+  const bad = await lite.fetchRegistryModules("IMPORT://atome");
+  ok(!("modules/atome.ton" in bad), "a package with the wrong checksum is refused");
+  const r = lite.runTon618('IMPORT://atome\natome.boot("T")\natome.run()', { files });
+  ok(r.ok && r.session, "a program using the fetched module runs");
+  console.log(failed ? failed + " failed" : "all passed");
+  process.exit(failed ? 1 : 0);
+})();

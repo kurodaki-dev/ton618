@@ -387,13 +387,14 @@ function stopScreen() {
 }
 stopButton.addEventListener("click", stopScreen);
 
-function runCode() {
+async function runCode() {
   stopScreen();
   const key = "ton618.ui:playground";
   let storage = {};
   try { storage = JSON.parse(localStorage.getItem(key) || "{}"); } catch (e) { /* no storage */ }
+  const files = await Ton618Lite.fetchRegistryModules(editor.value);   // IMPORT://atome comes from the registry
   const result = Ton618Lite.runTon618(editor.value, {
-    storage,
+    files, storage,
     onUi: (m) => {
       if (m.type === "render") {
         if (!uiScreen) {

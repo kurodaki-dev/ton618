@@ -328,7 +328,7 @@ jobs:
         run: |
           V=${{ needs.version.outputs.semver }}
           D=atome-cli-$V
-          python3 scripts/embed_atome.py --check
+          python3 scripts/sync_atome.py --check
           mkdir -p "$D/res/kernel"
           cp atome/cli/atome.py "$D/atome.py"
           sed -i "s/^VERSION = .*/VERSION = \"$V\"/" "$D/atome.py"

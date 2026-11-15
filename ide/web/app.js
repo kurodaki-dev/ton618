@@ -10,7 +10,7 @@ const invoke = TAURI ? TAURI.core.invoke : null;
 const STORE_KEY = "ton618-ide";
 
 const EXAMPLES = {
-  "atome-os.ton": `// A whole operating system in a few lines (the built-in \`atome\` module). Run it, then click, type and drag windows.
+  "atome-os.ton": `// A whole operating system in a few lines (the \`atome\` package from the registry: Modules → install). Run it, then click, type and drag windows.
 IMPORT://atome
 
 ton.function hello_init(win) { win["s"]["n"] = 0 }
@@ -363,7 +363,7 @@ async function run() {
 
   // Built-in engine, in a worker. Every project file is passed along so
   // IMPORT://name finds name.ton (or modules/name.ton).
-  const files = { ...state.files };
+  let files = { ...state.files };
   if (state.mode === "folder") {
     for (const n of state.names) {
       if (n.endsWith(".ton") && !(n in files)) {
@@ -371,6 +371,7 @@ async function run() {
       }
     }
   }
+  files = await Ton618Lite.fetchRegistryModules(editor.value, files);   // IMPORT://atome and other registry modules
   const uiKey = "ton618.ui:" + state.active;
   let storage = {};
   try { storage = JSON.parse(localStorage.getItem(uiKey) || "{}"); } catch (e) { /* no storage */ }

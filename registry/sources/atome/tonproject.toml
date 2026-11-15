@@ -1,0 +1,11 @@
+[project]
+name = "atome"
+version = "1.0.0"
+description = "Build an operating system in a few lines of TON: apps, windows, a terminal, a disk. Windows / Android / custom looks, on a screen, in the browser or on the Atome kernel."
+authors = ["kurodaki-dev"]
+license = "MIT"
+readme = "README.md"
+main = "atome.ton"
+repository = "https://github.com/kurodaki-dev/ton618"
+keywords = ["os", "operating-system", "ui", "windows", "android", "kernel"]
+requires = ">=1.0.0"

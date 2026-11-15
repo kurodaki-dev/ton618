@@ -1,9 +1,13 @@
 # Changelog
 
+## 2.3.1
+
+- **Reload button in the Modules panel** (↻ Reload): fetches the registry's list again and re-reads what is installed, so a newly published module such as `atome` shows up without restarting Acode.
+
 ## 2.3.0
 
-- **Programs that draw a screen run in the Run window**: a system made with the new built-in `atome` module (`IMPORT://atome`) appears as a desktop you can click, type in and drag windows of; the program keeps running until you tap Stop or Close. `ton.ui` is available too.
-- The engine now has `platform()` and the `atome` module built in: nothing to install.
+- **Programs that draw a screen run in the Run window**: a system made with the `atome` package from the Modules panel (`IMPORT://atome`) appears as a desktop you can click, type in and drag windows of; the program keeps running until you tap Stop or Close. `ton.ui` is available too.
+- The engine now has `platform()`. The `atome` module is a registry package: install it from the Modules panel.
 
 ## 2.2.4
 
