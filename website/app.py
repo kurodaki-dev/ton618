@@ -84,7 +84,8 @@ PARTS = [
     (4, "The language", "Le langage"),
     (17, "Modules", "Modules"),
     (21, "Tools", "Outils"),
-    (24, "Internals", "Fonctionnement"),
+    (24, "Plugins", "Plugins"),
+    (25, "Internals", "Fonctionnement"),
 ]
 
 # "Start here" on the home page: section numbers of the first chapters to read.

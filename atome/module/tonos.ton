@@ -1,0 +1,352 @@
+// tonos.ton — WORK IN PROGRESS: the start of the `atome` module (windows and Android-style systems on top of ton.ui).
+// Not published yet: only the core (disk, windows, events) exists; apps and rendering come next.
+//
+//   IMPORT://tonos
+//   ton.let os = tonos.boot({"name": "MyOS", "style": "windows"})   // or "android"
+//   os.app({"id": "hello", "title": "Hello", "icon": "👋", "view": (win) => "<h1>Hello!</h1>"})
+//   os.start()
+//
+// Press Play in Acode, the TON618 IDE or the playground: the system appears and you use it
+// (click, type, drag windows). It is a simulated system drawn with ton.ui, not a real kernel.
+//
+// Everything is in the `tonos` dict; the other names start with tonos_.
+IMPORT://ton.ui
+IMPORT://ton.json
+
+ton.function tonos_pad(n) { return n < 10 ? "0" + str(n) : str(n) }
+ton.function tonos_esc(s) { return ui_escape(s) }
+ton.function tonos_starts(s, prefix) { return len(s) >= len(prefix) and s[0:len(prefix)] == prefix }
+
+// The look of both systems. Plain strings: no escaping of braces needed.
+ton.let TONOS_CSS = `
+.os{position:absolute;top:0;right:0;bottom:0;left:0;overflow:hidden;color:#fff;font-size:15px}
+.os *{box-sizing:border-box}
+.os button{cursor:pointer;border:0;color:inherit;background:rgba(255,255,255,.14);border-radius:8px;padding:8px 12px}
+.os button:active{background:rgba(255,255,255,.28)}
+.os input,.os textarea{background:rgba(0,0,0,.35);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:8px;outline:0}
+.os .ico{font-size:30px;line-height:1}
+.os .dim{opacity:.65}
+.os .row{display:flex;gap:8px;align-items:center}
+.os .col{display:flex;flex-direction:column;gap:8px}
+.os .grow{flex:1;min-width:0}
+.os .list{overflow:auto}
+.os .item{display:flex;gap:10px;align-items:center;padding:9px 10px;border-radius:8px;cursor:pointer}
+.os .item:hover,.os .item:active{background:rgba(255,255,255,.14)}
+.os .card{background:rgba(255,255,255,.1);border-radius:12px;padding:12px}
+.os .body{padding:12px;height:100%;overflow:auto;background:rgba(24,26,34,.97)}
+.os .light .body{background:#f4f5f8;color:#111}
+.os .win{position:absolute;display:flex;flex-direction:column;border-radius:10px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);background:#1b1d26}
+.os .win.focus{border-color:rgba(255,255,255,.5)}
+.os .tb{display:flex;align-items:center;gap:8px;height:36px;padding:0 6px 0 12px;background:rgba(40,43,56,.98);touch-action:none;cursor:move}
+.os .tb .t{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;font-size:13px}
+.os .tb button{padding:4px 10px;border-radius:6px;background:transparent}
+.os .tb button.x:hover{background:#e5484d}
+.os .wb{flex:1;min-height:0;position:relative}
+.os .wp{position:absolute;top:0;right:0;bottom:0;left:0}
+.os .tbar{position:absolute;left:0;right:0;bottom:0;height:48px;display:flex;align-items:center;gap:6px;padding:0 8px;background:rgba(15,16,22,.86);backdrop-filter:blur(14px)}
+.os .tbar .task{max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:6px 10px;font-size:13px}
+.os .tbar .task.on{background:rgba(255,255,255,.3)}
+.os .start{position:absolute;left:8px;bottom:56px;width:300px;max-height:70%;overflow:auto;padding:10px;border-radius:12px;background:rgba(22,24,32,.96);box-shadow:0 10px 40px rgba(0,0,0,.6)}
+.os .dsk{position:absolute;top:10px;left:10px;display:grid;grid-template-columns:repeat(2,84px);gap:6px}
+.os .dsk .a{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:8px;text-align:center;font-size:12px;cursor:pointer;text-shadow:0 1px 3px #000}
+.os .dsk .a:hover{background:rgba(255,255,255,.16)}
+.os .sb{position:absolute;top:0;left:0;right:0;height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:13px;font-weight:600;background:rgba(0,0,0,.28)}
+.os .nav{position:absolute;left:0;right:0;bottom:0;height:46px;display:flex;justify-content:space-around;align-items:center;background:rgba(0,0,0,.62);font-size:20px}
+.os .nav span{padding:8px 34px;cursor:pointer}
+.os .hs{position:absolute;top:28px;left:0;right:0;bottom:46px;padding:18px 14px;overflow:auto}
+.os .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px 6px}
+.os .grid .a{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;cursor:pointer;text-align:center;text-shadow:0 1px 3px #000}
+.os .grid .ico{background:rgba(255,255,255,.16);border-radius:16px;width:54px;height:54px;display:flex;align-items:center;justify-content:center}
+.os .big{font-size:54px;font-weight:300;letter-spacing:-1px}
+.os .ap{position:absolute;top:28px;left:0;right:0;bottom:46px}
+.os .shade{position:absolute;top:28px;left:0;right:0;padding:14px;background:rgba(20,22,30,.97);border-radius:0 0 16px 16px;box-shadow:0 10px 30px rgba(0,0,0,.6);max-height:70%;overflow:auto}
+.os .toast{position:absolute;top:36px;left:50%;transform:translateX(-50%);max-width:92%;padding:10px 16px;border-radius:12px;background:rgba(20,22,30,.97);border:1px solid rgba(255,255,255,.2);box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.os .keys{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.os .keys button{padding:14px 0;font-size:18px}
+.os pre{margin:0;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+`
+ton.let TONOS_WALLPAPERS = [
+    "linear-gradient(135deg,#1e3c72,#2a5298 55%,#6dd5ed)",
+    "linear-gradient(135deg,#0f2027,#203a43 50%,#2c5364)",
+    "linear-gradient(135deg,#42275a,#734b6d)",
+    "linear-gradient(135deg,#134e5e,#71b280)",
+    "linear-gradient(135deg,#232526,#414345)",
+    "linear-gradient(135deg,#ff7e5f,#feb47b)"
+]
+
+// ---- paths of the virtual disk ----
+ton.function tonos_parent(path) {
+    ton.let i = len(path) - 1
+    while i > 0 and path[i] != "/" {
+        i = i - 1
+    }
+    return i <= 0 ? "/" : path[0:i]
+}
+ton.function tonos_base(path) {
+    ton.let i = len(path) - 1
+    while i >= 0 and path[i] != "/" {
+        i = i - 1
+    }
+    return path[i + 1:len(path)]
+}
+ton.function tonos_join(dir, name) { return dir == "/" ? "/" + name : dir + "/" + name }
+
+ton.class TonOS {
+    ton.function init(config) {
+        self.name = config["name"] == nil ? "TON OS" : config["name"]
+        self.style = config["style"] == nil ? "windows" : config["style"]
+        self.auto = self.style == "auto"
+        if self.auto { self.style = "windows" }
+        self.apps = {}
+        self.order = []
+        self.wins = []
+        self.zTop = 1
+        self.nextWin = 1
+        self.screen = [800, 600]
+        self.startOpen = false
+        self.shade = false
+        self.recents = false
+        self.toasts = []
+        self.notes = []
+        self.minute = -1
+        self.wallpaper = 0
+        self.light = false
+        self.dirs = {"/": true, "/home": true, "/home/docs": true, "/tmp": true}
+        self.files = {
+            "/home/readme.txt": "Welcome to " + self.name + "!\nThis system is written in TON.\nOpen the Terminal and type: help",
+            "/home/docs/todo.txt": "- build my own apps with os.app(...)\n- change the look in Settings"
+        }
+        self.load()
+        self.install_builtin()
+    }
+
+    // ---------------- the disk ----------------
+    ton.function load() {
+        ton.let saved = ui_storage_get("tonos.disk", nil)
+        if saved != nil {
+            try {
+                ton.let d = json_parse(saved)
+                self.dirs = d["dirs"]
+                self.files = d["files"]
+            } catch (e) { }
+        }
+        ton.let prefs = ui_storage_get("tonos.prefs", nil)
+        if prefs != nil {
+            try {
+                ton.let p = json_parse(prefs)
+                self.wallpaper = p["wallpaper"]
+                self.light = p["light"]
+                if p["style"] != nil and !self.auto { self.style = p["style"] }
+            } catch (e) { }
+        }
+    }
+    ton.function save_disk() { ui_storage_set("tonos.disk", json_stringify({"dirs": self.dirs, "files": self.files})) }
+    ton.function save_prefs() { ui_storage_set("tonos.prefs", json_stringify({"wallpaper": self.wallpaper, "light": self.light, "style": self.style})) }
+
+    ton.function exists(path) { return self.dirs.has(path) or self.files.has(path) }
+    ton.function is_dir(path) { return self.dirs.has(path) }
+    ton.function read(path) { return self.files.has(path) ? self.files[path] : nil }
+    ton.function write(path, text) {
+        if self.dirs.has(path) { return false }
+        ton.let dir = tonos_parent(path)
+        if !self.dirs.has(dir) { return false }
+        self.files[path] = text
+        self.save_disk()
+        return true
+    }
+    ton.function mkdir(path) {
+        if self.exists(path) or !self.dirs.has(tonos_parent(path)) { return false }
+        self.dirs[path] = true
+        self.save_disk()
+        return true
+    }
+    ton.function remove(path) {
+        if path == "/" { return false }
+        if self.files.has(path) {
+            remove(self.files, path)
+        } else if self.dirs.has(path) {
+            for p in keys(self.files) { if tonos_starts(p, path + "/") { remove(self.files, p) } }
+            for p in keys(self.dirs) { if p == path or tonos_starts(p, path + "/") { remove(self.dirs, p) } }
+        } else {
+            return false
+        }
+        self.save_disk()
+        return true
+    }
+    // names (folders first) of what is inside a folder: [{"name":..., "path":..., "dir": true|false}]
+    ton.function list(dir) {
+        ton.let out = []
+        for p in sorted(keys(self.dirs)) { if p != "/" and tonos_parent(p) == dir { push(out, {"name": tonos_base(p), "path": p, "dir": true}) } }
+        for p in sorted(keys(self.files)) { if tonos_parent(p) == dir { push(out, {"name": tonos_base(p), "path": p, "dir": false}) } }
+        return out
+    }
+
+    // ---------------- apps and windows ----------------
+    // app: {id, title, icon, view: (win) => html, on: {id: (win, e) => ...}, "*": catch-all handler, size: [w, h]}
+    ton.function app(def) {
+        if def["on"] == nil { def["on"] = {} }
+        if def["icon"] == nil { def["icon"] = "📦" }
+        if def["title"] == nil { def["title"] = def["id"] }
+        if !self.apps.has(def["id"]) { push(self.order, def["id"]) }
+        self.apps[def["id"]] = def
+        return self
+    }
+    ton.function win_by_id(id) {
+        for w in self.wins { if w["id"] == id { return w } }
+        return nil
+    }
+    ton.function top() {
+        ton.let best = nil
+        for w in self.wins { if !w["min"] and (best == nil or w["z"] > best["z"]) { best = w } }
+        return best
+    }
+    // open an app in a new window (or bring its window back in Android style, where an app has one window)
+    ton.function launch(id, args) {
+        if !self.apps.has(id) { return nil }
+        ton.let def = self.apps[id]
+        if self.style == "android" {
+            for w in self.wins { if w["app"] == id { self.zTop = self.zTop + 1
+                w["z"] = self.zTop
+                w["min"] = false
+                if args != nil { w["args"] = args }
+                self.close_menus(true)
+                self.draw()
+                return w } }
+        }
+        ton.let size = def["size"] == nil ? [480, 360] : def["size"]
+        ton.let n = len(self.wins)
+        self.zTop = self.zTop + 1
+        ton.let win = {"id": "w" + str(self.nextWin), "app": id, "title": def["title"], "icon": def["icon"],
+            "x": 90 + (n % 6) * 34, "y": 40 + (n % 6) * 30, "w": size[0], "h": size[1], "z": self.zTop,
+            "min": false, "max": false, "state": {}, "args": args}
+        self.nextWin = self.nextWin + 1
+        if def["open"] != nil { def["open"](win) }
+        push(self.wins, win)
+        self.close_menus(true)
+        self.draw()
+        return win
+    }
+    ton.function close(win) {
+        self.wins = self.wins.filter((w) => w["id"] != win["id"])
+        self.draw()
+    }
+    ton.function focus(win) {
+        if win["min"] or !(self.top() == win) {
+            self.zTop = self.zTop + 1
+            win["z"] = self.zTop
+            win["min"] = false
+            self.draw()
+        }
+    }
+    ton.function close_menus(silent) {
+        self.startOpen = false
+        self.shade = false
+        self.recents = false
+    }
+    ton.function notify(title, text) {
+        push(self.toasts, {"title": title, "text": text, "ttl": 4})
+        push(self.notes, {"title": title, "text": text})
+        self.draw()
+    }
+    ton.function set_style(style) {
+        self.style = style
+        self.close_menus(true)
+        if style == "android" { self.recents = false }
+        self.save_prefs()
+        self.draw()
+    }
+
+    // ---------------- events ----------------
+    ton.function start() {
+        ui_title(self.name)
+        ton.let me = self
+        ui_on("event", (e) => me.handle(e))
+        ui_every(1000, () => me.tick())
+        self.draw()
+    }
+    ton.function tick() {
+        ton.let now = ui_clock()
+        ton.let changed = now["minute"] != self.minute
+        self.minute = now["minute"]
+        ton.let keep = []
+        for t in self.toasts {
+            t["ttl"] = t["ttl"] - 1
+            if t["ttl"] > 0 { push(keep, t) } else { changed = true }
+        }
+        self.toasts = keep
+        if changed { self.draw() }
+    }
+    ton.function handle(e) {
+        ton.let t = e["type"]
+        if t == "size" {
+            self.screen = [e["x"], e["y"]]
+            if self.auto { self.style = e["x"] < 700 ? "android" : "windows" }
+            self.draw()
+            return nil
+        }
+        if t == "move" {
+            ton.let w = self.win_by_id(e["win"])
+            if w != nil { w["x"] = e["x"]
+                w["y"] = e["y"] }
+            return nil
+        }
+        ton.let id = e["id"]
+        if t == "click" and tonos_starts(id, "os:") {
+            self.system_click(id[3:len(id)], e)
+            return nil
+        }
+        // the window the event is for (the one in front on Android)
+        ton.let win = e["win"] != "" ? self.win_by_id(e["win"]) : nil
+        if win == nil { return nil }
+        ton.let def = self.apps[win["app"]]
+        ton.let h = def["on"].has(id) ? def["on"][id] : (def["on"].has("*") ? def["on"]["*"] : nil)
+        if h == nil { return nil }
+        ton.let again = h(win, e)
+        if t != "input" or again == true { self.draw() }
+        return nil
+    }
+    ton.function system_click(action, e) {
+        ton.let win = self.win_by_id(e["win"])
+        if action == "close" and win != nil { self.close(win) }
+        else if action == "min" and win != nil { win["min"] = true
+            self.draw() }
+        else if action == "max" and win != nil { win["max"] = !win["max"]
+            self.draw() }
+        else if action == "focus" and win != nil { self.focus(win) }
+        else if action == "launch" { self.launch(e["value"], nil) }
+        else if action == "start" { self.startOpen = !self.startOpen
+            self.draw() }
+        else if action == "task" and win != nil {
+            if win["min"] or !(self.top() == win) { self.focus(win) } else { win["min"] = true
+                self.draw() }
+        }
+        else if action == "shade" { self.shade = !self.shade
+            self.recents = false
+            self.draw() }
+        else if action == "clear" { self.notes = []
+            self.draw() }
+        else if action == "home" { self.close_menus(true)
+            for w in self.wins { w["min"] = true }
+            self.draw() }
+        else if action == "recents" { self.recents = !self.recents
+            self.shade = false
+            self.draw() }
+        else if action == "back" {
+            if self.shade or self.recents { self.close_menus(true) }
+            else {
+                ton.let w = self.top()
+                if w != nil { self.close(w) return nil }
+            }
+            self.draw()
+        }
+        else if action == "style" { self.set_style(e["value"]) }
+        else if action == "wall" { self.wallpaper = num(e["value"])
+            self.save_prefs()
+            self.draw() }
+        else if action == "light" { self.light = !self.light
+            self.save_prefs()
+            self.draw() }
+        else if action == "desk" { self.close_menus(true)
+            self.draw() }
+    }
+}

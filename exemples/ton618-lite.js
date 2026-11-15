@@ -1047,8 +1047,9 @@ class ReturnSignal { constructor(value) { this.value = value; } }
 // ---------------------------------------------------------------------------
 
 class Interpreter {
-  constructor(onPrint, files) {
+  constructor(onPrint, files, uiOptions) {
     this.onPrint = onPrint || (() => {});
+    this.uiOptions = uiOptions || {};
     // Optional project files ({"utils.ton": "...", "modules/x.ton": "..."})
     // so IMPORT://name works without a filesystem (the IDE, Acode plugin).
     this.files = files || null;
@@ -1692,6 +1693,7 @@ class Interpreter {
       if (builtin === "strings") return this.registerStrings();
       if (builtin === "requests") return this.registerRequests();
       if (builtin === "encoding") return this.registerEncoding();
+      if (builtin === "ui") return this.registerUi();
       if (builtin === "sys" || builtin === "os") {
         this.error(line, `'ton.${builtin}' needs real process/filesystem/network access, which the browser playground cannot provide. Install the real interpreter (see DOCUMENTATION.md) to use it.`);
       }
@@ -2017,6 +2019,27 @@ class Interpreter {
     this.def("time_sleep", () => null); // synchronous sleep isn't possible in JS; accepted as a no-op.
   }
 
+  // ton.ui: an interactive screen (the module `tonos` is built on it). The program draws with
+  // ui_render(html) and answers events registered with ui_on(type, fn); the host (Acode, the IDE,
+  // the playground) shows the HTML in a sandboxed frame and sends clicks, typing and drags back.
+  registerUi() {
+    const ui = this.ui = { handlers: new Map(), timers: [], onUi: this.uiOptions.onUi || (() => {}), storage: Object.assign({}, this.uiOptions.storage || {}) };
+    const text = (v) => toDisplayString(v ?? "");
+    this.def("ui_render", (a) => { ui.onUi({ type: "render", html: text(a[0]) }); return null; });
+    this.def("ui_on", (a) => { ui.handlers.set(text(a[0]), a[1]); return null; });
+    this.def("ui_every", (a) => { ui.timers.push({ ms: Math.max(50, Number(a[0]) || 1000), fn: a[1] }); return null; });
+    this.def("ui_title", (a) => { ui.onUi({ type: "title", text: text(a[0]) }); return null; });
+    this.def("ui_storage_get", (a) => { const k = text(a[0]); return Object.prototype.hasOwnProperty.call(ui.storage, k) ? ui.storage[k] : (a[1] ?? null); });
+    this.def("ui_storage_set", (a) => { const k = text(a[0]); ui.storage[k] = text(a[1]); ui.onUi({ type: "storage", key: k, value: ui.storage[k] }); return null; });
+    this.def("ui_storage_remove", (a) => { const k = text(a[0]); delete ui.storage[k]; ui.onUi({ type: "storage", key: k, value: null }); return null; });
+    this.def("ui_escape", (a) => text(a[0]).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"));
+    // the device's local time: {year, month, day, hour, minute, second, weekday (0 = Sunday)}
+    this.def("ui_clock", () => {
+      const d = new Date();
+      return new Map([["year", d.getFullYear()], ["month", d.getMonth() + 1], ["day", d.getDate()], ["hour", d.getHours()], ["minute", d.getMinutes()], ["second", d.getSeconds()], ["weekday", d.getDay()]]);
+    });
+  }
+
   // ton.encoding: base64 and hex of a string's UTF-8 bytes (the real interpreter works on bytes too).
   registerEncoding() {
     const enc = new TextEncoder(), dec = new TextDecoder();
@@ -2211,13 +2234,127 @@ function valuesEqual(a, b) {
 function runTon618(source, options = {}) {
   const lines = [];
   try {
-    const interp = new Interpreter((text) => { lines.push(text); if (options.onPrint) options.onPrint(text); }, options.files);
+    const interp = new Interpreter((text) => { lines.push(text); if (options.onPrint) options.onPrint(text); }, options.files,
+      { onUi: options.onUi, storage: options.storage });
     interp.run(source);
-    return { ok: true, output: lines.join("\n") };
+    const ui = interp.ui;
+    // A program that registered ui handlers or timers stays alive: the host sends it events.
+    const session = ui && (ui.handlers.size || ui.timers.length) ? makeSession(interp) : null;
+    return { ok: true, output: lines.join("\n"), session };
   } catch (e) {
     lines.push(e.message || String(e));
-    return { ok: false, output: lines.join("\n") };
+    return { ok: false, output: lines.join("\n"), session: null };
   }
+}
+
+// What keeps an interactive program going after its last line: dispatch(event) calls the handler
+// registered with ui_on for that event type (or the one for "event"), start() runs ui_every timers.
+function makeSession(interp) {
+  const ui = interp.ui, timers = [];
+  const guard = (fn, args) => {
+    try { interp.callFunction(fn, args, 0); }
+    catch (e) { ui.onUi({ type: "error", text: e.message || (e && e.value !== undefined ? toDisplayString(e.value) : String(e)) }); }
+  };
+  return {
+    dispatch(ev) {
+      const h = ui.handlers.get(ev.type) || ui.handlers.get("event");
+      if (h) guard(h, [jsToTon(ev)]);
+    },
+    start() { for (const t of ui.timers) timers.push(setInterval(() => guard(t.fn, []), t.ms)); },
+    stop() { for (const t of timers.splice(0)) clearInterval(t); ui.handlers.clear(); },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The screen of an interactive program, for hosts with a DOM (the playground, the IDE, Acode).
+// uiFrameHtml() is a small page that lives in a sandboxed iframe: it draws the HTML the program
+// sends and reports clicks ([data-do]), typing ([data-bind], [data-key]), window drags
+// ([data-drag]) and the screen size. mountUi(container, send) builds that iframe.
+// ---------------------------------------------------------------------------
+function uiFrameScript() {
+  var root = document.getElementById("root");
+  function send(ev) { parent.postMessage({ tonUi: true, event: ev }, "*"); }
+  function attr(n, name) { return n.getAttribute(name) || ""; }
+  function keepState(draw) {
+    var a = document.activeElement, id = a && a.getAttribute && a.getAttribute("data-bind"), s = null, e = null;
+    if (id) { s = a.selectionStart; e = a.selectionEnd; }
+    var scrolls = [].map.call(root.querySelectorAll("[data-scroll]"), function (n) { return [attr(n, "data-scroll"), n.scrollTop]; });
+    draw();
+    scrolls.forEach(function (p) { var n = root.querySelector('[data-scroll="' + p[0] + '"]'); if (n) n.scrollTop = p[1]; });
+    if (id) { var n = root.querySelector('[data-bind="' + id + '"]'); if (n) { n.focus(); try { n.setSelectionRange(s, e); } catch (x) { /* not a text field */ } } }
+  }
+  window.addEventListener("message", function (m) {
+    var d = m.data;
+    if (d && d.tonUi === "render") keepState(function () { root.innerHTML = d.html; });
+  });
+  root.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-do]");
+    if (t) send({ type: "click", id: attr(t, "data-do"), win: attr(t, "data-win"), value: attr(t, "data-value") });
+  });
+  root.addEventListener("input", function (e) {
+    var t = e.target;
+    if (t.hasAttribute && t.hasAttribute("data-bind")) send({ type: "input", id: attr(t, "data-bind"), win: attr(t, "data-win"), value: t.value });
+  });
+  root.addEventListener("keydown", function (e) {
+    var t = e.target;
+    if (t.hasAttribute && t.hasAttribute("data-key")) {
+      if (e.key === "Enter" && t.tagName !== "TEXTAREA") e.preventDefault();
+      send({ type: "key", id: attr(t, "data-key"), win: attr(t, "data-win"), key: e.key, value: t.value });
+    }
+  });
+  var drag = null;
+  root.addEventListener("pointerdown", function (e) {
+    var h = e.target.closest("[data-drag]");
+    if (!h || e.target.closest("[data-do]")) return;
+    var w = h.closest("[data-winbox]");
+    if (!w) return;
+    drag = { w: w, id: attr(h, "data-drag"), sx: e.clientX, sy: e.clientY, x: w.offsetLeft, y: w.offsetTop, moved: false };
+    if (h.setPointerCapture) h.setPointerCapture(e.pointerId);
+  });
+  root.addEventListener("pointermove", function (e) {
+    if (!drag) return;
+    drag.moved = true;
+    drag.w.style.left = Math.max(0, drag.x + e.clientX - drag.sx) + "px";
+    drag.w.style.top = Math.max(0, drag.y + e.clientY - drag.sy) + "px";
+  });
+  function endDrag() {
+    if (!drag) return;
+    var d = drag; drag = null;
+    send({ type: d.moved ? "move" : "click", id: d.moved ? "" : "focus", win: d.id, x: d.w.offsetLeft, y: d.w.offsetTop, value: "" });
+  }
+  root.addEventListener("pointerup", endDrag);
+  root.addEventListener("pointercancel", endDrag);
+  function size() { send({ type: "size", x: window.innerWidth, y: window.innerHeight, win: "", value: "" }); }
+  window.addEventListener("resize", size);
+  parent.postMessage({ tonUi: true, ready: true }, "*");
+  size();
+}
+
+function uiFrameHtml() {
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">' +
+    '<style>html,body{margin:0;height:100%;overflow:hidden;background:#000;color:#fff;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}' +
+    '#root{position:absolute;top:0;right:0;bottom:0;left:0}input,textarea{user-select:text;-webkit-user-select:text;font:inherit}button{font:inherit}</style></head>' +
+    '<body><div id="root"></div><script>(' + uiFrameScript.toString() + ')()<\/script></body></html>';
+}
+
+function mountUi(container, send) {
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("sandbox", "allow-scripts");
+  iframe.setAttribute("title", "TON618 screen");
+  iframe.style.cssText = "border:0;width:100%;height:100%;background:#000;display:block";
+  iframe.srcdoc = uiFrameHtml();
+  let ready = false, pending = null;
+  const onMessage = (e) => {
+    if (e.source !== iframe.contentWindow || !e.data || !e.data.tonUi) return;
+    if (e.data.ready) { ready = true; if (pending) { iframe.contentWindow.postMessage(pending, "*"); pending = null; } return; }
+    if (e.data.event) send(e.data.event);
+  };
+  window.addEventListener("message", onMessage);
+  container.appendChild(iframe);
+  return {
+    render(html) { const m = { tonUi: "render", html }; if (ready) iframe.contentWindow.postMessage(m, "*"); else pending = m; },
+    destroy() { window.removeEventListener("message", onMessage); iframe.remove(); },
+  };
 }
 
 // Syntax check only: { ok: true } or { ok: false, line, message }.
@@ -2231,6 +2368,6 @@ function checkTon618(source) {
   }
 }
 
-global.Ton618Lite = { runTon618, checkTon618 };
+global.Ton618Lite = { runTon618, checkTon618, uiFrameHtml, mountUi };
 
 })(typeof window !== "undefined" ? window : globalThis);

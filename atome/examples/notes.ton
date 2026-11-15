@@ -1,0 +1,12 @@
+ton.function window(x, y, w, h, title) {
+    fill(x, y, w, h, " ", color(0, 7))
+    fill(x, y, w, 1, " ", color(15, 1))
+    put(x + 1, y, title, color(15, 1))
+}
+clear()
+fill(0, 0, width(), height(), " ", color(15, 3))
+window(10, 4, 40, 10, " Notes ")
+put(12, 6, "Press q to power off", color(0, 7))
+while true {
+    if key() == "q" { poweroff() }
+}

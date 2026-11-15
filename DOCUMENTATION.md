@@ -32,11 +32,12 @@
 22. [Local server & routes (API)](#local-server--routes-api)
 23. [The debugger](#the-debugger)
 24. [The IDE & editor extensions](#the-ide--editor-extensions)
-25. [Architecture — how the interpreter works](#architecture--how-the-interpreter-works)
-26. [Extending the interpreter itself](#extending-the-interpreter-itself)
-27. [Publishing the docs to GitHub Pages](#publishing-the-docs-to-github-pages)
-28. [Known limitations](#known-limitations)
-29. [Changelog](#changelog)
+25. [Atome — an operating system in TON (plugin)](#atome--an-operating-system-in-ton-plugin)
+26. [Architecture — how the interpreter works](#architecture--how-the-interpreter-works)
+27. [Extending the interpreter itself](#extending-the-interpreter-itself)
+28. [Publishing the docs to GitHub Pages](#publishing-the-docs-to-github-pages)
+29. [Known limitations](#known-limitations)
+30. [Changelog](#changelog)
 
 ---
 
@@ -1438,6 +1439,112 @@ The apps aren't code-signed: on Windows click *More info → Run anyway* the fir
 
 ---
 
+### Atome — an operating system in TON (plugin)
+
+**Atome** is a plugin for building an operating system whose visible parts — the screen, windows, apps, files, a terminal — are written in TON. It has three layers, each usable on its own:
+
+| Layer | What it is | Status |
+|---|---|---|
+| **The Atome kernel** | An x86 kernel written from scratch (C and assembly, no libc, no libgcc). It boots from GRUB or QEMU, drives the screen, the keyboard and a clock, and **runs a TON program at startup**. | Works. Tested by starting it under QEMU. |
+| **`ton.ui`** | A screen for TON programs. Press Play in Acode, the TON618 IDE or the playground and the program's screen appears: you click, type and drag windows. | Works in the JavaScript engine (Acode, IDE, playground). |
+| **The `atome` module and the `atome` command** | `IMPORT://atome` to build a desktop-style or Android-style system in a few lines, and `atome new / build / run` to package it as a web app, an app or a bootable image. | In progress. |
+
+It is an honest system, not a magic one: the kernel is small (text screen, keyboard, no disk, no network yet) and was tested under QEMU, not on a real computer. Everything you see on the screen is TON.
+
+#### The kernel
+
+The kernel lives in the repository's `atome/kernel/` folder. You need `gcc` able to build 32-bit code, `nasm`, `ld` and QEMU:
+
+```bash
+cd atome/kernel
+make                                   # -> atome.elf
+qemu-system-i386 -kernel atome.elf -initrd my_os.ton -serial stdio
+```
+
+`-initrd` gives the kernel the TON program to run at startup (without it you get the kernel's own shell). The kernel:
+
+- boots through **Multiboot 1** (GRUB or QEMU's `-kernel`), in 32-bit protected mode;
+- draws on the **VGA text screen** (80 × 25, 16 colours) and mirrors everything to the **serial port**, which is also a way to type into it (that is how the tests drive it);
+- reads the **PS/2 keyboard** (US layout, shift, arrows);
+- has a **clock** (it counts processor cycles against the timer chip) and uses all the memory it is given;
+- starts the TON program, then its shell: `help`, `clear`, `echo`, `mem`, `uptime`, `ver`, `run`, `colors`, `reboot`, `poweroff`.
+
+#### TON on the kernel
+
+The kernel has its own TON interpreter (`atome/kernel/tonvm.c`, about 900 lines, no libc). It runs the same syntax as the desktop interpreter for the core of the language:
+
+| Works | Not yet |
+|---|---|
+| `ton.let` / `ton.int` / `ton.string` / `ton.bool` / `ton.array` / `ton.dict` (types are not checked) | decimal numbers (integers only) |
+| `ton.function` and `function`, recursion | classes, arrow functions and closures |
+| `if` / `else if` / `else`, `while`, `for x in ...`, `break`, `continue`, `return` | `try` / `catch`, `IMPORT://` (the `atome` command will inline imports) |
+| strings (`"..."`, `` `raw` ``, `f"..{expr}.."`), arrays, dicts, `a[i]`, `d.key`, `?:`, `and` / `or` / `!` | slices, the `\|>` operator, a garbage collector (memory is freed when the program ends) |
+| method syntax: `"ab".upper()`, `items.push(3)` | files and network (the kernel has no disk or network driver yet) |
+
+Functions every program has: `print`, `len`, `str`, `num`, `type`, `push`, `pop`, `keys`, `has`, `remove`, `range`, `upper`, `lower`, `trim`, `substring`, `contains`, `replace`, `split`, `join`, `abs`, `min`, `max`, `rand`, `char`, `ord`, and the machine:
+
+| Function | What it does |
+|---|---|
+| `put(x, y, text, color)` | draws text at a cell of the screen |
+| `fill(x, y, w, h, "c", color)` | fills a rectangle with a character |
+| `color(foreground, background)` | a colour number (0-15 each) for `put` and `fill` |
+| `clear()`, `cursor(x, y)`, `width()`, `height()` | the screen |
+| `key()` | waits for a key and returns it: `"a"`, `"enter"`, `"up"`, `"down"`, `"left"`, `"right"`, `"esc"`, `"backspace"` |
+| `input(prompt)` | reads a line |
+| `sleep(ms)`, `uptime()` | time in milliseconds |
+| `reboot()`, `poweroff()` | the machine |
+
+A tiny system:
+
+```
+ton.function window(x, y, w, h, title) {
+    fill(x, y, w, h, " ", color(0, 7))
+    fill(x, y, w, 1, " ", color(15, 1))
+    put(x + 1, y, title, color(15, 1))
+}
+clear()
+fill(0, 0, width(), height(), " ", color(15, 3))
+window(10, 4, 40, 10, " Notes ")
+put(12, 6, "Press q to power off", color(0, 7))
+while true {
+    if key() == "q" { poweroff() }
+}
+```
+
+#### `ton.ui`: a screen for Acode, the IDE and the playground
+
+`IMPORT://ton.ui` lets a TON program draw an interactive screen. The program sends HTML and answers events; the host (Acode's Run window, the IDE, the playground) shows the HTML in a sandboxed frame and sends clicks, typing, drags and the screen size back.
+
+| Function | What it does |
+|---|---|
+| `ui_render(html)` | shows this HTML as the screen |
+| `ui_on(type, handler)` | calls `handler(event)` for events of that type (`"click"`, `"input"`, `"key"`, `"move"`, `"size"`); `ui_on("event", ...)` receives all of them |
+| `ui_every(ms, handler)` | calls `handler()` every `ms` milliseconds (a clock, an animation) |
+| `ui_title(text)`, `ui_clock()` | the title, and the device's local time (`{hour, minute, ...}`) |
+| `ui_storage_get(key, default)`, `ui_storage_set(key, value)`, `ui_storage_remove(key)` | a small store that survives restarts |
+| `ui_escape(text)` | escapes text for HTML |
+
+In the HTML, `data-do="name"` makes an element send a click event (with `data-value` and `data-win` if you set them), `data-bind="name"` on a field sends its text as you type, `data-key="name"` also reports the Enter key, and `data-drag="id"` on a title bar lets the user drag the `data-winbox` window it belongs to.
+
+```
+IMPORT://ton.ui
+ton.let n = 0
+ton.function draw() {
+    ui_render(f"<div style='padding:20px;color:#fff'><h1>{n}</h1><button data-do='add'>+1</button></div>")
+}
+ui_on("click", (e) => { n = n + 1
+    draw() })
+draw()
+```
+
+`ton.ui` needs a screen, so it works with the Play button of Acode, the IDE and the playground, and the command-line interpreter answers with a clear message instead.
+
+#### What is not there yet
+
+- The `atome` module (`IMPORT://atome`, windows and Android-style screens, ready-made apps) and the `atome` command (`new`, `build`, `run`) are being built on top of the two layers above.
+- A bootable image (ISO) of the kernel with your program inside, and tests on a real computer.
+- A disk, a file system and the network inside the kernel.
+
 ### Architecture — how the interpreter works
 
 TON618 is a classic **tree-walking interpreter**, made of three stages that run in a straight pipeline:
@@ -1790,11 +1897,12 @@ One-time setup:
 22. [Serveur local & routes (API)](#serveur-local--routes-api)
 23. [Le débogueur](#le-débogueur)
 24. [L'IDE & les extensions d'éditeur](#lide--les-extensions-déditeur)
-25. [Architecture — comment fonctionne l'interpréteur](#architecture--comment-fonctionne-linterpréteur)
-26. [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même)
-27. [Publier la doc sur GitHub Pages](#publier-la-doc-sur-github-pages)
-28. [Limitations connues](#limitations-connues)
-29. [Changelog](#changelog-1)
+25. [Atome — un système d'exploitation en TON (plugin)](#atome--un-système-dexploitation-en-ton-plugin)
+26. [Architecture — comment fonctionne l'interpréteur](#architecture--comment-fonctionne-linterpréteur)
+27. [Étendre l'interpréteur lui-même](#étendre-linterpréteur-lui-même)
+28. [Publier la doc sur GitHub Pages](#publier-la-doc-sur-github-pages)
+29. [Limitations connues](#limitations-connues)
+30. [Changelog](#changelog-1)
 
 ---
 
@@ -3195,6 +3303,112 @@ Les applications ne sont pas signées : sur Windows clique *Informations complé
 `ton618 --check fichier.ton` (utilisé par les éditeurs) vérifie la syntaxe d'un fichier sans l'exécuter.
 
 ---
+
+### Atome — un système d'exploitation en TON (plugin)
+
+**Atome** est un plugin pour fabriquer un système d'exploitation dont les parties visibles — l'écran, les fenêtres, les applis, les fichiers, un terminal — sont écrites en TON. Il a trois couches, utilisables séparément :
+
+| Couche | Ce que c'est | État |
+|---|---|---|
+| **Le noyau Atome** | Un noyau x86 écrit de zéro (C et assembleur, sans libc ni libgcc). Il démarre depuis GRUB ou QEMU, pilote l'écran, le clavier et une horloge, et **exécute un programme TON au démarrage**. | Fonctionne. Testé en le démarrant sous QEMU. |
+| **`ton.ui`** | Un écran pour les programmes TON. Appuie sur Play dans Acode, l'IDE TON618 ou le playground : l'écran du programme apparaît, tu cliques, tu écris, tu déplaces des fenêtres. | Fonctionne dans le moteur JavaScript (Acode, IDE, playground). |
+| **Le module `atome` et la commande `atome`** | `IMPORT://atome` pour fabriquer un système de type bureau ou Android en quelques lignes, et `atome new / build / run` pour l'emballer en appli web, en appli ou en image bootable. | En cours. |
+
+C'est un système honnête, pas magique : le noyau est petit (écran texte, clavier, pas encore de disque ni de réseau) et testé sous QEMU, pas sur un vrai ordinateur. Tout ce que tu vois à l'écran est du TON.
+
+#### Le noyau
+
+Le noyau est dans le dossier `atome/kernel/` du dépôt. Il faut `gcc` capable de compiler du 32 bits, `nasm`, `ld` et QEMU :
+
+```bash
+cd atome/kernel
+make                                   # -> atome.elf
+qemu-system-i386 -kernel atome.elf -initrd mon_os.ton -serial stdio
+```
+
+`-initrd` donne au noyau le programme TON à exécuter au démarrage (sans lui, tu obtiens le shell du noyau). Le noyau :
+
+- démarre par **Multiboot 1** (GRUB ou le `-kernel` de QEMU), en mode protégé 32 bits ;
+- dessine sur l'**écran texte VGA** (80 × 25, 16 couleurs) et recopie tout sur le **port série**, qui sert aussi à y taper (c'est ainsi que les tests le pilotent) ;
+- lit le **clavier PS/2** (disposition US, majuscules, flèches) ;
+- a une **horloge** (il compte les cycles du processeur contre la puce de minuterie) et utilise toute la mémoire qu'on lui donne ;
+- lance le programme TON, puis son shell : `help`, `clear`, `echo`, `mem`, `uptime`, `ver`, `run`, `colors`, `reboot`, `poweroff`.
+
+#### Le TON du noyau
+
+Le noyau a son propre interpréteur TON (`atome/kernel/tonvm.c`, environ 900 lignes, sans libc). Il exécute la même syntaxe que l'interpréteur de bureau pour le cœur du langage :
+
+| Fonctionne | Pas encore |
+|---|---|
+| `ton.let` / `ton.int` / `ton.string` / `ton.bool` / `ton.array` / `ton.dict` (les types ne sont pas vérifiés) | les nombres décimaux (entiers seulement) |
+| `ton.function` et `function`, la récursion | les classes, les fonctions fléchées et les fermetures |
+| `if` / `else if` / `else`, `while`, `for x in ...`, `break`, `continue`, `return` | `try` / `catch`, `IMPORT://` (la commande `atome` inlinera les imports) |
+| chaînes (`"..."`, `` `brutes` ``, `f"..{expr}.."`), tableaux, dicts, `a[i]`, `d.cle`, `?:`, `and` / `or` / `!` | tranches, l'opérateur `\|>`, un ramasse-miettes (la mémoire est libérée à la fin du programme) |
+| syntaxe méthode : `"ab".upper()`, `items.push(3)` | fichiers et réseau (le noyau n'a pas encore de pilote de disque ni de réseau) |
+
+Fonctions que tout programme a : `print`, `len`, `str`, `num`, `type`, `push`, `pop`, `keys`, `has`, `remove`, `range`, `upper`, `lower`, `trim`, `substring`, `contains`, `replace`, `split`, `join`, `abs`, `min`, `max`, `rand`, `char`, `ord`, et la machine :
+
+| Fonction | Ce qu'elle fait |
+|---|---|
+| `put(x, y, texte, couleur)` | dessine du texte dans une case de l'écran |
+| `fill(x, y, l, h, "c", couleur)` | remplit un rectangle avec un caractère |
+| `color(avant_plan, fond)` | un numéro de couleur (0-15 chacun) pour `put` et `fill` |
+| `clear()`, `cursor(x, y)`, `width()`, `height()` | l'écran |
+| `key()` | attend une touche et la renvoie : `"a"`, `"enter"`, `"up"`, `"down"`, `"left"`, `"right"`, `"esc"`, `"backspace"` |
+| `input(invite)` | lit une ligne |
+| `sleep(ms)`, `uptime()` | le temps en millisecondes |
+| `reboot()`, `poweroff()` | la machine |
+
+Un tout petit système :
+
+```
+ton.function window(x, y, w, h, title) {
+    fill(x, y, w, h, " ", color(0, 7))
+    fill(x, y, w, 1, " ", color(15, 1))
+    put(x + 1, y, title, color(15, 1))
+}
+clear()
+fill(0, 0, width(), height(), " ", color(15, 3))
+window(10, 4, 40, 10, " Notes ")
+put(12, 6, "Appuie sur q pour eteindre", color(0, 7))
+while true {
+    if key() == "q" { poweroff() }
+}
+```
+
+#### `ton.ui` : un écran pour Acode, l'IDE et le playground
+
+`IMPORT://ton.ui` permet à un programme TON de dessiner un écran interactif. Le programme envoie du HTML et répond aux événements ; l'hôte (la fenêtre Run d'Acode, l'IDE, le playground) affiche le HTML dans un cadre isolé et renvoie les clics, la frappe, les déplacements et la taille de l'écran.
+
+| Fonction | Ce qu'elle fait |
+|---|---|
+| `ui_render(html)` | affiche ce HTML comme écran |
+| `ui_on(type, gestionnaire)` | appelle `gestionnaire(evenement)` pour les événements de ce type (`"click"`, `"input"`, `"key"`, `"move"`, `"size"`) ; `ui_on("event", ...)` les reçoit tous |
+| `ui_every(ms, gestionnaire)` | appelle `gestionnaire()` toutes les `ms` millisecondes (une horloge, une animation) |
+| `ui_title(texte)`, `ui_clock()` | le titre, et l'heure locale de l'appareil (`{hour, minute, ...}`) |
+| `ui_storage_get(cle, defaut)`, `ui_storage_set(cle, valeur)`, `ui_storage_remove(cle)` | un petit stockage qui survit aux redémarrages |
+| `ui_escape(texte)` | échappe du texte pour le HTML |
+
+Dans le HTML, `data-do="nom"` fait envoyer un événement de clic à un élément (avec `data-value` et `data-win` si tu les mets), `data-bind="nom"` sur un champ envoie son texte pendant la frappe, `data-key="nom"` signale aussi la touche Entrée, et `data-drag="id"` sur une barre de titre laisse l'utilisateur déplacer la fenêtre `data-winbox` à laquelle elle appartient.
+
+```
+IMPORT://ton.ui
+ton.let n = 0
+ton.function draw() {
+    ui_render(f"<div style='padding:20px;color:#fff'><h1>{n}</h1><button data-do='add'>+1</button></div>")
+}
+ui_on("click", (e) => { n = n + 1
+    draw() })
+draw()
+```
+
+`ton.ui` a besoin d'un écran : il marche avec le bouton Play d'Acode, de l'IDE et du playground, et l'interpréteur en ligne de commande répond par un message clair.
+
+#### Ce qui n'existe pas encore
+
+- Le module `atome` (`IMPORT://atome`, fenêtres et écrans de type Android, applis toutes faites) et la commande `atome` (`new`, `build`, `run`) sont en cours de construction au-dessus des deux couches ci-dessus.
+- Une image bootable (ISO) du noyau avec ton programme dedans, et des tests sur un vrai ordinateur.
+- Un disque, un système de fichiers et le réseau dans le noyau.
 
 ### Architecture — comment fonctionne l'interpréteur
 
