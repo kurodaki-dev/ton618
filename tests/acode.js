@@ -116,6 +116,21 @@ const tick = () => new Promise((r) => setTimeout(r, 30));
   active.filename = "a.ton";
   ok(!w.document.querySelector(".ton618-win"), "Close removes the window");
 
+  // an interactive program (ton.ui): the Run window shows its screen instead of the text output
+  const sent = [];
+  w.Worker = class { postMessage(m) { sent.push(m); if (m.source) setTimeout(() => { this.onmessage({ data: { ui: { type: "title", text: "Atome OS" } } }); this.onmessage({ data: { ui: { type: "render", html: "<b>hi</b>" } } }); this.onmessage({ data: { done: true, ok: true, error: null, interactive: true } }); }, 5); } terminate() { this.dead = true; } };
+  w.Ton618Lite.mountUi = (el, send) => { const f = w.document.createElement("iframe"); f.setAttribute("sandbox", "allow-scripts"); el.appendChild(f); return { render(html) { f.setAttribute("data-html", html); }, destroy() { f.remove(); }, send }; };
+  sent.length = 0;
+  header.querySelector(".ton618-play").click();
+  await tick(); await tick();
+  const win2 = w.document.querySelector(".ton618-win");
+  ok(!!win2 && !win2.querySelector(".scr").hidden && !!win2.querySelector(".scr iframe"), "an interactive program gets a screen in the Run window");
+  ok(win2.querySelector("pre").hidden, "and the text output is hidden");
+  ok(win2.querySelector("header span").textContent === "Atome OS", "ui_title sets the window title");
+  ok(/running/.test(win2.querySelector("header span").textContent) === false && sent[0] && sent[0].storage !== undefined, "the saved storage is passed to the program");
+  win2.querySelector("[data-a=close]").click();
+  ok(!w.document.querySelector(".ton618-win"), "closing the window removes the screen");
+
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(fail.length ? `\n${fail.length} check(s) failed` : "\nacode: all checks passed");
   process.exit(fail.length ? 1 : 0);

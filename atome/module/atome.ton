@@ -1,0 +1,846 @@
+// atome.ton — build an operating system in a few lines of TON.
+//
+//   IMPORT://atome
+//   ton.function hello_view(win) { return [atome.label("Hello!"), atome.button("+1", "inc"), atome.label("n = " + str(win["s"]["n"]))] }
+//   ton.function hello_init(win) { win["s"]["n"] = 0 }
+//   ton.function hello_act(win, action, value) { if action == "inc" { win["s"]["n"] += 1 } }
+//   atome.boot("MyOS")
+//   atome.app({"id": "hello", "title": "Hello", "icon": "H", "view": hello_view, "init": hello_init, "act": hello_act})
+//   atome.run()
+//
+// One program, two places to run it: press Play in Acode, the TON618 IDE or the playground and the system
+// appears as a graphical desktop (windows you drag, a taskbar, or a phone screen); build it with `atome build`
+// and the same program boots on the Atome kernel as a text-mode system (arrows, Enter, Tab, Esc).
+//
+// This file only uses the part of TON that the kernel understands. Everything is in the `atome` dict;
+// the other names start with atome_.
+IMPORT://ton.ui
+IMPORT://ton.json
+
+ton.let atome_platform = platform()
+ton.let atome_os = {"title": "Atome", "style": "desktop", "wins": [], "apps": {}, "order": [], "focus": "", "next": 1,
+    "menu": false, "msel": 0, "toast": "", "ttl": 0, "w": 800, "h": 600, "wall": 0, "tint": 1, "booted": false, "home": true}
+
+// ------------------------------------------------------------------ small helpers
+ton.function atome_starts(s, p) { return len(s) >= len(p) and substring(s, 0, len(p)) == p }
+ton.function atome_pad2(n) { return n < 10 ? "0" + str(n) : str(n) }
+ton.function atome_clip(s, n) { return len(s) > n ? substring(s, 0, n) : s }
+ton.function atome_spaces(n) { return n > 0 ? " " * n : "" }
+ton.function atome_sort(items) {
+    // insertion sort of strings or numbers, in place
+    ton.let i = 1
+    while i < len(items) {
+        ton.let x = items[i]
+        ton.let j = i - 1
+        while j >= 0 and items[j] > x {
+            items[j + 1] = items[j]
+            j = j - 1
+        }
+        items[j + 1] = x
+        i = i + 1
+    }
+    return items
+}
+ton.function atome_time() {
+    if atome_platform == "web" {
+        ton.let c = ui_clock()
+        return atome_pad2(c["hour"]) + ":" + atome_pad2(c["minute"])
+    }
+    ton.let s = uptime() / 1000
+    return atome_pad2(s / 60 % 60) + ":" + atome_pad2(s % 60)
+}
+
+// ------------------------------------------------------------------ widgets: what an app's view returns
+ton.function atome_label(text) { return {"t": "label", "text": text} }
+ton.function atome_title(text) { return {"t": "title", "text": text} }
+ton.function atome_button(text, act) { return {"t": "button", "text": text, "act": act, "value": ""} }
+ton.function atome_item(text, act, value) { return {"t": "item", "text": text, "act": act, "value": value} }
+ton.function atome_input(name, label) { return {"t": "input", "name": name, "text": label} }
+ton.function atome_gap() { return {"t": "gap", "text": ""} }
+ton.function atome_rule() { return {"t": "rule", "text": ""} }
+ton.function atome_in(win, name) { return win["s"].has("in_" + name) ? win["s"]["in_" + name] : "" }
+ton.function atome_set_in(win, name, value) { win["s"]["in_" + name] = value }
+
+// ------------------------------------------------------------------ the virtual disk
+ton.let atome_dirs = {"/": true, "/home": true, "/home/docs": true, "/tmp": true}
+ton.let atome_files = {
+    "/home/readme.txt": "Welcome to your system!\nIt is written in TON.\nOpen the Terminal and type: help",
+    "/home/docs/todo.txt": "- write my own app with atome.app(...)\n- change the look in Settings"
+}
+ton.function atome_parent(path) {
+    ton.let i = len(path) - 1
+    while i > 0 and path[i] != "/" { i = i - 1 }
+    return i <= 0 ? "/" : substring(path, 0, i)
+}
+ton.function atome_base(path) {
+    ton.let i = len(path) - 1
+    while i >= 0 and path[i] != "/" { i = i - 1 }
+    return substring(path, i + 1)
+}
+ton.function atome_join(dir, name) { return dir == "/" ? "/" + name : dir + "/" + name }
+ton.function atome_save() {
+    if atome_platform == "web" { ui_storage_set("atome.disk", json_stringify({"d": atome_dirs, "f": atome_files})) }
+}
+ton.function atome_load() {
+    if atome_platform != "web" { return nil }
+    ton.let saved = ui_storage_get("atome.disk", nil)
+    if saved == nil { return nil }
+    ton.let d = json_parse(saved)
+    if d != nil { atome_dirs = d["d"]
+        atome_files = d["f"] }
+}
+ton.function atome_exists(path) { return atome_dirs.has(path) or atome_files.has(path) }
+ton.function atome_is_dir(path) { return atome_dirs.has(path) }
+ton.function atome_read(path) { return atome_files.has(path) ? atome_files[path] : nil }
+ton.function atome_write(path, text) {
+    if atome_dirs.has(path) or !atome_dirs.has(atome_parent(path)) { return false }
+    atome_files[path] = text
+    atome_save()
+    return true
+}
+ton.function atome_mkdir(path) {
+    if atome_exists(path) or !atome_dirs.has(atome_parent(path)) { return false }
+    atome_dirs[path] = true
+    atome_save()
+    return true
+}
+ton.function atome_remove(path) {
+    if path == "/" { return false }
+    if atome_files.has(path) { remove(atome_files, path) }
+    else if atome_dirs.has(path) {
+        for p in keys(atome_files) { if atome_starts(p, path + "/") { remove(atome_files, p) } }
+        for p in keys(atome_dirs) { if p == path or atome_starts(p, path + "/") { remove(atome_dirs, p) } }
+    } else { return false }
+    atome_save()
+    return true
+}
+// what is in a folder: names, folders first, as [{"name":..., "path":..., "dir": true|false}]
+ton.function atome_list(dir) {
+    ton.let names = []
+    for p in keys(atome_dirs) { if p != "/" and atome_parent(p) == dir { push(names, p) } }
+    atome_sort(names)
+    ton.let out = []
+    for p in names { push(out, {"name": atome_base(p), "path": p, "dir": true}) }
+    ton.let fnames = []
+    for p in keys(atome_files) { if atome_parent(p) == dir { push(fnames, p) } }
+    atome_sort(fnames)
+    for p in fnames { push(out, {"name": atome_base(p), "path": p, "dir": false}) }
+    return out
+}
+
+// ------------------------------------------------------------------ apps and windows
+ton.function atome_app(def) {
+    if !def.has("w") { def["w"] = 46 }
+    if !def.has("h") { def["h"] = 14 }
+    if !def.has("icon") { def["icon"] = "*" }
+    if !def.has("title") { def["title"] = def["id"] }
+    if !atome_os["apps"].has(def["id"]) { push(atome_os["order"], def["id"]) }
+    atome_os["apps"][def["id"]] = def
+    return nil
+}
+ton.function atome_find(id) {
+    for w in atome_os["wins"] { if w["id"] == id { return w } }
+    return nil
+}
+ton.function atome_raise(win) {
+    atome_os["focus"] = win["id"]
+    atome_os["next"] = atome_os["next"] + 1
+    win["z"] = atome_os["next"]
+}
+ton.function atome_open(app_id) {
+    if !atome_os["apps"].has(app_id) { return nil }
+    ton.let def = atome_os["apps"][app_id]
+    atome_os["menu"] = false
+    atome_os["home"] = false
+    if atome_os["style"] == "phone" {            // a phone shows one window per app
+        for w in atome_os["wins"] { if w["app"] == app_id { atome_raise(w)
+            return w } }
+    }
+    ton.let k = len(atome_os["wins"])
+    atome_os["next"] = atome_os["next"] + 1
+    ton.let win = {"id": "w" + str(atome_os["next"]), "app": app_id, "title": def["title"], "icon": def["icon"], "s": {}, "sel": 0,
+        "z": atome_os["next"], "x": 3 + (k * 3) % 18, "y": 2 + k % 5, "w": def["w"], "h": def["h"],
+        "px": 70 + (k % 6) * 36, "py": 50 + (k % 6) * 32}
+    if def.has("init") { def["init"](win) }
+    push(atome_os["wins"], win)
+    atome_os["focus"] = win["id"]
+    return win
+}
+ton.function atome_close(id) {
+    ton.let keep = []
+    for w in atome_os["wins"] { if w["id"] != id { push(keep, w) } }
+    atome_os["wins"] = keep
+    if atome_os["focus"] == id { atome_os["focus"] = len(keep) > 0 ? keep[len(keep) - 1]["id"] : "" }
+    if len(keep) == 0 { atome_os["home"] = true }
+}
+ton.function atome_toast(text) {
+    atome_os["toast"] = text
+    atome_os["ttl"] = 4
+}
+ton.function atome_act(win, action, value) {
+    ton.let def = atome_os["apps"][win["app"]]
+    if def.has("act") { def["act"](win, action, value) }
+}
+ton.function atome_view(win) {
+    ton.let def = atome_os["apps"][win["app"]]
+    return def["view"](win)
+}
+ton.function atome_ordered() {
+    // windows from back to front
+    ton.let list = []
+    for w in atome_os["wins"] { push(list, w) }
+    ton.let i = 1
+    while i < len(list) {
+        ton.let x = list[i]
+        ton.let j = i - 1
+        while j >= 0 and list[j]["z"] > x["z"] {
+            list[j + 1] = list[j]
+            j = j - 1
+        }
+        list[j + 1] = x
+        i = i + 1
+    }
+    return list
+}
+
+// ------------------------------------------------------------------ the graphical system (Acode, IDE, playground)
+ton.let ATOME_CSS = `
+.os{position:absolute;top:0;right:0;bottom:0;left:0;overflow:hidden;color:#fff;font-size:15px}
+.os *{box-sizing:border-box}
+.os button{cursor:pointer;border:0;color:inherit;background:rgba(255,255,255,.16);border-radius:8px;padding:8px 12px;margin:2px 4px 2px 0}
+.os button:active{background:rgba(255,255,255,.3)}
+.os input{width:100%;background:rgba(0,0,0,.35);color:#fff;border:1px solid rgba(255,255,255,.28);border-radius:8px;padding:8px;outline:0}
+.os .wall0{background:linear-gradient(135deg,#1e3c72,#2a5298 55%,#6dd5ed)}
+.os .wall1{background:linear-gradient(135deg,#0f2027,#203a43 50%,#2c5364)}
+.os .wall2{background:linear-gradient(135deg,#42275a,#734b6d)}
+.os .wall3{background:linear-gradient(135deg,#134e5e,#71b280)}
+.os .wall4{background:linear-gradient(135deg,#232526,#414345)}
+.os .wall5{background:linear-gradient(135deg,#ff7e5f,#feb47b)}
+.os .scr{position:absolute;top:0;right:0;bottom:0;left:0}
+.os .win{position:absolute;display:flex;flex-direction:column;border-radius:10px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.18);background:#1b1d26}
+.os .win.f{border-color:rgba(255,255,255,.55)}
+.os .tb{display:flex;align-items:center;gap:8px;height:36px;padding:0 6px 0 12px;background:rgba(40,43,56,.98);touch-action:none;cursor:move}
+.os .tb .t{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;font-size:13px}
+.os .tb button{padding:4px 10px;border-radius:6px;background:transparent;margin:0}
+.os .tb button:hover{background:#e5484d}
+.os .wb{flex:1;min-height:0}
+.os .body{padding:12px;height:100%;overflow:auto;background:rgba(24,26,34,.98)}
+.os .l{margin:3px 0;white-space:pre-wrap;word-break:break-word}
+.os .h{font-size:20px;font-weight:600;margin:4px 0 8px}
+.os .item{padding:9px 10px;border-radius:8px;cursor:pointer;margin:1px 0}
+.os .item:hover{background:rgba(255,255,255,.14)}
+.os .inp{margin:6px 0}
+.os .inp label{display:block;font-size:12px;opacity:.7;margin-bottom:3px}
+.os hr{border:0;border-top:1px solid rgba(255,255,255,.18);margin:8px 0}
+.os .tbar{position:absolute;left:0;right:0;bottom:0;height:46px;display:flex;align-items:center;gap:6px;padding:0 8px;background:rgba(15,16,22,.88)}
+.os .tbar .task{max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+.os .tbar .task.on{background:rgba(255,255,255,.32)}
+.os .tbar .g{flex:1}
+.os .menu{position:absolute;left:8px;bottom:54px;width:280px;max-height:70%;overflow:auto;padding:8px;border-radius:12px;background:rgba(22,24,32,.97);box-shadow:0 10px 40px rgba(0,0,0,.6)}
+.os .dsk{position:absolute;top:10px;left:10px;display:grid;grid-template-columns:repeat(2,84px);gap:6px}
+.os .a{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:8px;text-align:center;font-size:12px;cursor:pointer;text-shadow:0 1px 3px #000}
+.os .a:hover{background:rgba(255,255,255,.16)}
+.os .ico{font-size:24px;font-weight:700;width:46px;height:46px;border-radius:14px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center}
+.os .sb{position:absolute;top:0;left:0;right:0;height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:13px;font-weight:600;background:rgba(0,0,0,.3)}
+.os .nav{position:absolute;left:0;right:0;bottom:0;height:46px;display:flex;justify-content:space-around;align-items:center;background:rgba(0,0,0,.65);font-size:20px}
+.os .nav span{padding:8px 34px;cursor:pointer}
+.os .hs{position:absolute;top:28px;left:0;right:0;bottom:46px;padding:20px 14px;overflow:auto}
+.os .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px 6px}
+.os .ap{position:absolute;top:28px;left:0;right:0;bottom:46px}
+.os .toast{position:absolute;top:36px;left:50%;transform:translateX(-50%);max-width:92%;padding:10px 16px;border-radius:12px;background:rgba(20,22,30,.97);border:1px solid rgba(255,255,255,.22);box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:99999}
+`
+ton.function atome_h(attr) { return ui_escape(attr) }
+ton.function atome_h_widget(w, win) {
+    ton.let t = w["t"]
+    ton.let text = ui_escape(w["text"])
+    if t == "label" { return "<div class=l>" + replace(text, "\n", "<br>") + "</div>" }
+    if t == "title" { return "<div class=h>" + text + "</div>" }
+    if t == "gap" { return "<div style=height:8px></div>" }
+    if t == "rule" { return "<hr>" }
+    ton.let who = " data-win=\"" + win["id"] + "\""
+    if t == "button" { return "<button data-do=\"a:" + atome_h(w["act"]) + "\"" + who + " data-value=\"" + atome_h(w["value"]) + "\">" + text + "</button>" }
+    if t == "item" { return "<div class=item data-do=\"a:" + atome_h(w["act"]) + "\"" + who + " data-value=\"" + atome_h(w["value"]) + "\">" + text + "</div>" }
+    if t == "input" {
+        return "<div class=inp><label>" + text + "</label><input data-bind=\"i:" + atome_h(w["name"]) + "\" data-key=\"i:" + atome_h(w["name"]) + "\"" + who +
+            " value=\"" + ui_escape(atome_in(win, w["name"])) + "\" autocomplete=off autocapitalize=off></div>"
+    }
+    return ""
+}
+ton.function atome_h_body(win) {
+    ton.let page = ""
+    for w in atome_view(win) { page = page + atome_h_widget(w, win) }
+    return page
+}
+ton.function atome_h_toast() {
+    return atome_os["ttl"] > 0 ? "<div class=toast>" + ui_escape(atome_os["toast"]) + "</div>" : ""
+}
+ton.function atome_h_desktop() {
+    ton.let page = "<div class=os><div class=\"scr wall" + str(atome_os["wall"]) + "\"><div class=dsk>"
+    for id in atome_os["order"] {
+        ton.let def = atome_os["apps"][id]
+        page = page + "<div class=a data-do=\"os:launch\" data-value=\"" + atome_h(id) + "\"><div class=ico>" + ui_escape(def["icon"]) + "</div>" + ui_escape(def["title"]) + "</div>"
+    }
+    page = page + "</div>"
+    for win in atome_ordered() {
+        ton.let f = win["id"] == atome_os["focus"] ? " f" : ""
+        ton.let wpx = win["w"] * 10
+        ton.let hpx = win["h"] * 22 + 36
+        ton.let maxw = atome_os["w"] - 20
+        if wpx > maxw { wpx = maxw }
+        page = page + "<div class=\"win" + f + "\" data-winbox data-do=\"os:focus\" data-win=\"" + win["id"] + "\" style=\"left:" + str(win["px"]) + "px;top:" + str(win["py"]) + "px;width:" +
+            str(wpx) + "px;height:" + str(hpx) + "px;z-index:" + str(win["z"]) + "\"><div class=tb data-drag=\"" + win["id"] + "\"><span class=t>" + ui_escape(win["icon"] + "  " + win["title"]) +
+            "</span><button data-do=\"os:close\" data-win=\"" + win["id"] + "\">✕</button></div><div class=wb><div class=body data-scroll=\"" + win["id"] + "\">" + atome_h_body(win) + "</div></div></div>"
+    }
+    page = page + "<div class=tbar><button data-do=\"os:start\">☰ " + ui_escape(atome_os["title"]) + "</button>"
+    for win in atome_os["wins"] {
+        page = page + "<button class=\"task" + (win["id"] == atome_os["focus"] ? " on" : "") + "\" data-do=\"os:focus\" data-win=\"" + win["id"] + "\">" + ui_escape(win["icon"] + " " + win["title"]) + "</button>"
+    }
+    page = page + "<span class=g></span><span>" + atome_time() + "</span></div>"
+    if atome_os["menu"] {
+        page = page + "<div class=menu>"
+        for id in atome_os["order"] {
+            page = page + "<div class=item data-do=\"os:launch\" data-value=\"" + atome_h(id) + "\">" + ui_escape(atome_os["apps"][id]["icon"] + "   " + atome_os["apps"][id]["title"]) + "</div>"
+        }
+        page = page + "<hr><div class=item data-do=\"os:style\" data-value=\"phone\">📱  Phone screen</div></div>"
+    }
+    return page + atome_h_toast() + "</div></div>"
+}
+ton.function atome_h_phone() {
+    ton.let page = "<div class=os><div class=\"scr wall" + str(atome_os["wall"]) + "\"><div class=sb><span>" + atome_time() + "</span><span>" + ui_escape(atome_os["title"]) + "</span></div>"
+    ton.let win = atome_find(atome_os["focus"])
+    if atome_os["menu"] {                            // recent apps
+        page = page + "<div class=hs><div class=h>Recent apps</div>"
+        for w in atome_os["wins"] {
+            page = page + "<div class=item data-do=\"os:focus\" data-win=\"" + w["id"] + "\">" + ui_escape(w["icon"] + "   " + w["title"]) + "</div>"
+        }
+        if len(atome_os["wins"]) == 0 { page = page + "<div class=l>No app is open.</div>" }
+        page = page + "</div>"
+    } else if atome_os["home"] or win == nil {
+        page = page + "<div class=hs><div class=h style=\"font-size:46px;font-weight:300\">" + atome_time() + "</div><div class=grid>"
+        for id in atome_os["order"] {
+            ton.let def = atome_os["apps"][id]
+            page = page + "<div class=a data-do=\"os:launch\" data-value=\"" + atome_h(id) + "\"><div class=ico>" + ui_escape(def["icon"]) + "</div>" + ui_escape(def["title"]) + "</div>"
+        }
+        page = page + "</div></div>"
+    } else {
+        page = page + "<div class=ap><div class=body style=\"position:absolute;top:0;right:0;bottom:0;left:0\" data-scroll=\"" + win["id"] + "\">" + atome_h_body(win) + "</div></div>"
+    }
+    page = page + "<div class=nav><span data-do=\"os:back\">◀</span><span data-do=\"os:home\">●</span><span data-do=\"os:recents\">■</span></div>"
+    return page + atome_h_toast() + "</div></div>"
+}
+ton.function atome_web_draw() {
+    ui_render("<style>" + ATOME_CSS + "</style>" + (atome_os["style"] == "phone" ? atome_h_phone() : atome_h_desktop()))
+}
+ton.function atome_web_event(e) {
+    ton.let t = e["type"]
+    ton.let id = e["id"]
+    if t == "size" {
+        atome_os["w"] = e["x"]
+        atome_os["h"] = e["y"]
+        if atome_os["auto"] { atome_os["style"] = e["x"] < 700 ? "phone" : "desktop" }
+        atome_web_draw()
+        return nil
+    }
+    if t == "move" {
+        ton.let w = atome_find(e["win"])
+        if w != nil { w["px"] = e["x"]
+            w["py"] = e["y"] }
+        return nil
+    }
+    if t == "click" and atome_starts(id, "os:") {
+        ton.let what = substring(id, 3)
+        ton.let win = atome_find(e["win"])
+        if what == "close" and win != nil { atome_close(win["id"]) }
+        else if what == "focus" and win != nil {
+            if atome_os["focus"] == win["id"] and !atome_os["menu"] and atome_os["style"] != "phone" { return nil }
+            atome_raise(win)
+            atome_os["menu"] = false
+            atome_os["home"] = false
+        }
+        else if what == "launch" { atome_open(e["value"]) }
+        else if what == "start" { atome_os["menu"] = !atome_os["menu"] }
+        else if what == "home" { atome_os["home"] = true
+            atome_os["menu"] = false }
+        else if what == "recents" { atome_os["menu"] = !atome_os["menu"] }
+        else if what == "back" {
+            if atome_os["menu"] { atome_os["menu"] = false }
+            else if win == nil and atome_os["focus"] != "" { atome_close(atome_os["focus"]) }
+            else { atome_os["home"] = true }
+        }
+        else if what == "style" { atome_os["style"] = e["value"]
+            atome_os["menu"] = false }
+        atome_web_draw()
+        return nil
+    }
+    ton.let win = atome_find(e["win"])
+    if win == nil { return nil }
+    if t == "click" and atome_starts(id, "a:") {
+        atome_act(win, substring(id, 2), e["value"])
+        atome_web_draw()
+    } else if t == "input" and atome_starts(id, "i:") {
+        atome_set_in(win, substring(id, 2), e["value"])
+    } else if t == "key" and atome_starts(id, "i:") and e["key"] == "Enter" {
+        atome_set_in(win, substring(id, 2), e["value"])
+        atome_act(win, "enter:" + substring(id, 2), e["value"])
+        atome_web_draw()
+    }
+    return nil
+}
+ton.function atome_web_tick() {
+    ton.let minute = atome_time()
+    ton.let changed = minute != atome_os["min"]
+    atome_os["min"] = minute
+    if atome_os["ttl"] > 0 { atome_os["ttl"] = atome_os["ttl"] - 1
+        changed = true }
+    if changed { atome_web_draw() }
+}
+
+// ------------------------------------------------------------------ the text-mode system (Atome kernel)
+// Esc opens the menu, Tab changes window, Up/Down choose, Enter activates, typing fills the selected field.
+ton.function atome_k_widgets(win) {
+    ton.let list = []
+    for w in atome_view(win) { push(list, w) }
+    push(list, {"t": "button", "text": "Close window", "act": "os:close", "value": ""})
+    return list
+}
+ton.function atome_k_focusables(widgets) {
+    ton.let out = []
+    for w in widgets { if w["t"] == "button" or w["t"] == "item" or w["t"] == "input" { push(out, w) } }
+    return out
+}
+ton.function atome_k_row(w, win, selected, iw) {
+    ton.let t = w["t"]
+    if t == "label" { return atome_clip(w["text"], iw) }
+    if t == "title" { return atome_clip(upper(w["text"]), iw) }
+    if t == "rule" { return "-" * iw }
+    if t == "button" { return atome_clip("[ " + w["text"] + " ]", iw) }
+    if t == "item" { return atome_clip((selected ? "> " : "  ") + w["text"], iw) }
+    if t == "input" { return atome_clip(w["text"] + ": " + atome_in(win, w["name"]) + (selected ? "_" : ""), iw) }
+    return ""
+}
+ton.function atome_k_window(win) {
+    ton.let focused = win["id"] == atome_os["focus"]
+    ton.let w = win["w"]
+    ton.let h = win["h"]
+    if w > 76 { w = 76 }
+    if h > 21 { h = 21 }
+    ton.let x = win["x"]
+    ton.let y = win["y"] + 1
+    if x + w > 80 { x = 80 - w }
+    if y + h > 24 { y = 24 - h }
+    ton.let frame = focused ? color(15, 1) : color(7, 0)
+    ton.let body = color(0, 7)
+    fill(x, y, w, h, " ", body)
+    put(x, y, char(218) + char(196) * (w - 2) + char(191), frame)
+    put(x, y + h - 1, char(192) + char(196) * (w - 2) + char(217), frame)
+    for r in range(1, h - 1) {
+        put(x, y + r, char(179), frame)
+        put(x + w - 1, y + r, char(179), frame)
+    }
+    put(x + 2, y, " " + atome_clip(win["title"], w - 6) + " ", frame)
+    ton.let widgets = atome_k_widgets(win)
+    ton.let foc = atome_k_focusables(widgets)
+    if win["sel"] >= len(foc) { win["sel"] = len(foc) - 1 }
+    if win["sel"] < 0 { win["sel"] = 0 }
+    ton.let selw = foc[win["sel"]]
+    ton.let iw = w - 4
+    ton.let ih = h - 2
+    // the row of the selected widget decides how far to scroll
+    ton.let rows = []
+    ton.let selrow = 0
+    for wd in widgets {
+        ton.let isel = focused and wd == selw
+        if isel { selrow = len(rows) }
+        push(rows, {"text": atome_k_row(wd, win, isel, iw), "sel": isel})
+    }
+    ton.let first = 0
+    if selrow >= ih { first = selrow - ih + 1 }
+    ton.let n = 0
+    while n < ih and first + n < len(rows) {
+        ton.let row = rows[first + n]
+        put(x + 2, y + 1 + n, row["text"], row["sel"] ? color(15, 2) : body)
+        n = n + 1
+    }
+}
+ton.function atome_k_draw() {
+    fill(0, 0, 80, 25, char(176), color(1, 0))
+    fill(0, 0, 80, 1, " ", color(15, 1))
+    put(1, 0, atome_os["title"], color(15, 1))
+    put(74, 0, atome_time(), color(15, 1))
+    for win in atome_ordered() { atome_k_window(win) }
+    fill(0, 24, 80, 1, " ", color(0, 7))
+    put(1, 24, "Esc menu  Tab window  Up/Down choose  Enter ok", color(0, 7))
+    if atome_os["menu"] {
+        ton.let n = len(atome_os["order"]) + 2
+        ton.let mx = 24
+        ton.let my = 3
+        fill(mx, my, 32, n + 2, " ", color(0, 7))
+        put(mx, my, char(218) + char(196) * 30 + char(191), color(15, 1))
+        put(mx, my + n + 1, char(192) + char(196) * 30 + char(217), color(15, 1))
+        ton.let i = 0
+        while i < n {
+            ton.let label = ""
+            if i < len(atome_os["order"]) { label = atome_os["apps"][atome_os["order"][i]]["title"] }
+            else if i == len(atome_os["order"]) { label = "Power off" }
+            else { label = "Reboot" }
+            put(mx + 2, my + 1 + i, (i == atome_os["msel"] ? "> " : "  ") + atome_clip(label, 26), i == atome_os["msel"] ? color(15, 2) : color(0, 7))
+            i = i + 1
+        }
+    }
+    if atome_os["ttl"] > 0 { put(2, 23, " " + atome_clip(atome_os["toast"], 70) + " ", color(0, 14)) }
+}
+ton.function atome_k_key(k) {
+    if atome_os["ttl"] > 0 { atome_os["ttl"] = atome_os["ttl"] - 1 }
+    if atome_os["menu"] {
+        ton.let n = len(atome_os["order"]) + 2
+        if k == "up" { atome_os["msel"] = (atome_os["msel"] + n - 1) % n }
+        else if k == "down" { atome_os["msel"] = (atome_os["msel"] + 1) % n }
+        else if k == "esc" { atome_os["menu"] = false }
+        else if k == "enter" {
+            ton.let i = atome_os["msel"]
+            if i < len(atome_os["order"]) { atome_open(atome_os["order"][i]) }
+            else if i == len(atome_os["order"]) { poweroff() }
+            else { reboot() }
+        }
+        return nil
+    }
+    if k == "esc" { atome_os["menu"] = true
+        atome_os["msel"] = 0
+        return nil }
+    ton.let win = atome_find(atome_os["focus"])
+    if k == "tab" {
+        if len(atome_os["wins"]) > 0 {
+            ton.let ws = atome_ordered()
+            atome_raise(ws[0])          // the window at the back comes to the front
+        }
+        return nil
+    }
+    if win == nil { return nil }
+    ton.let foc = atome_k_focusables(atome_k_widgets(win))
+    ton.let sel = win["sel"]
+    if sel >= len(foc) { sel = len(foc) - 1 }
+    ton.let cur = foc[sel]
+    if k == "up" { win["sel"] = (sel + len(foc) - 1) % len(foc) }
+    else if k == "down" { win["sel"] = (sel + 1) % len(foc) }
+    else if cur["t"] == "input" {
+        ton.let value = atome_in(win, cur["name"])
+        if k == "enter" { atome_act(win, "enter:" + cur["name"], value) }
+        else if k == "backspace" { if len(value) > 0 { atome_set_in(win, cur["name"], substring(value, 0, len(value) - 1)) } }
+        else if len(k) == 1 { atome_set_in(win, cur["name"], value + k) }
+    }
+    else if k == "enter" {
+        if cur["act"] == "os:close" { atome_close(win["id"]) }
+        else { atome_act(win, cur["act"], cur["value"]) }
+    }
+    return nil
+}
+ton.function atome_k_run() {
+    while true {
+        atome_k_draw()
+        atome_k_key(key())
+    }
+}
+
+
+// ------------------------------------------------------------------ the apps every system starts with
+// ---- Notes: a list of short notes, saved in /home/notes.txt
+ton.function atome_notes_save(win) { atome_write("/home/notes.txt", join(win["s"]["notes"], "\n")) }
+ton.function atome_notes_init(win) {
+    ton.let text = atome_read("/home/notes.txt")
+    win["s"]["notes"] = (text == nil or text == "") ? [] : split(text, "\n")
+}
+ton.function atome_notes_view(win) {
+    ton.let w = [atome_title("Notes"), atome_input("note", "New note (Enter to save)")]
+    ton.let i = 0
+    for n in win["s"]["notes"] {
+        push(w, atome_item("- " + n, "del", str(i)))
+        i = i + 1
+    }
+    if len(win["s"]["notes"]) == 0 { push(w, atome_label("No notes yet.")) }
+    else { push(w, atome_label("Choose a note and press Enter to delete it.")) }
+    return w
+}
+ton.function atome_notes_act(win, action, value) {
+    if action == "enter:note" {
+        ton.let text = atome_in(win, "note")
+        if len(text) > 0 { push(win["s"]["notes"], text)
+            atome_set_in(win, "note", "")
+            atome_notes_save(win) }
+    } else if action == "del" {
+        ton.let keep = []
+        ton.let i = 0
+        for n in win["s"]["notes"] {
+            if str(i) != value { push(keep, n) }
+            i = i + 1
+        }
+        win["s"]["notes"] = keep
+        atome_notes_save(win)
+    }
+}
+
+// ---- Calculator: + - * / % and parentheses, on whole numbers
+ton.let atome_ce_s = ""
+ton.let atome_ce_i = 0
+ton.let atome_ce_err = ""
+ton.function atome_ce_skip() { while atome_ce_i < len(atome_ce_s) and atome_ce_s[atome_ce_i] == " " { atome_ce_i += 1 } }
+ton.function atome_ce_atom() {
+    atome_ce_skip()
+    if atome_ce_i >= len(atome_ce_s) { atome_ce_err = "the expression ends too soon"
+        return 0 }
+    ton.let c = atome_ce_s[atome_ce_i]
+    if c == "(" {
+        atome_ce_i += 1
+        ton.let v = atome_ce_sum()
+        atome_ce_skip()
+        if atome_ce_i < len(atome_ce_s) and atome_ce_s[atome_ce_i] == ")" { atome_ce_i += 1 } else { atome_ce_err = "missing )" }
+        return v
+    }
+    if c == "-" {
+        atome_ce_i += 1
+        return 0 - atome_ce_atom()
+    }
+    if !contains("0123456789", c) { atome_ce_err = "unexpected " + c
+        atome_ce_i = len(atome_ce_s)
+        return 0 }
+    ton.let n = 0
+    while atome_ce_i < len(atome_ce_s) and contains("0123456789", atome_ce_s[atome_ce_i]) {
+        n = n * 10 + num(atome_ce_s[atome_ce_i])
+        atome_ce_i += 1
+    }
+    return n
+}
+ton.function atome_ce_product() {
+    ton.let v = atome_ce_atom()
+    atome_ce_skip()
+    while atome_ce_i < len(atome_ce_s) and contains("*/%", atome_ce_s[atome_ce_i]) {
+        ton.let op = atome_ce_s[atome_ce_i]
+        atome_ce_i += 1
+        ton.let r = atome_ce_atom()
+        if op == "*" { v = v * r }
+        else if r == 0 { atome_ce_err = "division by zero" }
+        else if op == "/" { v = v / r }
+        else { v = v % r }
+        atome_ce_skip()
+    }
+    return v
+}
+ton.function atome_ce_sum() {
+    ton.let v = atome_ce_product()
+    atome_ce_skip()
+    while atome_ce_i < len(atome_ce_s) and contains("+-", atome_ce_s[atome_ce_i]) {
+        ton.let op = atome_ce_s[atome_ce_i]
+        atome_ce_i += 1
+        ton.let r = atome_ce_product()
+        if op == "+" { v = v + r } else { v = v - r }
+        atome_ce_skip()
+    }
+    return v
+}
+ton.function atome_calc(text) {
+    atome_ce_s = text
+    atome_ce_i = 0
+    atome_ce_err = ""
+    ton.let v = atome_ce_sum()
+    atome_ce_skip()
+    if atome_ce_err == "" and atome_ce_i < len(atome_ce_s) { atome_ce_err = "unexpected " + atome_ce_s[atome_ce_i] }
+    return atome_ce_err == "" ? str(v) : "error: " + atome_ce_err
+}
+ton.function atome_calc_init(win) {
+    win["s"]["hist"] = []
+    win["s"]["res"] = ""
+}
+ton.function atome_calc_view(win) {
+    ton.let w = [atome_title("Calculator"), atome_input("expr", "Expression, for example 12*(3+4)"), atome_button("Calculate", "calc"), atome_rule()]
+    if win["s"]["res"] != "" { push(w, atome_title("= " + win["s"]["res"])) }
+    for h in win["s"]["hist"] { push(w, atome_label(h)) }
+    return w
+}
+ton.function atome_calc_act(win, action, value) {
+    if action == "calc" or action == "enter:expr" {
+        ton.let text = atome_in(win, "expr")
+        if len(text) == 0 { return nil }
+        ton.let r = atome_calc(text)
+        win["s"]["res"] = r
+        push(win["s"]["hist"], text + " = " + r)
+        if len(win["s"]["hist"]) > 6 { win["s"]["hist"] = win["s"]["hist"][1:len(win["s"]["hist"])] }
+        atome_set_in(win, "expr", "")
+    }
+}
+
+// ---- Files: browse, create and delete files and folders of the virtual disk
+ton.function atome_files_init(win) {
+    win["s"]["dir"] = "/home"
+    win["s"]["file"] = ""
+}
+ton.function atome_files_view(win) {
+    if win["s"]["file"] != "" {
+        ton.let text = atome_read(win["s"]["file"])
+        ton.let w = [atome_title(atome_base(win["s"]["file"])), atome_rule()]
+        for line in split(text == nil ? "" : text, "\n") { push(w, atome_label(line)) }
+        push(w, atome_rule())
+        push(w, atome_button("Back", "close"))
+        push(w, atome_button("Delete this file", "delete"))
+        return w
+    }
+    ton.let w = [atome_title(win["s"]["dir"])]
+    if win["s"]["dir"] != "/" { push(w, atome_item("[..]  up", "up", "")) }
+    for e in atome_list(win["s"]["dir"]) { push(w, atome_item((e["dir"] ? "[+] " : "    ") + e["name"], "open", e["path"])) }
+    push(w, atome_input("new", "New file, or folder if it ends with /"))
+    return w
+}
+ton.function atome_files_act(win, action, value) {
+    if action == "up" { win["s"]["dir"] = atome_parent(win["s"]["dir"]) }
+    else if action == "open" {
+        if atome_is_dir(value) { win["s"]["dir"] = value } else { win["s"]["file"] = value }
+    } else if action == "close" { win["s"]["file"] = "" }
+    else if action == "delete" {
+        atome_remove(win["s"]["file"])
+        win["s"]["file"] = ""
+    } else if action == "enter:new" {
+        ton.let name = atome_in(win, "new")
+        if len(name) > 0 {
+            if name[len(name) - 1] == "/" { atome_mkdir(atome_join(win["s"]["dir"], substring(name, 0, len(name) - 1))) }
+            else { atome_write(atome_join(win["s"]["dir"], name), "") }
+            atome_set_in(win, "new", "")
+        }
+    }
+}
+
+// ---- Terminal
+ton.function atome_sh_path(win, arg) {
+    if arg == "" { return win["s"]["cwd"] }
+    if arg[0] == "/" { return arg }
+    if arg == ".." { return atome_parent(win["s"]["cwd"]) }
+    return atome_join(win["s"]["cwd"], arg)
+}
+ton.function atome_sh(win, line) {
+    ton.let out = win["s"]["out"]
+    push(out, "$ " + line)
+    ton.let words = split(trim(line), " ")
+    ton.let cmd = words[0]
+    ton.let arg = len(words) > 1 ? join(words[1:len(words)], " ") : ""
+    if cmd == "" { return nil }
+    if cmd == "help" { push(out, "help ls cd pwd cat mkdir touch rm echo clear apps open uname time neofetch") }
+    else if cmd == "pwd" { push(out, win["s"]["cwd"]) }
+    else if cmd == "ls" {
+        ton.let names = ""
+        for e in atome_list(atome_sh_path(win, arg)) { names = names + e["name"] + (e["dir"] ? "/" : "") + "  " }
+        push(out, names == "" ? "(empty)" : names)
+    } else if cmd == "cd" {
+        ton.let p = atome_sh_path(win, arg == "" ? "/home" : arg)
+        if atome_is_dir(p) { win["s"]["cwd"] = p } else { push(out, "cd: no such folder: " + arg) }
+    } else if cmd == "cat" {
+        ton.let t = atome_read(atome_sh_path(win, arg))
+        if t == nil { push(out, "cat: no such file: " + arg) } else { for l in split(t, "\n") { push(out, l) } }
+    } else if cmd == "mkdir" { if !atome_mkdir(atome_sh_path(win, arg)) { push(out, "mkdir: can't create " + arg) } }
+    else if cmd == "touch" { if !atome_write(atome_sh_path(win, arg), atome_read(atome_sh_path(win, arg)) == nil ? "" : atome_read(atome_sh_path(win, arg))) { push(out, "touch: can't create " + arg) } }
+    else if cmd == "rm" { if !atome_remove(atome_sh_path(win, arg)) { push(out, "rm: no such file: " + arg) } }
+    else if cmd == "echo" { push(out, arg) }
+    else if cmd == "clear" { win["s"]["out"] = [] }
+    else if cmd == "apps" { push(out, join(atome_os["order"], " ")) }
+    else if cmd == "open" { if atome_open(arg) == nil { push(out, "open: no app called " + arg) } }
+    else if cmd == "uname" { push(out, atome_os["title"] + " (Atome, " + atome_platform + ")") }
+    else if cmd == "time" { push(out, atome_time()) }
+    else if cmd == "neofetch" {
+        push(out, atome_os["title"])
+        push(out, "platform: " + atome_platform)
+        push(out, "apps: " + str(len(atome_os["order"])) + "   windows: " + str(len(atome_os["wins"])))
+        push(out, "written in TON")
+    } else { push(out, cmd + ": command not found (try help)") }
+    if len(win["s"]["out"]) > 40 { win["s"]["out"] = win["s"]["out"][len(win["s"]["out"]) - 40:len(win["s"]["out"])] }
+}
+ton.function atome_term_init(win) {
+    win["s"]["cwd"] = "/home"
+    win["s"]["out"] = ["Atome terminal. Type help."]
+}
+ton.function atome_term_view(win) {
+    ton.let w = []
+    ton.let lines = win["s"]["out"]
+    ton.let start = len(lines) > 9 ? len(lines) - 9 : 0
+    ton.let i = start
+    while i < len(lines) {
+        push(w, atome_label(lines[i]))
+        i = i + 1
+    }
+    push(w, atome_input("cmd", win["s"]["cwd"] + " $"))
+    return w
+}
+ton.function atome_term_act(win, action, value) {
+    if action == "enter:cmd" {
+        ton.let line = atome_in(win, "cmd")
+        atome_set_in(win, "cmd", "")
+        atome_sh(win, line)
+    }
+}
+
+// ---- Settings
+ton.function atome_settings_view(win) {
+    ton.let w = [atome_title("Settings"), atome_button("Change the colours", "wall")]
+    if atome_platform == "web" { push(w, atome_button(atome_os["style"] == "phone" ? "Switch to the desktop screen" : "Switch to the phone screen", "style")) }
+    push(w, atome_rule())
+    push(w, atome_label(atome_os["title"] + " - running on " + atome_platform))
+    push(w, atome_label(str(len(atome_os["order"])) + " apps, written in TON with Atome"))
+    push(w, atome_rule())
+    push(w, atome_button("Reset the saved disk", "reset"))
+    push(w, atome_button("Power off", "poweroff"))
+    push(w, atome_button("Reboot", "reboot"))
+    return w
+}
+ton.function atome_settings_act(win, action, value) {
+    if action == "wall" { atome_os["wall"] = (atome_os["wall"] + 1) % 6 }
+    else if action == "style" { atome_os["style"] = atome_os["style"] == "phone" ? "desktop" : "phone" }
+    else if action == "reset" {
+        atome_dirs = {"/": true, "/home": true, "/home/docs": true, "/tmp": true}
+        atome_files = {"/home/readme.txt": "Welcome back!"}
+        atome_save()
+        atome_toast("The disk was reset")
+    } else if action == "poweroff" {
+        if atome_platform == "kernel" { poweroff() } else { atome_toast("Close the Run window to power off") }
+    } else if action == "reboot" {
+        if atome_platform == "kernel" { reboot() }
+        else {
+            atome_os["wins"] = []
+            atome_os["focus"] = ""
+            atome_os["home"] = true
+            atome_os["menu"] = false
+            atome_toast("Rebooted")
+        }
+    }
+}
+ton.function atome_install_defaults() {
+    atome_app({"id": "notes", "title": "Notes", "icon": "N", "view": atome_notes_view, "init": atome_notes_init, "act": atome_notes_act, "w": 44, "h": 14})
+    atome_app({"id": "calc", "title": "Calculator", "icon": "=", "view": atome_calc_view, "init": atome_calc_init, "act": atome_calc_act, "w": 40, "h": 14})
+    atome_app({"id": "files", "title": "Files", "icon": "F", "view": atome_files_view, "init": atome_files_init, "act": atome_files_act, "w": 46, "h": 15})
+    atome_app({"id": "terminal", "title": "Terminal", "icon": ">", "view": atome_term_view, "init": atome_term_init, "act": atome_term_act, "w": 56, "h": 15})
+    atome_app({"id": "settings", "title": "Settings", "icon": "S", "view": atome_settings_view, "act": atome_settings_act, "w": 44, "h": 15})
+    return nil
+}
+
+// ------------------------------------------------------------------ start
+// atome.style("desktop"), atome.style("phone"), or atome.style("auto") (a phone screen when the page is narrow)
+ton.function atome_style(name) {
+    if name == "auto" { atome_os["auto"] = true
+        atome_os["style"] = "desktop" }
+    else { atome_os["auto"] = false
+        atome_os["style"] = name }
+}
+ton.function atome_run() {
+    if atome_platform == "web" {
+        ui_title(atome_os["title"])
+        ui_on("event", atome_web_event)
+        ui_every(1000, atome_web_tick)
+        atome_web_draw()
+    } else {
+        atome_k_run()
+    }
+}
+ton.function atome_boot(title) {
+    atome_os["title"] = title
+    atome_load()
+    atome_install_defaults()
+    return nil
+}
+ton.let atome = {"style": atome_style, "boot": atome_boot, "run": atome_run, "app": atome_app, "open": atome_open, "close": atome_close, "toast": atome_toast,
+    "label": atome_label, "title": atome_title, "button": atome_button, "item": atome_item, "input": atome_input, "gap": atome_gap, "rule": atome_rule,
+    "value": atome_in, "set_value": atome_set_in, "read": atome_read, "write": atome_write, "mkdir": atome_mkdir, "remove": atome_remove,
+    "list": atome_list, "exists": atome_exists, "is_dir": atome_is_dir, "join": atome_join, "parent": atome_parent}

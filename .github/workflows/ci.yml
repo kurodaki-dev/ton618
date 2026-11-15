@@ -40,8 +40,10 @@ jobs:
 
       - name: Atome kernel (boots under QEMU)
         run: |
-          sudo apt-get update && sudo apt-get install -y nasm qemu-system-x86
+          sudo apt-get update && sudo apt-get install -y nasm qemu-system-x86 grub-pc-bin grub-common xorriso mtools
+          python3 scripts/embed_atome.py --check
           tests/atome-kernel.sh
+          tests/atome-cli.sh
 
       - name: Run example scripts (smoke test)
         run: |

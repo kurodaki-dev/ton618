@@ -5,7 +5,7 @@
 // ton.function (and `function`), if / else if / else, while, for ... in, break, continue, return,
 // strings (with \n \t \" \\, `raw` strings and f"..{expr}.."), integers, true/false/nil, arrays,
 // dicts, indexing, calls, d.key, method-call syntax (s.upper()), and or !, ?:.
-// Not yet: decimal numbers, classes, closures and arrow functions, imports (`atome build` inlines them).
+// Also slices (a[1:3]). Not yet: decimal numbers, classes, closures and arrow functions, imports (`atome build` inlines them).
 #include "kernel.h"
 #ifdef ATOME_HOSTED
 #include <string.h>
@@ -292,7 +292,7 @@ static void lex(const char *src, u32 len) {
 
 // ------------------------------------------------------------------ syntax tree
 enum {
-    N_NUM, N_STR, N_FSTR, N_BOOL, N_NIL, N_VAR, N_ARR, N_DICT, N_IDX, N_FIELD, N_CALL, N_NOT, N_NEG, N_BIN, N_AND, N_OR, N_TERN,
+    N_NUM, N_STR, N_FSTR, N_BOOL, N_NIL, N_VAR, N_ARR, N_DICT, N_IDX, N_SLICE, N_FIELD, N_CALL, N_NOT, N_NEG, N_BIN, N_AND, N_OR, N_TERN,
     N_LET, N_ASSIGN, N_EXPR, N_IF, N_WHILE, N_FOR, N_BLOCK, N_RET, N_BRK, N_CONT, N_FUNC
 };
 typedef struct Node {
@@ -411,7 +411,17 @@ static Node *parse_postfix(Parser *p) {
             expect_op(p, ')', "')'");
             e = c;
         } else if (accept_op(p, '[')) {
-            Node *i = node(N_IDX, line); i->a = e; i->b = parse_expr(p);
+            Node *i = node(N_IDX, line); i->a = e;
+            if (accept_op(p, ':')) {                       // x[:end]
+                i->kind = N_SLICE;
+                if (!is_op(p, ']')) i->c = parse_expr(p);
+            } else {
+                i->b = parse_expr(p);
+                if (accept_op(p, ':')) {                   // x[start:end] or x[start:]
+                    i->kind = N_SLICE;
+                    if (!is_op(p, ']')) i->c = parse_expr(p);
+                }
+            }
             expect_op(p, ']', "']'");
             e = i;
         } else if (is_op(p, '.') && p->t[p->pos + 1].k == K_ID) {
@@ -719,6 +729,22 @@ static Value eval(Node *n) {
             fail(n->line, "can't index a ", type_name(o));
             return NIL;
         }
+        case N_SLICE: {
+            Value o = eval(n->a);
+            if (o.t != V_ARR && o.t != V_STR) fail(n->line, "can't slice a ", type_name(o));
+            i32 size = o.t == V_ARR ? (i32)o.u.a->len : (i32)o.u.s->len;
+            i32 a = n->b ? need_int(eval(n->b), n->line, "a slice start") : 0;
+            i32 b = n->c ? need_int(eval(n->c), n->line, "a slice end") : size;
+            if (a < 0) a += size;
+            if (b < 0) b += size;
+            if (a < 0) a = 0;
+            if (b > size) b = size;
+            if (b < a) b = a;
+            if (o.t == V_STR) return mk_str(o.u.s->d + a, (u32)(b - a));
+            Value r = mk_arr((u32)(b - a));
+            for (i32 i = a; i < b; i++) arr_push(r.u.a, o.u.a->v[i]);
+            return r;
+        }
         case N_FIELD: {
             Value o = eval(n->a);
             if (o.t == V_DICT) {
@@ -991,6 +1017,7 @@ static Value call_native(const char *name, Value *args, int argc, int line, int 
     if (strcmp(name, "ord") == 0) { ARGC(1); const Str *s = need_str(args[0], line, "ord()'s argument"); return mk_int(s->len ? (u8)s->d[0] : 0); }
     // ---- the machine
     if (strcmp(name, "sleep") == 0) { ARGC(1); sleep_ms((u32)need_int(args[0], line, "the delay")); return NIL; }
+    if (strcmp(name, "platform") == 0) return mk_str("kernel", 6);
     if (strcmp(name, "uptime") == 0) return mk_int((i32)uptime_ms());
     if (strcmp(name, "clear") == 0) { console_clear(); return NIL; }
     if (strcmp(name, "width") == 0) return mk_int(VGA_W);

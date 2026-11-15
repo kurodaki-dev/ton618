@@ -92,6 +92,10 @@ ton618 publish                # share it (free account: ton618 register)
 
 The registry is a small server with a SQLite database ([`server/`](server/README.md), made for a free VPS): accounts, API keys and packages (`ton618 register`, `ton618 publish`). Downloads are verified with SHA-256, versions support ranges (`^1.2`, `~1.2`, `>=1 <2`), and dependencies are installed with the package. Try `ton618 install requests`. See [Packages](DOCUMENTATION.md#packages-install-build--publish).
 
+## Atome: an operating system in TON
+
+`IMPORT://atome` builds a whole system (windows, apps, files, a terminal) in a few lines; press Play in Acode or the IDE and it appears, interactive. The `atome` command turns the same program into a web page, an app project, or a **bootable ISO** running on a kernel written from scratch, with its own TON interpreter. See [`atome/`](atome/README.md) and the "Atome" chapter of the documentation.
+
 ## License
 
 The source code is under the **MIT** license — see [LICENSE-MIT](LICENSE-MIT).

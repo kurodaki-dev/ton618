@@ -10,6 +10,28 @@ const invoke = TAURI ? TAURI.core.invoke : null;
 const STORE_KEY = "ton618-ide";
 
 const EXAMPLES = {
+  "atome-os.ton": `// A whole operating system in a few lines (the built-in \`atome\` module). Run it, then click, type and drag windows.
+IMPORT://atome
+
+ton.function hello_init(win) { win["s"]["n"] = 0 }
+ton.function hello_view(win) {
+    return [
+        atome.title("Hello!"),
+        atome.label("You pressed the button " + str(win["s"]["n"]) + " times."),
+        atome.button("Press me", "press"),
+        atome.input("name", "Your name (then Enter)"),
+        atome.label("Hi " + atome.value(win, "name"))
+    ]
+}
+ton.function hello_act(win, action, value) {
+    if action == "press" { win["s"]["n"] += 1 }
+}
+
+atome.boot("MyOS")
+atome.app({"id": "hello", "title": "Hello", "icon": "H", "view": hello_view, "init": hello_init, "act": hello_act})
+atome.open("hello")
+atome.run()
+`,
   "hello.ton": `// Welcome to the TON618 IDE! Press Ctrl+Enter (or ▶ Run) to run this file.
 ton.string name = "world"
 print(f"Hello, {name}!")
@@ -349,14 +371,49 @@ async function run() {
       }
     }
   }
+  const uiKey = "ton618.ui:" + state.active;
+  let storage = {};
+  try { storage = JSON.parse(localStorage.getItem(uiKey) || "{}"); } catch (e) { /* no storage */ }
+  closeScreen();
   worker = new Worker("worker.js");
   worker.onmessage = (e) => {
     const m = e.data;
     if (m.type === "out") print(m.text);
+    else if (m.type === "ui") onUi(m.ui, uiKey);
+    else if (m.type === "done" && m.interactive && m.ok) setStatus("running: press Stop to end", "ok");   // the screen stays alive
     else { worker.terminate(); worker = null; finish(m.ok, m.error); }
   };
   worker.onerror = (e) => { worker.terminate(); worker = null; finish(false, e.message || "The engine crashed."); };
-  worker.postMessage({ source: editor.value, files });
+  worker.postMessage({ source: editor.value, files, storage });
+}
+
+// ---- the screen of a program that uses ton.ui (the `atome` systems): drawn in the output pane, events go back to the worker
+let screen = null;
+function closeScreen() {
+  if (screen) { screen.destroy(); screen = null; }
+  $("screen").hidden = true;
+  $("output").hidden = false;
+  $("outputPane").classList.remove("live");
+}
+function onUi(m, uiKey) {
+  if (m.type === "render") {
+    if (!screen) {
+      $("screen").hidden = false;
+      $("output").hidden = true;
+      $("outputPane").classList.add("live");
+      screen = Ton618Lite.mountUi($("screen"), (ev) => { if (worker) worker.postMessage({ event: ev }); });
+    }
+    screen.render(m.html);
+  } else if (m.type === "storage") {
+    try {
+      const saved = JSON.parse(localStorage.getItem(uiKey) || "{}");
+      if (m.value === null) delete saved[m.key]; else saved[m.key] = m.value;
+      localStorage.setItem(uiKey, JSON.stringify(saved));
+    } catch (e) { /* no storage */ }
+  } else if (m.type === "error") {
+    print(m.text, "e");
+    $("output").hidden = false;
+  }
 }
 
 async function runNative() {
@@ -379,7 +436,7 @@ async function runNative() {
 }
 
 async function stop() {
-  if (worker) { worker.terminate(); worker = null; print("■ stopped", "i"); finish(false, null); }
+  if (worker) { worker.terminate(); worker = null; closeScreen(); print("■ stopped", "i"); finish(false, null); }
   else if (invoke) { await invoke("stop_run").catch(() => {}); print("■ stopped", "i"); }
 }
 
