@@ -31,7 +31,7 @@ grep -q "Ton618Lite" $page && grep -q "Demo OS" $page && ok "the page holds the 
 out="$(cd "$ROOT" && node -e '
 require("./exemples/ton618-lite.js");
 const fs=require("fs"), out=[];
-const r=Ton618Lite.runTon618(fs.readFileSync(process.argv[1]+"/main.ton","utf8"),{onUi:m=>out.push(m)});
+const r=Ton618Lite.runTon618(fs.readFileSync(process.argv[1]+"/main.ton","utf8"),{files:{"atome.ton":fs.readFileSync("atome/module/atome.ton","utf8")},onUi:m=>out.push(m)});
 const last=()=>out.filter(m=>m.type==="render").pop().html;
 const win=/data-win=.(w\d+)/.exec(last())[1];
 r.session.dispatch({type:"click",id:"a:press",win,value:""});

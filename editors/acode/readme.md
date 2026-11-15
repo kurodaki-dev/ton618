@@ -5,7 +5,7 @@ Write and run [TON618](https://c-ton618.duckdns.org/) code on your phone.
 - **Syntax highlighting** (Acode with the Ace editor; newer Acode versions with another editor keep everything else) for `.ton` files (TON618 2.0: classes, f-strings, arrow functions, ranges…).
 - **A play button with the TON618 logo** in the top bar, next to Acode's own Run button: it runs the file and opens the output in a full window (Stop / Again / Close; tap an error's line to jump to it).
 - **A TON618 sidebar** (the logo in Acode's sidebar) that is only the **module library**. *TON618: Run* is also in the command palette. There is no keyboard shortcut, so Enter always just adds a new line.
-- **Build an operating system**: `IMPORT://atome` (built in) gives you windows, apps, files and a terminal in a few lines; press the play button and the system appears in the Run window, interactive. See the "Atome" chapter of the documentation.
+- **Build an operating system**: install `atome` from the **Modules** panel, then `IMPORT://atome` gives you windows, apps, files and a terminal in a few lines; press the play button and the system appears in the Run window, interactive. See the "Atome" chapter of the documentation.
 - **Module library**: every package of the TON618 registry with an **Install** button; after installing it shows ✓ installed, with Update / Remove. Modules are written to the `modules/` folder next to the open file and checked with SHA-256, then `IMPORT://name` works.
 - The TON618 logo is the icon of `.ton` files.
 - **Syntax errors** marked in the gutter while you type.

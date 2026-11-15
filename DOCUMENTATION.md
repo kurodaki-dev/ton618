@@ -1450,7 +1450,7 @@ The apps aren't code-signed: on Windows click *More info → Run anyway* the fir
 
 | Piece | What it is |
 |---|---|
-| **`IMPORT://atome`** | The module: apps, windows, widgets, a virtual disk and five ready-made apps. Built into the engine of Acode, the IDE and the playground: nothing to install. |
+| **`IMPORT://atome`** | The module: apps, windows, widgets, a virtual disk and five ready-made apps. A package of the registry (`atome`): in Acode install it from the **Modules** panel, on the desktop run `ton618 install atome`; the web IDE and the playground download it by themselves when a program says `IMPORT://atome`. |
 | **The `atome` command** | `atome new / check / run / build`: web page, kernel, bootable image, or an app project for Android, Windows, Linux and macOS. |
 | **The Atome kernel** | An x86 kernel (C and assembly, no libc) with its own TON interpreter. It boots from GRUB or QEMU and runs your program at startup. |
 | **`ton.ui`** | The screen API the module draws with. You can use it directly. |
@@ -1482,7 +1482,7 @@ atome.open("hello")
 atome.run()
 ```
 
-Press **Play** in Acode or the IDE (or *Run* in the playground, where this is the "Atome" example): the desktop appears with your app open, next to **Notes**, **Calculator**, **Files**, **Terminal** and **Settings**. An app is three functions: `init(win)` once, `view(win)` returning what is on screen, and `act(win, action, value)` for what the buttons do. `win["s"]` is the app's own dict of state.
+In Acode, first open the **Modules** panel and install `atome` (the IDE and the playground do it for you). Then press **Play** (or *Run* in the playground, where this is the "Atome" example): the desktop appears with your app open, next to **Notes**, **Calculator**, **Files**, **Terminal** and **Settings**. An app is three functions: `init(win)` once, `view(win)` returning what is on screen, and `act(win, action, value)` for what the buttons do. `win["s"]` is the app's own dict of state.
 
 #### The module
 
@@ -1734,7 +1734,7 @@ One-time setup:
 
 - **A real system you control**: windows / android / custom styles, a cmd-style terminal, cooperative multitasking (`tick`), files kept on a hard disk, and on the kernel a **graphical screen with a mouse** (pixels, clicks, window drag), not just text.
 
-- **`IMPORT://atome`** (built into the engine of Acode, the IDE and the playground): windows, apps, widgets, a virtual disk and five apps (Notes, Calculator, Files, Terminal, Settings), as a desktop or a phone screen. Press Play and the system appears and answers clicks, typing and window drags.
+- **`IMPORT://atome`** (the `atome` package of the registry; the web IDE and the playground fetch it automatically, in Acode you install it from the Modules panel): windows, apps, widgets, a virtual disk and five apps (Notes, Calculator, Files, Terminal, Settings), as a desktop or a phone screen. Press Play and the system appears and answers clicks, typing and window drags.
 - **`ton.ui`**: a screen API for TON programs (`ui_render`, `ui_on`, `ui_every`, `ui_storage_*`...), shown by Acode's Run window, the IDE's output pane and the playground.
 - **The `atome` command** (`atome-cli-<version>.zip` in the releases): `new`, `check`, `run`, `build` for the web (one self-contained page), the kernel, a **bootable ISO**, and an app project (Android, Windows, Linux, macOS built in GitHub Actions).
 - **The Atome kernel** (`atome/kernel`): an x86 kernel written from scratch, with its own TON interpreter; the same program that runs in the browser boots on it, in text mode. Tested under QEMU.
@@ -3380,7 +3380,7 @@ Les applications ne sont pas signées : sur Windows clique *Informations complé
 
 | Morceau | Ce que c'est |
 |---|---|
-| **`IMPORT://atome`** | Le module : applis, fenêtres, widgets, un disque virtuel et cinq applis toutes faites. Intégré au moteur d'Acode, de l'IDE et du playground : rien à installer. |
+| **`IMPORT://atome`** | Le module : applis, fenêtres, widgets, un disque virtuel et cinq applis toutes faites. Un paquet du registre (`atome`) : dans Acode, installe-le depuis le panneau **Modules**, sur ordinateur lance `ton618 install atome` ; l'IDE web et le playground le téléchargent tout seuls quand un programme dit `IMPORT://atome`. |
 | **La commande `atome`** | `atome new / check / run / build` : page web, noyau, image bootable, ou projet d'appli pour Android, Windows, Linux et macOS. |
 | **Le noyau Atome** | Un noyau x86 (C et assembleur, sans libc) avec son propre interpréteur TON. Il démarre depuis GRUB ou QEMU et lance ton programme au démarrage. |
 | **`ton.ui`** | L'API d'écran avec laquelle le module dessine. Tu peux l'utiliser directement. |
@@ -3412,7 +3412,7 @@ atome.open("hello")
 atome.run()
 ```
 
-Appuie sur **Play** dans Acode ou l'IDE (ou *Run* dans le playground, où c'est l'exemple « Atome ») : le bureau apparaît avec ton appli ouverte, à côté de **Notes**, **Calculatrice**, **Fichiers**, **Terminal** et **Réglages**. Une appli, ce sont trois fonctions : `init(win)` une fois, `view(win)` qui renvoie ce qui est à l'écran, et `act(win, action, value)` pour ce que font les boutons. `win["s"]` est le dict d'état propre à l'appli.
+Dans Acode, installe d'abord `atome` depuis le panneau **Modules** (l'IDE et le playground le font pour toi). Puis appuie sur **Play** (ou *Run* dans le playground, où c'est l'exemple « Atome ») : le bureau apparaît avec ton appli ouverte, à côté de **Notes**, **Calculatrice**, **Fichiers**, **Terminal** et **Réglages**. Une appli, ce sont trois fonctions : `init(win)` une fois, `view(win)` qui renvoie ce qui est à l'écran, et `act(win, action, value)` pour ce que font les boutons. `win["s"]` est le dict d'état propre à l'appli.
 
 #### Le module
 
@@ -3663,7 +3663,7 @@ Configuration unique :
 
 - **Un vrai système que tu contrôles** : styles windows / android / custom, un terminal façon cmd, multitâche coopératif (`tick`), fichiers gardés sur un disque dur, et sur le noyau un **écran graphique avec souris** (pixels, clics, déplacement de fenêtres), pas seulement du texte.
 
-- **`IMPORT://atome`** (intégré au moteur d'Acode, de l'IDE et du playground) : fenêtres, applis, widgets, un disque virtuel et cinq applis (Notes, Calculatrice, Fichiers, Terminal, Réglages), en bureau ou en écran de téléphone. Appuie sur Play : le système apparaît et répond aux clics, à la frappe et aux déplacements de fenêtres.
+- **`IMPORT://atome`** (le paquet `atome` du registre ; l'IDE web et le playground le téléchargent tout seuls, dans Acode tu l'installes depuis le panneau Modules) : fenêtres, applis, widgets, un disque virtuel et cinq applis (Notes, Calculatrice, Fichiers, Terminal, Réglages), en bureau ou en écran de téléphone. Appuie sur Play : le système apparaît et répond aux clics, à la frappe et aux déplacements de fenêtres.
 - **`ton.ui`** : une API d'écran pour les programmes TON (`ui_render`, `ui_on`, `ui_every`, `ui_storage_*`...), affichée par la fenêtre Run d'Acode, le panneau de sortie de l'IDE et le playground.
 - **La commande `atome`** (`atome-cli-<version>.zip` dans les releases) : `new`, `check`, `run`, `build` pour le web (une seule page autonome), le noyau, une **ISO bootable**, et un projet d'appli (Android, Windows, Linux, macOS construits dans GitHub Actions).
 - **Le noyau Atome** (`atome/kernel`) : un noyau x86 écrit de zéro, avec son propre interpréteur TON ; le même programme qui tourne dans le navigateur démarre dessus, en mode texte. Testé sous QEMU.
