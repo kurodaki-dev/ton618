@@ -1730,6 +1730,11 @@ One-time setup:
 
 ### Changelog
 
+**1.0.9** — Atome in the registry:
+
+- **`atome` is now a registry package** (`atome` 1.0.0), no longer built into the engine: install it from Acode's Modules panel or `ton618 install atome`; the web IDE and the playground download it by themselves.
+- **Acode plugin 2.3.1**: a **Reload** button in the Modules panel.
+
 **1.0.8** — Atome, an operating system in TON:
 
 - **A real system you control**: windows / android / custom styles, a cmd-style terminal, cooperative multitasking (`tick`), files kept on a hard disk, and on the kernel a **graphical screen with a mouse** (pixels, clicks, window drag), not just text.
@@ -3658,6 +3663,11 @@ Configuration unique :
 ---
 
 ### Changelog
+
+**1.0.9** — Atome dans le registre :
+
+- **`atome` est maintenant un paquet du registre** (`atome` 1.0.0), plus intégré au moteur : installe-le depuis le panneau Modules d'Acode ou avec `ton618 install atome` ; l'IDE web et le playground le téléchargent tout seuls.
+- **Plugin Acode 2.3.1** : un bouton **Recharger** dans le panneau Modules.
 
 **1.0.8** — Atome, un système d'exploitation en TON :
 
